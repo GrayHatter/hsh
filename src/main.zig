@@ -47,14 +47,9 @@ pub fn loop(tty: *TTY, tkn: *Tokenizer) !bool {
             },
             '\x08' => try tty.print("\r\ninput: backspace\r\n", .{}),
             '\x09' => |b| {
-                if (tkn.tab()) |tab| {
-                    if (tab) {} else {
-                        try tkn.consumec(b);
-                        try tty.printAfter("    {} {s}", .{ b, buffer });
-                    }
-                } else |err| {
-                    _ = err;
-                    unreachable;
+                if (tkn.tab()) {} else {
+                    try tkn.consumec(b);
+                    try tty.printAfter("    {} {s}", .{ b, buffer });
                 }
             },
             '\x7F' => try tkn.pop(),

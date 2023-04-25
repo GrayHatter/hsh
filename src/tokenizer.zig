@@ -56,9 +56,6 @@ pub const Tokenizer = struct {
 
     /// Callers must ensure that src[0] is in (', ")
     pub fn parse_quote(src: []const u8) TokenErr!Token {
-        //if (src.len < 3) {
-        //    return TokenErr.InvalidSrc;
-        //}
         if (src.len <= 1) {
             return TokenErr.InvalidSrc;
         }
@@ -124,8 +121,11 @@ pub const Tokenizer = struct {
         }
     }
 
-    pub fn tab(self: Tokenizer) !bool {
-        _ = self;
+    pub fn tab(self: *Tokenizer) bool {
+        self.parse() catch unreachable;
+        if (self.tokens.items.len > 0) {
+            return true;
+        }
         return false;
     }
 
