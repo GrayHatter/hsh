@@ -191,6 +191,12 @@ test "parse quotes" {
     try expect(std.mem.eql(u8, t.raw, "\"this is some text\\\" more text\""));
     try expect(std.mem.eql(u8, t.real, "this is some text\\\" more text"));
 
+    t = try Tokenizer.parse_quote("\"this is some text\\\\\" more text\"");
+    try expectEql(t.raw.len, 21);
+    try expectEql(t.real.len, 19);
+    try expect(std.mem.eql(u8, t.raw, "\"this is some text\\\\\""));
+    try expect(std.mem.eql(u8, t.real, "this is some text\\\\"));
+
     t = try Tokenizer.parse_quote("'this is some text' more text");
     try expectEql(t.raw.len, 19);
     try expectEql(t.real.len, 17);
