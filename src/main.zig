@@ -227,7 +227,14 @@ test "c memory" {
     try std.testing.expect(argv[2] == null);
 }
 
-pub fn exec(tty: *TTY, tkn: *Tokenizer) !void {
+const hshExecErr = error{
+    None,
+    Unknown,
+    MemError,
+    NotFound,
+};
+
+pub fn exec(tty: *TTY, tkn: *Tokenizer) hshExecErr!void {
     _ = tty;
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -236,19 +243,24 @@ pub fn exec(tty: *TTY, tkn: *Tokenizer) !void {
     var argv: [:null]?[*:0]u8 = undefined;
     var list = ArrayList(?[*:0]u8).init(a);
     for (tkn.tokens.items) |token| {
-        var arg = a.alloc(u8, token.raw.len + 1) catch unreachable;
+        var arg = a.alloc(u8, token.raw.len + 1) catch return hshExecErr.MemError;
         mem.copy(u8, arg, token.raw);
         arg[token.raw.len] = 0;
-        try list.append(@ptrCast(?[*:0]u8, arg.ptr));
+        list.append(@ptrCast(?[*:0]u8, arg.ptr)) catch return hshExecErr.MemError;
     }
-    argv = list.toOwnedSliceSentinel(null) catch unreachable;
+    argv = list.toOwnedSliceSentinel(null) catch return hshExecErr.MemError;
 
-    const fork_pid = try std.os.fork();
+    const fork_pid = std.os.fork() catch return hshExecErr.Unknown;
     if (fork_pid == 0) {
         // TODO manage env
         const res = std.os.execvpeZ(argv[0].?, argv, @ptrCast([*:null]?[*:0]u8, std.os.environ));
-        std.debug.print("exec error {}", .{res});
-        unreachable;
+        switch (res) {
+            error.FileNotFound => return hshExecErr.NotFound,
+            else => {
+                std.debug.print("exec error {}", .{res});
+                unreachable;
+            },
+        }
     } else {
         const res = std.os.waitpid(fork_pid, 0);
         std.debug.print("fork res {}", .{res.status});
