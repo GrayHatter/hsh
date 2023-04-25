@@ -1,20 +1,26 @@
-const std = @import("std");
-const mem = std.mem;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
-const Reader = io.Reader(File, File.ReadError, File.read);
-const io = std.io;
 const File = fs.File;
+const Reader = io.Reader(File, File.ReadError, File.read);
 const fs = std.fs;
+const io = std.io;
+const mem = std.mem;
+const std = @import("std");
 
 pub const TokenType = enum(u8) {
     Unknown,
     String,
+    Quote,
+    Var,
+    Pipe,
+    IoRedir,
 };
 
 pub const Token = struct {
     raw: []const u8,
+    real: []const u8,
     type: TokenType = TokenType.Unknown,
+    subtoken: u8 = 0,
 };
 
 pub const Tokenizer = struct {
@@ -22,11 +28,12 @@ pub const Tokenizer = struct {
     raw: ArrayList(u8),
     tokens: ArrayList(Token),
 
-    pub const TokenError = error{
+    pub const TokenErr = error{
         None,
         Unknown,
         LineTooLong,
         ParseError,
+        InvalidSrc,
     };
 
     const Builtin = [_][]const u8{
@@ -47,22 +54,51 @@ pub const Tokenizer = struct {
         self.alloc.deinit();
     }
 
-    pub fn parse_string(self: *Tokenizer, src: []const u8) TokenError!Token {
+    /// Callers must ensure that src[0] is in (', ")
+    pub fn parse_quote(src: []const u8) TokenErr!Token {
+        //if (src.len < 3) {
+        //    return TokenErr.InvalidSrc;
+        //}
+        if (src.len <= 1) {
+            return TokenErr.InvalidSrc;
+        }
+        const subt = src[0];
+
+        var end: usize = 1;
+        for (src[1..], 1..) |s, i| {
+            end += 1;
+            if (s == subt and !(src[i - 1] == '\\' and src[i - 2] != '\\')) break;
+        }
+        if (src[end - 1] != subt) {
+            return TokenErr.InvalidSrc;
+        }
+
+        return Token{
+            .raw = src[0..end],
+            .real = src[1 .. end - 1],
+            .type = TokenType.Quote,
+            .subtoken = subt,
+        };
+    }
+
+    pub fn parse_string(self: *Tokenizer, src: []const u8) TokenErr!Token {
         _ = self;
         var end: usize = 0;
         for (src, 0..) |s, i| {
             end = i;
-            if (s == ' ') {
-                break;
+            switch (s) {
+                ' ', '\t' => break,
+                else => continue,
             }
         } else end += 1;
         return Token{
             .raw = src[0..end],
+            .real = src[0..end],
             .type = TokenType.String,
         };
     }
 
-    pub fn parse(self: *Tokenizer) TokenError!void {
+    pub fn parse(self: *Tokenizer) TokenErr!void {
         self.tokens.clearAndFree();
         var start: usize = 0;
         while (start < self.raw.items.len) {
@@ -75,7 +111,7 @@ pub const Tokenizer = struct {
                     start += 1;
                 }
             } else |_| {
-                return TokenError.ParseError;
+                return TokenErr.ParseError;
             }
         }
     }
@@ -90,14 +126,14 @@ pub const Tokenizer = struct {
 
     pub fn tab(self: Tokenizer) !bool {
         _ = self;
-        return true;
+        return false;
     }
 
-    pub fn pop(self: *Tokenizer) TokenError!void {
+    pub fn pop(self: *Tokenizer) TokenErr!void {
         _ = self.raw.popOrNull();
     }
-    pub fn consumec(self: *Tokenizer, c: u8) TokenError!void {
-        self.raw.append(c) catch return TokenError.Unknown;
+    pub fn consumec(self: *Tokenizer, c: u8) TokenErr!void {
+        self.raw.append(c) catch return TokenErr.Unknown;
     }
 
     pub fn clear(self: *Tokenizer) void {
@@ -105,14 +141,59 @@ pub const Tokenizer = struct {
         self.tokens.clearAndFree();
     }
 
-    pub fn consumes(self: *Tokenizer, r: Reader) TokenError!void {
+    pub fn consumes(self: *Tokenizer, r: Reader) TokenErr!void {
         var buf: [2 ^ 8]u8 = undefined;
         var line = r.readUntilDelimiterOrEof(&buf, '\n') catch |e| {
             if (e == error.StreamTooLong) {
-                return TokenError.LineTooLong;
+                return TokenErr.LineTooLong;
             }
-            return TokenError.Unknown;
+            return TokenErr.Unknown;
         };
-        self.raw.appendSlice(line.?) catch return TokenError.Unknown;
+        self.raw.appendSlice(line.?) catch return TokenErr.Unknown;
     }
 };
+
+const expect = std.testing.expect;
+const expectEql = std.testing.expectEqual;
+const expectError = std.testing.expectError;
+test "parse quotes" {
+    var t = try Tokenizer.parse_quote("\"\"");
+    try expectEql(t.raw.len, 2);
+    try expectEql(t.real.len, 0);
+
+    t = try Tokenizer.parse_quote("\"a\"");
+    try expectEql(t.raw.len, 3);
+    try expectEql(t.real.len, 1);
+    try expect(std.mem.eql(u8, t.raw, "\"a\""));
+    try expect(std.mem.eql(u8, t.real, "a"));
+
+    var terr = Tokenizer.parse_quote("\"this is invalid");
+    try expectError(Tokenizer.TokenErr.InvalidSrc, terr);
+
+    t = try Tokenizer.parse_quote("\"this is some text\" more text");
+    try expectEql(t.raw.len, 19);
+    try expectEql(t.real.len, 17);
+    try expect(std.mem.eql(u8, t.raw, "\"this is some text\""));
+    try expect(std.mem.eql(u8, t.real, "this is some text"));
+
+    t = try Tokenizer.parse_quote("\"this is some text\" more text");
+    try expectEql(t.raw.len, 19);
+    try expectEql(t.real.len, 17);
+    try expect(std.mem.eql(u8, t.raw, "\"this is some text\""));
+    try expect(std.mem.eql(u8, t.real, "this is some text"));
+
+    terr = Tokenizer.parse_quote("\"this is some text\\\" more text");
+    try expectError(Tokenizer.TokenErr.InvalidSrc, terr);
+
+    t = try Tokenizer.parse_quote("\"this is some text\\\" more text\"");
+    try expectEql(t.raw.len, 31);
+    try expectEql(t.real.len, 29);
+    try expect(std.mem.eql(u8, t.raw, "\"this is some text\\\" more text\""));
+    try expect(std.mem.eql(u8, t.real, "this is some text\\\" more text"));
+
+    t = try Tokenizer.parse_quote("'this is some text' more text");
+    try expectEql(t.raw.len, 19);
+    try expectEql(t.real.len, 17);
+    try expect(std.mem.eql(u8, t.raw, "'this is some text'"));
+    try expect(std.mem.eql(u8, t.real, "this is some text"));
+}

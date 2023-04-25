@@ -1,12 +1,12 @@
-const std = @import("std");
-const mem = std.mem;
-const os = std.os;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
-const TTY_ = @import("tty.zig");
 const TTY = TTY_.TTY;
-const tty_codes = TTY_.OpCodes;
+const TTY_ = @import("tty.zig");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
+const mem = std.mem;
+const os = std.os;
+const std = @import("std");
+const tty_codes = TTY_.OpCodes;
 
 fn prompt(tty: *TTY, tkn: *Tokenizer) !void {
     try tty.prompt("\r{s}@{s}({})({}) # {s}", .{
@@ -46,9 +46,12 @@ pub fn loop(tty: *TTY, tkn: *Tokenizer) !bool {
                 }
             },
             '\x08' => try tty.print("\r\ninput: backspace\r\n", .{}),
-            '\x09' => {
+            '\x09' => |b| {
                 if (tkn.tab()) |tab| {
-                    if (tab) {} else {}
+                    if (tab) {} else {
+                        try tkn.consumec(b);
+                        try tty.printAfter("    {} {s}", .{ b, buffer });
+                    }
                 } else |err| {
                     _ = err;
                     unreachable;
@@ -100,10 +103,11 @@ test "c memory" {
     var list = ArrayList(?[*:0]u8).init(a);
     try std.testing.expect(tkn.tokens.items.len == 2);
     try std.testing.expect(mem.eql(u8, tkn.tokens.items[0].raw, "ls"));
+    try std.testing.expect(mem.eql(u8, tkn.tokens.items[0].real, "ls"));
     for (tkn.tokens.items) |token| {
-        var arg = a.alloc(u8, token.raw.len + 1) catch unreachable;
-        mem.copy(u8, arg, token.raw);
-        arg[token.raw.len] = 0;
+        var arg = a.alloc(u8, token.real.len + 1) catch unreachable;
+        mem.copy(u8, arg, token.real);
+        arg[token.real.len] = 0;
         try list.append(@ptrCast(?[*:0]u8, arg.ptr));
     }
     try std.testing.expect(list.items.len == 2);
@@ -130,9 +134,9 @@ pub fn exec(tty: *TTY, tkn: *Tokenizer) hshExecErr!void {
     var argv: [:null]?[*:0]u8 = undefined;
     var list = ArrayList(?[*:0]u8).init(a);
     for (tkn.tokens.items) |token| {
-        var arg = a.alloc(u8, token.raw.len + 1) catch return hshExecErr.MemError;
-        mem.copy(u8, arg, token.raw);
-        arg[token.raw.len] = 0;
+        var arg = a.alloc(u8, token.real.len + 1) catch return hshExecErr.MemError;
+        mem.copy(u8, arg, token.real);
+        arg[token.real.len] = 0;
         list.append(@ptrCast(?[*:0]u8, arg.ptr)) catch return hshExecErr.MemError;
     }
     argv = list.toOwnedSliceSentinel(null) catch return hshExecErr.MemError;
