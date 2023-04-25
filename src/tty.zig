@@ -5,10 +5,7 @@ const fs = std.fs;
 const File = fs.File;
 const io = std.io;
 const Reader = fs.File.Reader;
-//io.Reader(File, File.ReadError, File.read);
 const Writer = fs.File.Writer;
-//io.Writer(File, File.ReadError, File.read);
-//const Writer = std.io.Writer;
 
 const Point = struct {
     x: usize,
@@ -26,6 +23,8 @@ pub const OpCodes = enum {
     CurHorzAbs,
 };
 
+pub var current_tty: ?TTY = undefined;
+
 pub const TTY = struct {
     tty: i32,
     in: Reader,
@@ -37,12 +36,14 @@ pub const TTY = struct {
     chadj: i32 = 0,
     cvadj: i32 = 0,
 
+    /// Calling init multiple times is UB
     pub fn init() !TTY {
+        // TODO figure out how to handle multiple calls to current_tty?
         const tty = try os.open("/dev/tty", os.linux.O.RDWR, 0);
         const orig = try os.tcgetattr(tty);
 
         try push_tty(tty, orig);
-        return TTY{
+        current_tty = TTY{
             .tty = tty,
             .in = std.io.getStdIn().reader(),
             .out = std.io.getStdOut().writer(),
@@ -50,6 +51,7 @@ pub const TTY = struct {
             .cpos = cpos(tty) catch unreachable,
             .size = geom(tty) catch unreachable,
         };
+        return current_tty.?;
     }
 
     fn push_tty(tty: i32, tos: os.termios) !void {
@@ -131,7 +133,7 @@ pub const TTY = struct {
         };
     }
 
-    fn geom(tty: i32) !Point {
+    pub fn geom(tty: i32) !Point {
         var size = mem.zeroes(os.linux.winsize);
         const err = os.system.ioctl(tty, os.linux.T.IOCGWINSZ, @ptrToInt(&size));
         if (os.errno(err) != .SUCCESS) {

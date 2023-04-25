@@ -255,6 +255,22 @@ pub fn exec(tty: *TTY, tkn: *Tokenizer) !void {
     }
 }
 
+pub fn sig_cb(sig: c_int, info: *const os.siginfo_t, uctx: ?*const anyopaque) callconv(.C) void {
+    if (sig != os.SIG.WINCH) unreachable;
+    _ = info;
+    _ = uctx; // TODO maybe install uctx and drop TTY.current_tty?
+    var curr = TTY_.current_tty.?;
+    curr.size = TTY.geom(curr.tty) catch unreachable;
+}
+
+pub fn signals() !void {
+    try os.sigaction(os.SIG.WINCH, &os.Sigaction{
+        .handler = .{ .sigaction = sig_cb },
+        .mask = os.empty_sigset,
+        .flags = 0,
+    }, null);
+}
+
 pub fn main() !void {
     std.debug.print("All your {s} are belong to us.\n\n", .{"codebase"});
     var tty = TTY.init() catch unreachable;
@@ -263,6 +279,8 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     var t = Tokenizer.init(arena.allocator());
+
+    try signals();
 
     while (true) {
         if (loop(&tty, &t)) |l| {
@@ -277,6 +295,12 @@ pub fn main() !void {
             unreachable;
         }
     }
+}
+
+pub fn panic(msg: []const u8, trace: ?*std.builtin.StackTrace, retaddr: ?usize) noreturn {
+    @setCold(true);
+    TTY_.current_tty.?.raze();
+    std.builtin.default_panic(msg, trace, retaddr);
 }
 
 const expect = std.testing.expect;
