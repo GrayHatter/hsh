@@ -8,9 +8,10 @@ clone<br>
 
 ## TODO
  - [x] basic parsing
- - [ ] .hshrc support
  - [ ] tab complete
  - [x] history
+ - [ ] sane error handling
+ - [ ] .hshrc support
  - [ ] advanced history
  - [ ] complex parsing
  - [ ] built ins
