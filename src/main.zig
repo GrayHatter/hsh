@@ -57,6 +57,9 @@ pub fn loop(tty: *TTY, tkn: *Tokenizer) !bool {
         try prompt(tty, tkn);
         var buffer: [1]u8 = undefined;
         _ = try os.read(tty.tty, &buffer);
+        // I no longer like this way of tokenization. I'd like to generate
+        // Tokens as an n=2 state machine at time of keypress. It might actually
+        // be required to unbreak a bug in history.
         switch (buffer[0]) {
             '\x1B' => {
                 _ = try os.read(tty.tty, &buffer);

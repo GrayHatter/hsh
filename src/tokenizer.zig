@@ -26,6 +26,14 @@ pub const Token = struct {
     backing: ?ArrayList(u8) = null,
     type: TokenType = TokenType.Untyped,
     subtoken: u8 = 0,
+
+    pub fn format(self: Token, comptime fmt: []const u8, opt: std.fmt.FormatOptions, out: anytype) !void {
+        _ = opt;
+        // this is what net.zig does, so it's what I do
+        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
+
+        try std.fmt.format(out, "Token({}){{{s}}}", .{ self.type, self.raw });
+    }
 };
 
 pub const Tokenizer = struct {
@@ -156,7 +164,6 @@ pub const Tokenizer = struct {
         std.debug.print("\n\n", .{});
         for (self.tokens.items) |i| {
             std.debug.print("{}\n", .{i});
-            std.debug.print("{s}\n", .{i.raw});
         }
     }
 
