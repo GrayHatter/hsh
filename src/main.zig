@@ -19,16 +19,36 @@ fn prompt(tty: *TTY, tkn: *Tokenizer) !void {
     });
 }
 
-pub fn csi(tty: *TTY) !void {
+var rc: std.fs.File = undefined;
+var history: std.fs.File = undefined;
+
+pub fn csi(tty: *TTY, tkn: *Tokenizer) !void {
     var buffer: [1]u8 = undefined;
     _ = try os.read(tty.tty, &buffer);
-    if (buffer[0] == 'D') {
+    if (buffer[0] == 'A') {
+        if (tkn.hist_pos == 0) tkn.push_line();
+        var top = read_history(tkn.hist_pos + 1, history, &tkn.raw) catch unreachable;
+        //while (!top and mem.eql(u8, tkn.raw.items, tkn.hist_z.?.items)) {
+        //    tkn.hist_pos += 1;
+        //    top = read_history(tkn.hist_pos + 1, history, &tkn.raw) catch unreachable;
+        //}
+        if (!top) tkn.hist_pos += 1;
+    } else if (buffer[0] == 'B') {
+        if (tkn.hist_pos > 1) {
+            tkn.hist_pos -= 1;
+            tkn.raw.clearAndFree();
+            _ = read_history(tkn.hist_pos, history, &tkn.raw) catch unreachable;
+        } else if (tkn.hist_pos == 1) {
+            tkn.hist_pos -= 1;
+            tkn.pop_line();
+        } else {}
+    } else if (buffer[0] == 'D') {
         tty.chadj += 1;
     } else if (buffer[0] == 'C') {
         tty.chadj -= 1;
     } else {
         try tty.print("\r\nCSI next: \r\n", .{});
-        try tty.printAfter("    {x} {s}", .{ buffer[0], buffer });
+        try tty.printAfter("    {x} {s}\n\n", .{ buffer[0], buffer });
     }
 }
 
@@ -41,7 +61,7 @@ pub fn loop(tty: *TTY, tkn: *Tokenizer) !bool {
             '\x1B' => {
                 _ = try os.read(tty.tty, &buffer);
                 if (buffer[0] == '[') {
-                    try csi(tty);
+                    try csi(tty, tkn);
                 } else {
                     try tty.print("\r\ninput: escape {s} {}\n", .{ buffer, buffer[0] });
                 }
@@ -176,6 +196,29 @@ pub fn signals() !void {
     }, null);
 }
 
+fn read_history(cnt: usize, hist: std.fs.File, buffer: *ArrayList(u8)) !bool {
+    var row = cnt;
+    var len: usize = try hist.getEndPos();
+    try hist.seekFromEnd(-1);
+    var pos = len;
+    var buf: [1]u8 = undefined;
+    while (row > 0 and pos > 0) {
+        hist.seekBy(-2) catch {
+            hist.seekBy(-1) catch break;
+            break;
+        };
+        _ = try hist.read(&buf);
+        if (buf[0] == '\n') {
+            std.debug.print("(at {}){s} {}\n", .{ pos, buf, buf[0] });
+            row -= 1;
+        }
+        pos = try hist.getPos();
+    }
+    pos = try hist.getPos();
+    try hist.reader().readUntilDelimiterArrayList(buffer, '\n', 2 ^ 16);
+    return pos == 0;
+}
+
 pub fn main() !void {
     std.debug.print("All your {s} are belong to us.\n\n", .{"codebase"});
     var tty = TTY.init() catch unreachable;
@@ -183,13 +226,34 @@ pub fn main() !void {
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    var t = Tokenizer.init(arena.allocator());
+    const a = arena.allocator();
+    var t = Tokenizer.init(a);
+
+    // I'm pulling all of env out at startup only because that's the first
+    // example I found. It's probably sub optimal, but ¯\_(ツ)_/¯. We may
+    // decide we care enough to fix this, or not. The internet seems to think
+    // it's a mistake to alter the env for a running process.
+    var env = try std.process.getEnvMap(a);
+    defer env.deinit();
+    var home = env.get("HOME");
+    if (home) |h| {
+        // TODO sanity checks
+        const dir = try std.fs.openDirAbsolute(h, .{});
+        rc = try dir.createFile(".hshrc", .{ .read = true, .truncate = false });
+        history = try dir.createFile(".hsh_history", .{ .read = true, .truncate = false });
+        history.seekFromEnd(0) catch unreachable;
+    }
+    defer rc.close();
+    defer history.close();
 
     try signals();
 
     while (true) {
         if (loop(&tty, &t)) |l| {
             if (l) {
+                _ = try history.write(t.raw.items);
+                _ = try history.write("\n");
+                try history.sync();
                 try exec(&tty, &t);
                 t.clear();
             } else {
@@ -201,6 +265,10 @@ pub fn main() !void {
         }
     }
 }
+
+test "rc" {}
+
+test "history" {}
 
 pub fn panic(msg: []const u8, trace: ?*std.builtin.StackTrace, retaddr: ?usize) noreturn {
     @setCold(true);

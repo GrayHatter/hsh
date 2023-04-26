@@ -8,8 +8,10 @@ clone<br>
 
 ## TODO
  - [x] basic parsing
+ - [ ] .hshrc support
  - [ ] tab complete
- - [ ] history
+ - [x] history
+ - [ ] advanced history
  - [ ] complex parsing
  - [ ] built ins
  - [ ] globs

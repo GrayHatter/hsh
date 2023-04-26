@@ -32,6 +32,8 @@ pub const Tokenizer = struct {
     alloc: Allocator,
     raw: ArrayList(u8),
     tokens: ArrayList(Token),
+    hist_z: ?ArrayList(u8) = null,
+    hist_pos: usize = 0,
 
     pub const TokenErr = error{
         None,
@@ -171,6 +173,20 @@ pub const Tokenizer = struct {
     }
     pub fn consumec(self: *Tokenizer, c: u8) TokenErr!void {
         self.raw.append(c) catch return TokenErr.Unknown;
+    }
+
+    pub fn push_line(self: *Tokenizer) void {
+        self.hist_z = self.raw;
+        self.raw = ArrayList(u8).init(self.alloc);
+        self.tokens.clearAndFree();
+    }
+
+    pub fn pop_line(self: *Tokenizer) void {
+        self.clear();
+        if (self.hist_z) |h| {
+            self.raw = h;
+        }
+        self.parse() catch {};
     }
 
     pub fn clear(self: *Tokenizer) void {
