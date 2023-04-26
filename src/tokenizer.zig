@@ -83,8 +83,7 @@ pub const Tokenizer = struct {
         };
     }
 
-    pub fn parse_string(self: *Tokenizer, src: []const u8) TokenErr!Token {
-        _ = self;
+    pub fn parse_string(src: []const u8) TokenErr!Token {
         var end: usize = 0;
         for (src, 0..) |s, i| {
             end = i;
@@ -135,7 +134,7 @@ pub const Tokenizer = struct {
         while (start < self.raw.items.len) {
             var etoken = switch (self.raw.items[start]) {
                 '\'', '"' => Tokenizer.parse_quote(self.raw.items[start..]),
-                else => self.parse_string(self.raw.items[start..]),
+                else => Tokenizer.parse_string(self.raw.items[start..]),
             };
             if (etoken) |*t| {
                 if (t.raw.len > 0) {
