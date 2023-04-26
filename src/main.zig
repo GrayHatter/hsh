@@ -3,6 +3,7 @@ const ArrayList = std.ArrayList;
 const TTY = TTY_.TTY;
 const TTY_ = @import("tty.zig");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
+const TokenType = @import("tokenizer.zig").TokenType;
 const mem = std.mem;
 const os = std.os;
 const std = @import("std");
@@ -68,6 +69,7 @@ pub fn loop(tty: *TTY, tkn: *Tokenizer) !bool {
                 return false;
             },
             '\n', '\r' => {
+                tty.chadj = 0;
                 try tty.print("\r\n", .{});
                 try tkn.parse();
                 try tkn.dump_parsed();
@@ -128,10 +130,14 @@ pub fn exec(tty: *TTY, tkn: *Tokenizer) hshExecErr!void {
 
     var argv: [:null]?[*:0]u8 = undefined;
     var list = ArrayList(?[*:0]u8).init(a);
-    for (tkn.tokens.items) |token| {
-        var arg = a.alloc(u8, token.real.len + 1) catch return hshExecErr.MemError;
-        mem.copy(u8, arg, token.real);
-        arg[token.real.len] = 0;
+    for (tkn.tokens.items) |*token| {
+        if (token.*.type == TokenType.Exe) {
+            token.*.backing.?.insertSlice(0, "/usr/bin/") catch return hshExecErr.Unknown;
+            token.*.real = token.backing.?.items;
+        }
+        var arg = a.alloc(u8, token.*.real.len + 1) catch return hshExecErr.MemError;
+        mem.copy(u8, arg, token.*.real);
+        arg[token.*.real.len] = 0;
         list.append(@ptrCast(?[*:0]u8, arg.ptr)) catch return hshExecErr.MemError;
     }
     argv = list.toOwnedSliceSentinel(null) catch return hshExecErr.MemError;
@@ -139,7 +145,7 @@ pub fn exec(tty: *TTY, tkn: *Tokenizer) hshExecErr!void {
     const fork_pid = std.os.fork() catch return hshExecErr.Unknown;
     if (fork_pid == 0) {
         // TODO manage env
-        const res = std.os.execvpeZ(argv[0].?, argv, @ptrCast([*:null]?[*:0]u8, std.os.environ));
+        const res = std.os.execveZ(argv[0].?, argv, @ptrCast([*:null]?[*:0]u8, std.os.environ));
         switch (res) {
             error.FileNotFound => return hshExecErr.NotFound,
             else => {
@@ -149,7 +155,7 @@ pub fn exec(tty: *TTY, tkn: *Tokenizer) hshExecErr!void {
         }
     } else {
         const res = std.os.waitpid(fork_pid, 0);
-        std.debug.print("fork res {}", .{res.status});
+        std.debug.print("fork res {}\n", .{res.status});
     }
 }
 

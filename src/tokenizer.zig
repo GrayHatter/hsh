@@ -8,18 +8,23 @@ const mem = std.mem;
 const std = @import("std");
 
 pub const TokenType = enum(u8) {
-    Unknown,
+    Untyped,
+    Exe,
+    Builtin,
+    Command, // custom string that alters hsh in some way
     String,
     Quote,
     Var,
     Pipe,
     IoRedir,
+    Tree, // Should this token be a separate type?
 };
 
 pub const Token = struct {
     raw: []const u8,
     real: []const u8,
-    type: TokenType = TokenType.Unknown,
+    backing: ?ArrayList(u8) = null,
+    type: TokenType = TokenType.Untyped,
     subtoken: u8 = 0,
 };
 
@@ -95,15 +100,45 @@ pub const Tokenizer = struct {
         };
     }
 
+    fn parse_builtin(str: []const u8) bool {
+        _ = str;
+        return false;
+    }
+
+    fn parse_action(self: *Tokenizer, token: *Token) TokenErr!*Token {
+        if (parse_builtin(token.raw)) {}
+
+        token.*.type = TokenType.Exe;
+        token.*.backing = ArrayList(u8).init(self.alloc);
+        token.*.backing.?.appendSlice(token.*.real[0..]) catch {
+            return TokenErr.Unknown;
+        };
+        token.*.real = token.*.backing.?.items;
+        return token;
+    }
+
+    fn parse_token(self: *Tokenizer, token: *Token) TokenErr!*Token {
+        if (self.tokens.items.len == 0) {
+            return self.parse_action(token);
+        }
+
+        switch (token.raw[0]) {
+            '$' => return token,
+            else => return token,
+        }
+        return;
+    }
+
     pub fn parse(self: *Tokenizer) TokenErr!void {
         self.tokens.clearAndFree();
         var start: usize = 0;
         while (start < self.raw.items.len) {
-            const t = self.parse_string(self.raw.items[start..]);
-            if (t) |tt| {
-                if (tt.raw.len > 0) {
-                    self.tokens.append(tt) catch unreachable;
-                    start += tt.raw.len;
+            var etoken = self.parse_string(self.raw.items[start..]);
+            if (etoken) |*t| {
+                if (t.raw.len > 0) {
+                    _ = self.parse_token(t) catch unreachable;
+                    self.tokens.append(t.*) catch unreachable;
+                    start += t.raw.len;
                 } else {
                     start += 1;
                 }
