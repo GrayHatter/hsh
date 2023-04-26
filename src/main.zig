@@ -155,7 +155,8 @@ pub fn exec(tty: *TTY, tkn: *Tokenizer) hshExecErr!void {
         }
     } else {
         const res = std.os.waitpid(fork_pid, 0);
-        std.debug.print("fork res {}\n", .{res.status});
+        const status = res.status >> 8 & 0xff;
+        std.debug.print("fork res {}\n", .{status});
     }
 }
 
