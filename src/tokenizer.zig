@@ -133,7 +133,10 @@ pub const Tokenizer = struct {
         self.tokens.clearAndFree();
         var start: usize = 0;
         while (start < self.raw.items.len) {
-            var etoken = self.parse_string(self.raw.items[start..]);
+            var etoken = switch (self.raw.items[start]) {
+                '\'', '"' => Tokenizer.parse_quote(self.raw.items[start..]),
+                else => self.parse_string(self.raw.items[start..]),
+            };
             if (etoken) |*t| {
                 if (t.raw.len > 0) {
                     _ = self.parse_token(t) catch unreachable;
