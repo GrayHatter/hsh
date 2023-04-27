@@ -9,15 +9,7 @@ const os = std.os;
 const std = @import("std");
 const tty_codes = TTY_.OpCodes;
 
-fn prompt(tty: *TTY, tkn: *Tokenizer) !void {
-    try tty.prompt("\r{s}@{s}({})({}) # {s}", .{
-        "username",
-        "host",
-        tkn.raw.items.len,
-        tkn.tokens.items.len,
-        tkn.raw.items,
-    });
-}
+const prompt = @import("prompt.zig").prompt;
 
 var rc: std.fs.File = undefined;
 var history: std.fs.File = undefined;
@@ -28,18 +20,22 @@ pub fn csi(tty: *TTY, tkn: *Tokenizer) !void {
     switch (buffer[0]) {
         'A' => {
             if (tkn.hist_pos == 0) tkn.push_line();
-            var top = read_history(tkn.hist_pos + 1, history, &tkn.raw) catch unreachable;
+            tkn.clear();
+            const top = read_history(tkn.hist_pos + 1, history, &tkn.raw) catch unreachable;
+            if (!top) tkn.hist_pos += 1;
+            tkn.push_hist();
             //while (!top and mem.eql(u8, tkn.raw.items, tkn.hist_z.?.items)) {
             //    tkn.hist_pos += 1;
             //    top = read_history(tkn.hist_pos + 1, history, &tkn.raw) catch unreachable;
             //}
-            if (!top) tkn.hist_pos += 1;
+
         },
         'B' => {
             if (tkn.hist_pos > 1) {
                 tkn.hist_pos -= 1;
                 tkn.raw.clearAndFree();
                 _ = read_history(tkn.hist_pos, history, &tkn.raw) catch unreachable;
+                tkn.push_hist();
             } else if (tkn.hist_pos == 1) {
                 tkn.hist_pos -= 1;
                 tkn.pop_line();
@@ -58,7 +54,7 @@ pub fn csi(tty: *TTY, tkn: *Tokenizer) !void {
 
 pub fn loop(tty: *TTY, tkn: *Tokenizer) !bool {
     while (true) {
-        tty.chadj = @truncate(i32, tkn.cadj());
+        tty.chadj = @truncate(u32, tkn.cadj());
         try prompt(tty, tkn);
 
         var buffer: [1]u8 = undefined;
@@ -85,25 +81,34 @@ pub fn loop(tty: *TTY, tkn: *Tokenizer) !bool {
             '\x7F' => try tkn.pop(),
             '\x17' => try tty.print("\r\ninput: ^w\r\n", .{}),
             '\x03' => {
-                if (tkn.raw.items.len >= 0) {
-                    try tty.print("^C\r\n", .{});
-                    tkn.clear();
-                } else {
-                    try tty.print("\r\nExit caught... Bye ()\r\n", .{});
-                    return false;
-                }
+                try tty.print("^C\r\n", .{});
+                tkn.reset();
+                // if (tkn.raw.items.len > 0) {
+                // } else {
+                //     try tty.print("\r\nExit caught... Bye ()\r\n", .{});
+                //     return false;
+                // }
             },
             '\x04' => |b| {
+                try tty.print("^D\r\n", .{});
                 try tty.print("\r\nExit caught... Bye ({})\r\n", .{b});
                 return false;
             },
-            '\n', '\r' => {
+            '\n', '\r' => |b| {
                 tty.chadj = 0;
                 try tty.print("\r\n", .{});
-                try tkn.parse();
-                try tkn.dump_parsed();
-                if (tkn.tokens.items.len > 0) {
-                    return true;
+                const run = tkn.parse() catch |e| {
+                    std.debug.print("Parse Error {}\n", .{e});
+                    try tkn.dump_parsed();
+                    try tkn.consumec(b);
+                    continue;
+                };
+                if (run) {
+                    try tkn.dump_parsed();
+                    if (tkn.tokens.items.len > 0) {
+                        return true;
+                    }
+                    return false;
                 }
             },
             else => |b| {
@@ -123,7 +128,7 @@ test "c memory" {
     for ("ls -la") |c| {
         try tkn.consumec(c);
     }
-    try tkn.parse();
+    _ = try tkn.parse();
 
     var argv: [:null]?[*:0]u8 = undefined;
     var list = ArrayList(?[*:0]u8).init(a);
@@ -217,14 +222,11 @@ fn read_history(cnt: usize, hist: std.fs.File, buffer: *ArrayList(u8)) !bool {
             break;
         };
         _ = try hist.read(&buf);
-        if (buf[0] == '\n') {
-            std.debug.print("(at {}){s} {}\n", .{ pos, buf, buf[0] });
-            row -= 1;
-        }
+        if (buf[0] == '\n') row -= 1;
         pos = try hist.getPos();
     }
     pos = try hist.getPos();
-    try hist.reader().readUntilDelimiterArrayList(buffer, '\n', 2 ^ 16);
+    try hist.reader().readUntilDelimiterArrayList(buffer, '\n', 1 << 16);
     return pos == 0;
 }
 
@@ -306,17 +308,12 @@ test "tokens" {
     for ("token") |c| {
         try parsed.consumec(c);
     }
-    try parsed.parse();
+    _ = try parsed.parse();
     try expect(std.mem.eql(u8, parsed.raw.items, "token"));
 }
 
 test "parse string" {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var t = Tokenizer.init(a);
-    var tkn = t.parse_string("string is true");
+    var tkn = Tokenizer.parse_string("string is true");
     if (tkn) |tk| {
         try expect(std.mem.eql(u8, tk.raw, "string"));
         try expect(tk.raw.len == 6);

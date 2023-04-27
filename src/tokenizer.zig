@@ -42,7 +42,7 @@ pub const Tokenizer = struct {
     tokens: ArrayList(Token),
     hist_z: ?ArrayList(u8) = null,
     hist_pos: usize = 0,
-    c_idx: isize = 0,
+    c_idx: usize = 0,
 
     pub const TokenErr = error{
         None,
@@ -71,17 +71,15 @@ pub const Tokenizer = struct {
     }
 
     pub fn cinc(self: *Tokenizer, i: isize) void {
-        self.c_idx += i;
+        self.c_idx = @intCast(usize, @max(0, @addWithOverflow(@intCast(isize, self.c_idx), i)[0]));
         if (self.c_idx > self.raw.items.len) {
-            self.c_idx = @bitCast(isize, self.raw.items.len);
-        } else if (self.c_idx < 0) {
-            self.c_idx = 0;
+            self.c_idx = self.raw.items.len;
         }
     }
 
     // Cursor adjustment to send to tty
-    pub fn cadj(self: Tokenizer) isize {
-        return @intCast(isize, self.raw.items.len) - self.c_idx;
+    pub fn cadj(self: Tokenizer) usize {
+        return self.raw.items.len - self.c_idx;
     }
 
     /// Callers must ensure that src[0] is in (', ")
@@ -153,12 +151,14 @@ pub const Tokenizer = struct {
         return;
     }
 
-    pub fn parse(self: *Tokenizer) TokenErr!void {
+    pub fn parse(self: *Tokenizer) TokenErr!bool {
         self.tokens.clearAndFree();
         var start: usize = 0;
         while (start < self.raw.items.len) {
             var etoken = switch (self.raw.items[start]) {
                 '\'', '"' => Tokenizer.parse_quote(self.raw.items[start..]),
+
+                '$' => unreachable,
                 else => Tokenizer.parse_string(self.raw.items[start..]),
             };
             if (etoken) |*t| {
@@ -173,6 +173,8 @@ pub const Tokenizer = struct {
                 return TokenErr.ParseError;
             }
         }
+
+        return false;
     }
 
     pub fn dump_parsed(self: Tokenizer) !void {
@@ -183,7 +185,7 @@ pub const Tokenizer = struct {
     }
 
     pub fn tab(self: *Tokenizer) bool {
-        self.parse() catch unreachable;
+        _ = self.parse() catch unreachable;
         if (self.tokens.items.len > 0) {
             return true;
         }
@@ -191,8 +193,15 @@ pub const Tokenizer = struct {
     }
 
     pub fn pop(self: *Tokenizer) TokenErr!void {
-        _ = self.raw.popOrNull();
+        if (self.raw.items.len == 0 or self.c_idx == 0) return;
+        self.c_idx -|= 1;
+        _ = self.raw.orderedRemove(@bitCast(usize, self.c_idx));
     }
+
+    pub fn rpop(self: *Tokenizer) TokenErr!void {
+        _ = self;
+    }
+
     pub fn consumec(self: *Tokenizer, c: u8) TokenErr!void {
         self.raw.insert(@bitCast(usize, self.c_idx), c) catch return TokenErr.Unknown;
         self.c_idx += 1;
@@ -204,12 +213,23 @@ pub const Tokenizer = struct {
         self.tokens.clearAndFree();
     }
 
+    pub fn push_hist(self: *Tokenizer) void {
+        self.c_idx = self.raw.items.len;
+        _ = self.parse() catch {};
+    }
+
     pub fn pop_line(self: *Tokenizer) void {
         self.clear();
         if (self.hist_z) |h| {
             self.raw = h;
         }
-        self.parse() catch {};
+        _ = self.parse() catch {};
+    }
+
+    pub fn reset(self: *Tokenizer) void {
+        self.clear();
+        self.hist_z = null;
+        self.hist_pos = 0;
     }
 
     pub fn clear(self: *Tokenizer) void {
