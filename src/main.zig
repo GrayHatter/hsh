@@ -25,36 +25,42 @@ var history: std.fs.File = undefined;
 pub fn csi(tty: *TTY, tkn: *Tokenizer) !void {
     var buffer: [1]u8 = undefined;
     _ = try os.read(tty.tty, &buffer);
-    if (buffer[0] == 'A') {
-        if (tkn.hist_pos == 0) tkn.push_line();
-        var top = read_history(tkn.hist_pos + 1, history, &tkn.raw) catch unreachable;
-        //while (!top and mem.eql(u8, tkn.raw.items, tkn.hist_z.?.items)) {
-        //    tkn.hist_pos += 1;
-        //    top = read_history(tkn.hist_pos + 1, history, &tkn.raw) catch unreachable;
-        //}
-        if (!top) tkn.hist_pos += 1;
-    } else if (buffer[0] == 'B') {
-        if (tkn.hist_pos > 1) {
-            tkn.hist_pos -= 1;
-            tkn.raw.clearAndFree();
-            _ = read_history(tkn.hist_pos, history, &tkn.raw) catch unreachable;
-        } else if (tkn.hist_pos == 1) {
-            tkn.hist_pos -= 1;
-            tkn.pop_line();
-        } else {}
-    } else if (buffer[0] == 'D') {
-        tty.chadj += 1;
-    } else if (buffer[0] == 'C') {
-        tty.chadj -= 1;
-    } else {
-        try tty.print("\r\nCSI next: \r\n", .{});
-        try tty.printAfter("    {x} {s}\n\n", .{ buffer[0], buffer });
+    switch (buffer[0]) {
+        'A' => {
+            if (tkn.hist_pos == 0) tkn.push_line();
+            var top = read_history(tkn.hist_pos + 1, history, &tkn.raw) catch unreachable;
+            //while (!top and mem.eql(u8, tkn.raw.items, tkn.hist_z.?.items)) {
+            //    tkn.hist_pos += 1;
+            //    top = read_history(tkn.hist_pos + 1, history, &tkn.raw) catch unreachable;
+            //}
+            if (!top) tkn.hist_pos += 1;
+        },
+        'B' => {
+            if (tkn.hist_pos > 1) {
+                tkn.hist_pos -= 1;
+                tkn.raw.clearAndFree();
+                _ = read_history(tkn.hist_pos, history, &tkn.raw) catch unreachable;
+            } else if (tkn.hist_pos == 1) {
+                tkn.hist_pos -= 1;
+                tkn.pop_line();
+            } else {}
+        },
+        'D' => tkn.cinc(-1),
+        'C' => tkn.cinc(1),
+        'F' => tkn.cinc(@intCast(isize, tkn.raw.items.len)),
+        'H' => tkn.cinc(-@intCast(isize, tkn.raw.items.len)),
+        else => {
+            try tty.print("\r\nCSI next: \r\n", .{});
+            try tty.printAfter("    {x} {s}\n\n", .{ buffer[0], buffer });
+        },
     }
 }
 
 pub fn loop(tty: *TTY, tkn: *Tokenizer) !bool {
     while (true) {
+        tty.chadj = @truncate(i32, tkn.cadj());
         try prompt(tty, tkn);
+
         var buffer: [1]u8 = undefined;
         _ = try os.read(tty.tty, &buffer);
         // I no longer like this way of tokenization. I'd like to generate

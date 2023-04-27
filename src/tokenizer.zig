@@ -42,6 +42,7 @@ pub const Tokenizer = struct {
     tokens: ArrayList(Token),
     hist_z: ?ArrayList(u8) = null,
     hist_pos: usize = 0,
+    c_idx: isize = 0,
 
     pub const TokenErr = error{
         None,
@@ -67,6 +68,20 @@ pub const Tokenizer = struct {
 
     pub fn raze(self: Tokenizer) void {
         self.alloc.deinit();
+    }
+
+    pub fn cinc(self: *Tokenizer, i: isize) void {
+        self.c_idx += i;
+        if (self.c_idx > self.raw.items.len) {
+            self.c_idx = @bitCast(isize, self.raw.items.len);
+        } else if (self.c_idx < 0) {
+            self.c_idx = 0;
+        }
+    }
+
+    // Cursor adjustment to send to tty
+    pub fn cadj(self: Tokenizer) isize {
+        return @intCast(isize, self.raw.items.len) - self.c_idx;
     }
 
     /// Callers must ensure that src[0] is in (', ")
@@ -179,7 +194,8 @@ pub const Tokenizer = struct {
         _ = self.raw.popOrNull();
     }
     pub fn consumec(self: *Tokenizer, c: u8) TokenErr!void {
-        self.raw.append(c) catch return TokenErr.Unknown;
+        self.raw.insert(@bitCast(usize, self.c_idx), c) catch return TokenErr.Unknown;
+        self.c_idx += 1;
     }
 
     pub fn push_line(self: *Tokenizer) void {
@@ -199,6 +215,7 @@ pub const Tokenizer = struct {
     pub fn clear(self: *Tokenizer) void {
         self.raw.clearAndFree();
         self.tokens.clearAndFree();
+        self.c_idx = 0;
     }
 
     pub fn consumes(self: *Tokenizer, r: Reader) TokenErr!void {
