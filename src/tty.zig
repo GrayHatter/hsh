@@ -33,8 +33,6 @@ pub const TTY = struct {
 
     cpos: Point,
     size: Point,
-    chadj: u32 = 0,
-    cvadj: u32 = 0,
 
     /// Calling init multiple times is UB
     pub fn init() !TTY {

@@ -8,22 +8,62 @@ const mem = std.mem;
 const os = std.os;
 const std = @import("std");
 const tty_codes = TTY_.OpCodes;
+const Drawable = @import("draw.zig").Drawable;
 
 const prompt = @import("prompt.zig").prompt;
 
 var rc: std.fs.File = undefined;
 var history: std.fs.File = undefined;
 
-pub fn esc(tty: *TTY, tkn: *Tokenizer) !void {
+const HSH = struct {
+    alloc: Allocator,
+    env: std.process.EnvMap,
+    confdir: ?[]const u8 = null,
+    rc: ?std.fs.File = null,
+    history: ?std.fs.File = null,
+    draw: Drawable = undefined,
+
+    pub fn init(a: Allocator) !HSH {
+        // I'm pulling all of env out at startup only because that's the first
+        // example I found. It's probably sub optimal, but ¯\_(ツ)_/¯. We may
+        // decide we care enough to fix this, or not. The internet seems to think
+        // it's a mistake to alter the env for a running process.
+        var env = try std.process.getEnvMap(a); // TODO err handling
+        var home = env.get("HOME");
+        if (home) |h| {
+            // TODO sanity checks
+            const dir = try std.fs.openDirAbsolute(h, .{});
+            rc = try dir.createFile(".hshrc", .{ .read = true, .truncate = false });
+            history = try dir.createFile(".hsh_history", .{ .read = true, .truncate = false });
+            history.seekFromEnd(0) catch unreachable;
+        }
+        return HSH{
+            .alloc = a,
+            .env = env,
+            .rc = rc,
+            .history = history,
+        };
+    }
+
+    pub fn raze(hsh: *HSH) void {
+        hsh.env.deinit();
+        if (hsh.rc) |rrc| rrc.close();
+        if (hsh.history) |h| h.close();
+    }
+
+    pub fn find_confdir(_: HSH) []const u8 {}
+};
+
+pub fn esc(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !void {
     var buffer: [1]u8 = undefined;
     _ = try os.read(tty.tty, &buffer);
     switch (buffer[0]) {
-        '[' => try csi(tty, tkn),
+        '[' => try csi(hsh, tty, tkn),
         else => try tty.print("\r\ninput: escape {s} {}\n", .{ buffer, buffer[0] }),
     }
 }
 
-pub fn csi(tty: *TTY, tkn: *Tokenizer) !void {
+pub fn csi(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !void {
     var buffer: [1]u8 = undefined;
     _ = try os.read(tty.tty, &buffer);
     switch (buffer[0]) {
@@ -55,16 +95,16 @@ pub fn csi(tty: *TTY, tkn: *Tokenizer) !void {
         'F' => tkn.cinc(@intCast(isize, tkn.raw.items.len)),
         'H' => tkn.cinc(-@intCast(isize, tkn.raw.items.len)),
         else => {
-            try tty.print("\r\nCSI next: \r\n", .{});
-            try tty.printAfter("    {x} {s}\n\n", .{ buffer[0], buffer });
+            try hsh.draw.w.print("\r\nCSI next: \r\n", .{});
+            try hsh.draw.w.print("    {x} {s}\n\n", .{ buffer[0], buffer });
         },
     }
 }
 
-pub fn loop(tty: *TTY, tkn: *Tokenizer) !bool {
+pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
     while (true) {
-        tty.chadj = @truncate(u32, tkn.cadj());
-        try prompt(tty, tkn);
+        hsh.draw.cursor = @truncate(u32, tkn.cadj());
+        try prompt(&hsh.draw, tkn, hsh.env);
 
         var buffer: [1]u8 = undefined;
         _ = try os.read(tty.tty, &buffer);
@@ -72,7 +112,7 @@ pub fn loop(tty: *TTY, tkn: *Tokenizer) !bool {
         // Tokens as an n=2 state machine at time of keypress. It might actually
         // be required to unbreak a bug in history.
         switch (buffer[0]) {
-            '\x1B' => try esc(tty, tkn),
+            '\x1B' => try esc(hsh, tty, tkn),
             '\x07' => try tty.print("^bel\r\n", .{}), // DC2
             '\x08' => try tty.print("\r\ninput: backspace\r\n", .{}),
             '\x09' => |b| {
@@ -107,7 +147,7 @@ pub fn loop(tty: *TTY, tkn: *Tokenizer) !bool {
                 return false;
             },
             '\n', '\r' => |b| {
-                tty.chadj = 0;
+                hsh.draw.cursor = 0;
                 try tty.print("\r\n", .{});
                 const run = tkn.parse() catch |e| {
                     std.debug.print("Parse Error {}\n", .{e});
@@ -244,7 +284,6 @@ fn read_history(cnt: usize, hist: std.fs.File, buffer: *ArrayList(u8)) !bool {
 }
 
 pub fn main() !void {
-    std.debug.print("All your {s} are belong to us.\n\n", .{"codebase"});
     var tty = TTY.init() catch unreachable;
     defer tty.raze();
 
@@ -253,27 +292,17 @@ pub fn main() !void {
     const a = arena.allocator();
     var t = Tokenizer.init(a);
 
-    // I'm pulling all of env out at startup only because that's the first
-    // example I found. It's probably sub optimal, but ¯\_(ツ)_/¯. We may
-    // decide we care enough to fix this, or not. The internet seems to think
-    // it's a mistake to alter the env for a running process.
-    var env = try std.process.getEnvMap(a);
-    defer env.deinit();
-    var home = env.get("HOME");
-    if (home) |h| {
-        // TODO sanity checks
-        const dir = try std.fs.openDirAbsolute(h, .{});
-        rc = try dir.createFile(".hshrc", .{ .read = true, .truncate = false });
-        history = try dir.createFile(".hsh_history", .{ .read = true, .truncate = false });
-        history.seekFromEnd(0) catch unreachable;
-    }
-    defer rc.close();
-    defer history.close();
+    var hsh = try HSH.init(a);
+    defer hsh.raze();
 
     try signals();
 
+    hsh.draw = Drawable{
+        .w = tty.out,
+    };
+
     while (true) {
-        if (loop(&tty, &t)) |l| {
+        if (loop(&hsh, &tty, &t)) |l| {
             if (l) {
                 _ = try history.write(t.raw.items);
                 _ = try history.write("\n");

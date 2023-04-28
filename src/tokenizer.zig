@@ -109,10 +109,13 @@ pub const Tokenizer = struct {
         }
         if (self.tokens.items.len == 0) return false;
         const t = self.tokens.items[self.tokens.items.len - 1];
-        if (t.type == TokenType.Char) return true;
-        if (t.type == TokenType.String) return true;
-
-        return false;
+        return switch (t.type) {
+            TokenType.Char,
+            TokenType.String,
+            TokenType.Exe,
+            => true,
+            else => false,
+        };
     }
 
     fn parse_token(self: *Tokenizer, token: *Token) TokenErr!*Token {
