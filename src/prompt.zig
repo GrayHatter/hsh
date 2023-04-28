@@ -7,6 +7,8 @@ const Drawable = Draw.Drawable;
 const render = Draw.render;
 
 pub fn prompt(d: *const Drawable, tkn: *Tokenizer, env: std.process.EnvMap) !void {
+    var b_raw: [8]u8 = undefined;
+    var b_tkns: [8]u8 = undefined;
     try render(d, .{
         .sibling = &[_]Lexeme{
             .{
@@ -16,10 +18,10 @@ pub fn prompt(d: *const Drawable, tkn: *Tokenizer, env: std.process.EnvMap) !voi
             },
             .{ .char = "@" },
             .{ .char = "host" },
+            .{ .char = try std.fmt.bufPrint(&b_raw, "({}) ", .{tkn.raw.items.len}) },
+            .{ .char = try std.fmt.bufPrint(&b_tkns, "({}) ", .{tkn.tokens.items.len}) },
             .{ .char = " $ " },
             .{ .char = tkn.raw.items },
         },
-        // tkn.raw.items.len,
-        // tkn.tokens.items.len,
     });
 }

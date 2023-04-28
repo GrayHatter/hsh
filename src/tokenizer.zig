@@ -17,7 +17,6 @@ pub const TokenType = enum(u8) {
     Char,
     Quote,
     Var,
-    Pipe,
     IoRedir,
     Tree, // Should this token be a separate type?
 };
@@ -55,7 +54,7 @@ pub const Tokenizer = struct {
         InvalidSrc,
     };
 
-    const Builtin = [_][]const u8{
+    const Builtins = [_][]const u8{
         "alias",
         "which",
         "echo",
@@ -132,7 +131,11 @@ pub const Tokenizer = struct {
     }
 
     fn parse_action(self: *Tokenizer, token: *Token) TokenErr!*Token {
-        if (parse_builtin(token.raw)) {}
+        if (parse_builtin(token.raw)) {
+            for (Builtins) |bin| {
+                _ = bin;
+            }
+        }
 
         token.*.type = TokenType.Exe;
         token.*.backing = ArrayList(u8).init(self.alloc);
@@ -234,7 +237,7 @@ pub const Tokenizer = struct {
             self.c_idx -|= 1;
             t = self.raw.orderedRemove(@bitCast(usize, self.c_idx));
         }
-        if (std.ascii.isWhitespace(t) or std.ascii.isAlphanumeric(t))
+        if (self.c_idx > 1 and (std.ascii.isWhitespace(t) or std.ascii.isAlphanumeric(t)))
             try self.consumec(t);
     }
 
