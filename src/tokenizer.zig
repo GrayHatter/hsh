@@ -13,6 +13,7 @@ pub const TokenType = enum(u8) {
     Builtin,
     Command, // custom string that alters hsh in some way
     String,
+    WhiteSpace,
     Char,
     Quote,
     Var,
@@ -108,6 +109,19 @@ pub const Tokenizer = struct {
         };
     }
 
+    pub fn parse_space(src: []const u8) TokenErr!Token {
+        var end: usize = 0;
+        for (src) |s| {
+            if (s != ' ') break;
+            end += 1;
+        }
+        return Token{
+            .raw = src[0..end],
+            .real = src[0..end],
+            .type = TokenType.WhiteSpace,
+        };
+    }
+
     pub fn parse_string(src: []const u8) TokenErr!Token {
         var end: usize = 0;
         for (src, 0..) |s, i| {
@@ -159,7 +173,7 @@ pub const Tokenizer = struct {
         while (start < self.raw.items.len) {
             var etoken = switch (self.raw.items[start]) {
                 '\'', '"' => Tokenizer.parse_quote(self.raw.items[start..]),
-
+                ' ' => Tokenizer.parse_space(self.raw.items[start..]),
                 '$' => unreachable,
                 else => Tokenizer.parse_string(self.raw.items[start..]),
             };
@@ -177,10 +191,8 @@ pub const Tokenizer = struct {
         }
         if (self.tokens.items.len == 0) return false;
         const t = self.tokens.items[self.tokens.items.len - 1];
-        if (t.type == TokenType.Char) {}
-        if (t.type == TokenType.String) {
-            return true;
-        }
+        if (t.type == TokenType.Char) return true;
+        if (t.type == TokenType.String) return true;
 
         return false;
     }
@@ -200,6 +212,7 @@ pub const Tokenizer = struct {
         return false;
     }
 
+    // this clearly needs a bit more love
     pub fn popUntil(self: *Tokenizer) TokenErr!void {
         if (self.raw.items.len == 0 or self.c_idx == 0) return;
 

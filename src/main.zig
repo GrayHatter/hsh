@@ -97,8 +97,8 @@ pub fn loop(tty: *TTY, tkn: *Tokenizer) !bool {
                 tkn.reset();
                 // if (tkn.raw.items.len > 0) {
                 // } else {
-                //     try tty.print("\r\nExit caught... Bye ()\r\n", .{});
                 //     return false;
+                //     try tty.print("\r\nExit caught... Bye ()\r\n", .{});
                 // }
             },
             '\x04' => |b| {
@@ -179,7 +179,7 @@ pub fn exec(tty: *TTY, tkn: *Tokenizer) hshExecErr!void {
         if (token.*.type == TokenType.Exe) {
             token.*.backing.?.insertSlice(0, "/usr/bin/") catch return hshExecErr.Unknown;
             token.*.real = token.backing.?.items;
-        }
+        } else if (token.*.type == TokenType.WhiteSpace) continue;
         var arg = a.alloc(u8, token.*.real.len + 1) catch return hshExecErr.MemError;
         mem.copy(u8, arg, token.*.real);
         arg[token.*.real.len] = 0;
