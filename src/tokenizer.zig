@@ -13,6 +13,7 @@ pub const TokenType = enum(u8) {
     Builtin,
     Command, // custom string that alters hsh in some way
     String,
+    Char,
     Quote,
     Var,
     Pipe,
@@ -22,6 +23,7 @@ pub const TokenType = enum(u8) {
 
 pub const Token = struct {
     raw: []const u8,
+    i: u16 = 0,
     real: []const u8,
     backing: ?ArrayList(u8) = null,
     type: TokenType = TokenType.Untyped,
@@ -118,7 +120,7 @@ pub const Tokenizer = struct {
         return Token{
             .raw = src[0..end],
             .real = src[0..end],
-            .type = TokenType.String,
+            .type = if (end == 1) TokenType.Char else TokenType.String,
         };
     }
 
@@ -173,6 +175,12 @@ pub const Tokenizer = struct {
                 return TokenErr.ParseError;
             }
         }
+        if (self.tokens.items.len == 0) return false;
+        const t = self.tokens.items[self.tokens.items.len - 1];
+        if (t.type == TokenType.Char) {}
+        if (t.type == TokenType.String) {
+            return true;
+        }
 
         return false;
     }
@@ -190,6 +198,27 @@ pub const Tokenizer = struct {
             return true;
         }
         return false;
+    }
+
+    pub fn popUntil(self: *Tokenizer) TokenErr!void {
+        if (self.raw.items.len == 0 or self.c_idx == 0) return;
+
+        self.c_idx -|= 1;
+        var t = self.raw.orderedRemove(@bitCast(usize, self.c_idx));
+        while (std.ascii.isWhitespace(t) and self.c_idx > 0) {
+            self.c_idx -|= 1;
+            t = self.raw.orderedRemove(@bitCast(usize, self.c_idx));
+        }
+        while (std.ascii.isAlphanumeric(t) and self.c_idx > 0) {
+            self.c_idx -|= 1;
+            t = self.raw.orderedRemove(@bitCast(usize, self.c_idx));
+        }
+        while (std.ascii.isWhitespace(t) and self.c_idx > 0) {
+            self.c_idx -|= 1;
+            t = self.raw.orderedRemove(@bitCast(usize, self.c_idx));
+        }
+        if (std.ascii.isWhitespace(t) or std.ascii.isAlphanumeric(t))
+            try self.consumec(t);
     }
 
     pub fn pop(self: *Tokenizer) TokenErr!void {

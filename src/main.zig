@@ -14,6 +14,15 @@ const prompt = @import("prompt.zig").prompt;
 var rc: std.fs.File = undefined;
 var history: std.fs.File = undefined;
 
+pub fn esc(tty: *TTY, tkn: *Tokenizer) !void {
+    var buffer: [1]u8 = undefined;
+    _ = try os.read(tty.tty, &buffer);
+    switch (buffer[0]) {
+        '[' => try csi(tty, tkn),
+        else => try tty.print("\r\ninput: escape {s} {}\n", .{ buffer, buffer[0] }),
+    }
+}
+
 pub fn csi(tty: *TTY, tkn: *Tokenizer) !void {
     var buffer: [1]u8 = undefined;
     _ = try os.read(tty.tty, &buffer);
@@ -63,14 +72,8 @@ pub fn loop(tty: *TTY, tkn: *Tokenizer) !bool {
         // Tokens as an n=2 state machine at time of keypress. It might actually
         // be required to unbreak a bug in history.
         switch (buffer[0]) {
-            '\x1B' => {
-                _ = try os.read(tty.tty, &buffer);
-                if (buffer[0] == '[') {
-                    try csi(tty, tkn);
-                } else {
-                    try tty.print("\r\ninput: escape {s} {}\n", .{ buffer, buffer[0] });
-                }
-            },
+            '\x1B' => try esc(tty, tkn),
+            '\x07' => try tty.print("^bel\r\n", .{}), // DC2
             '\x08' => try tty.print("\r\ninput: backspace\r\n", .{}),
             '\x09' => |b| {
                 if (tkn.tab()) {} else {
@@ -78,8 +81,17 @@ pub fn loop(tty: *TTY, tkn: *Tokenizer) !bool {
                     try tty.printAfter("    {} {s}", .{ b, buffer });
                 }
             },
-            '\x7F' => try tkn.pop(),
-            '\x17' => try tty.print("\r\ninput: ^w\r\n", .{}),
+            '\x0E' => try tty.print("shift in\r\n", .{}),
+            '\x0F' => try tty.print("^shift out\r\n", .{}),
+            '\x12' => try tty.print("^R\r\n", .{}), // DC2
+            '\x13' => try tty.print("^R\r\n", .{}), // DC3
+            '\x14' => try tty.print("^T\r\n", .{}), // DC4
+            '\x17' => try tkn.popUntil(),
+            '\x20'...'\x7E' => |b| {
+                try tkn.consumec(b);
+                try tty.printAfter("    {} {s}", .{ b, buffer });
+            },
+            '\x7F' => try tkn.pop(), // backspace
             '\x03' => {
                 try tty.print("^C\r\n", .{});
                 tkn.reset();
@@ -112,8 +124,7 @@ pub fn loop(tty: *TTY, tkn: *Tokenizer) !bool {
                 }
             },
             else => |b| {
-                try tkn.consumec(b);
-                try tty.printAfter("    {} {s}", .{ b, buffer });
+                try tty.printAfter("unknown char    {} {s}", .{ b, buffer });
             },
         }
     }
