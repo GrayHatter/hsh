@@ -55,6 +55,8 @@ const HSH = struct {
 };
 
 pub fn esc(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !void {
+    tkn.err_idx = 0;
+    try prompt(&hsh.draw, tkn, hsh.env);
     var buffer: [1]u8 = undefined;
     _ = try os.read(tty.tty, &buffer);
     switch (buffer[0]) {

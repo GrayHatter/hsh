@@ -45,6 +45,7 @@ pub const Tokenizer = struct {
     hist_z: ?ArrayList(u8) = null,
     hist_pos: usize = 0,
     c_idx: usize = 0,
+    err_idx: usize = 0,
 
     pub const TokenErr = error{
         None,
@@ -103,9 +104,11 @@ pub const Tokenizer = struct {
                     start += 1;
                 }
             } else |_| {
+                self.err_idx = start;
                 return TokenErr.ParseError;
             }
         }
+        self.err_idx = 0;
         if (self.tokens.items.len == 0) return false;
         const t = self.tokens.items[self.tokens.items.len - 1];
         return switch (t.type) {
@@ -212,7 +215,7 @@ pub const Tokenizer = struct {
     }
 
     pub fn tab(self: *Tokenizer) bool {
-        _ = self.parse() catch unreachable;
+        _ = self.parse() catch {};
         if (self.tokens.items.len > 0) {
             return true;
         }
@@ -245,6 +248,7 @@ pub const Tokenizer = struct {
         if (self.raw.items.len == 0 or self.c_idx == 0) return;
         self.c_idx -|= 1;
         _ = self.raw.orderedRemove(@bitCast(usize, self.c_idx));
+        self.err_idx = @min(self.c_idx, self.err_idx);
     }
 
     pub fn rpop(self: *Tokenizer) TokenErr!void {
@@ -254,6 +258,7 @@ pub const Tokenizer = struct {
     pub fn consumec(self: *Tokenizer, c: u8) TokenErr!void {
         self.raw.insert(@bitCast(usize, self.c_idx), c) catch return TokenErr.Unknown;
         self.c_idx += 1;
+        if (self.err_idx > 0) _ = self.parse() catch {};
     }
 
     pub fn push_line(self: *Tokenizer) void {
@@ -285,6 +290,7 @@ pub const Tokenizer = struct {
         self.raw.clearAndFree();
         self.tokens.clearAndFree();
         self.c_idx = 0;
+        self.err_idx = 0;
     }
 
     pub fn consumes(self: *Tokenizer, r: Reader) TokenErr!void {

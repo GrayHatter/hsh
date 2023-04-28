@@ -38,8 +38,8 @@ pub const Color = enum {
 pub const Lexeme = struct {
     char: []const u8,
     attr: Attr = .Reset,
-    fg: Color = .None,
-    bg: Color = .None,
+    fg: ?Color = null,
+    bg: ?Color = null,
 };
 
 const LexSibling = []Lexeme;
@@ -63,6 +63,16 @@ fn set_attr(buf: *ArrayList(u8), attr: Attr) DrawErr!void {
     }
 }
 
+fn bg_color(buf: *ArrayList(u8), c: ?Color) DrawErr!void {
+    if (c) |bg| {
+        switch (bg) {
+            .Red => buf.appendSlice("\x1B[41m") catch return DrawErr.Memory,
+            .Blue => buf.appendSlice("\x1B[34m") catch return DrawErr.Memory,
+            else => buf.appendSlice("\x1B[39m") catch return DrawErr.Memory,
+        }
+    }
+}
+
 fn fg_color(buf: *ArrayList(u8), c: ?Color) DrawErr!void {
     if (c) |fg| {
         switch (fg) {
@@ -77,7 +87,9 @@ fn render_lexeme(buf: *ArrayList(u8), x: usize, y: usize, l: Lexeme) DrawErr!voi
     _ = y;
     try set_attr(buf, l.attr);
     try fg_color(buf, l.fg);
+    try bg_color(buf, l.bg);
     buf.appendSlice(l.char) catch return DrawErr.Memory;
+    try bg_color(buf, .None);
     try fg_color(buf, .None);
     try set_attr(buf, .Reset);
 }
