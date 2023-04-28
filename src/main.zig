@@ -214,6 +214,8 @@ pub fn sig_cb(sig: c_int, info: *const os.siginfo_t, uctx: ?*const anyopaque) ca
 }
 
 pub fn signals() !void {
+    // zsh blocks and unblocks winch signals during most processing, collecting
+    // them only when needed. It's likely something we should do as well
     try os.sigaction(os.SIG.WINCH, &os.Sigaction{
         .handler = .{ .sigaction = sig_cb },
         .mask = os.empty_sigset,

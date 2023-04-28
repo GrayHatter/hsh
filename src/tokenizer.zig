@@ -85,6 +85,76 @@ pub const Tokenizer = struct {
         return self.raw.items.len - self.c_idx;
     }
 
+    pub fn parse(self: *Tokenizer) TokenErr!bool {
+        self.tokens.clearAndFree();
+        var start: usize = 0;
+        while (start < self.raw.items.len) {
+            var etoken = switch (self.raw.items[start]) {
+                '\'', '"' => Tokenizer.parse_quote(self.raw.items[start..]),
+                ' ' => Tokenizer.parse_space(self.raw.items[start..]),
+                '$' => unreachable,
+                else => Tokenizer.parse_string(self.raw.items[start..]),
+            };
+            if (etoken) |*t| {
+                if (t.raw.len > 0) {
+                    _ = self.parse_token(t) catch unreachable;
+                    self.tokens.append(t.*) catch unreachable;
+                    start += t.raw.len;
+                } else {
+                    start += 1;
+                }
+            } else |_| {
+                return TokenErr.ParseError;
+            }
+        }
+        if (self.tokens.items.len == 0) return false;
+        const t = self.tokens.items[self.tokens.items.len - 1];
+        if (t.type == TokenType.Char) return true;
+        if (t.type == TokenType.String) return true;
+
+        return false;
+    }
+
+    fn parse_token(self: *Tokenizer, token: *Token) TokenErr!*Token {
+        if (self.tokens.items.len == 0) {
+            return self.parse_action(token);
+        }
+
+        switch (token.raw[0]) {
+            '$' => return token,
+            else => return token,
+        }
+        return;
+    }
+
+    fn parse_action(self: *Tokenizer, token: *Token) TokenErr!*Token {
+        if (parse_builtin(token.raw)) {}
+
+        token.*.type = TokenType.Exe;
+        token.*.backing = ArrayList(u8).init(self.alloc);
+        token.*.backing.?.appendSlice(token.*.real[0..]) catch {
+            return TokenErr.Unknown;
+        };
+        token.*.real = token.*.backing.?.items;
+        return token;
+    }
+
+    pub fn parse_string(src: []const u8) TokenErr!Token {
+        var end: usize = 0;
+        for (src, 0..) |s, i| {
+            end = i;
+            switch (s) {
+                ' ', '\t' => break,
+                else => continue,
+            }
+        } else end += 1;
+        return Token{
+            .raw = src[0..end],
+            .real = src[0..end],
+            .type = if (end == 1) TokenType.Char else TokenType.String,
+        };
+    }
+
     /// Callers must ensure that src[0] is in (', ")
     pub fn parse_quote(src: []const u8) TokenErr!Token {
         if (src.len <= 1) {
@@ -122,78 +192,8 @@ pub const Tokenizer = struct {
         };
     }
 
-    pub fn parse_string(src: []const u8) TokenErr!Token {
-        var end: usize = 0;
-        for (src, 0..) |s, i| {
-            end = i;
-            switch (s) {
-                ' ', '\t' => break,
-                else => continue,
-            }
-        } else end += 1;
-        return Token{
-            .raw = src[0..end],
-            .real = src[0..end],
-            .type = if (end == 1) TokenType.Char else TokenType.String,
-        };
-    }
-
     fn parse_builtin(str: []const u8) bool {
         _ = str;
-        return false;
-    }
-
-    fn parse_action(self: *Tokenizer, token: *Token) TokenErr!*Token {
-        if (parse_builtin(token.raw)) {}
-
-        token.*.type = TokenType.Exe;
-        token.*.backing = ArrayList(u8).init(self.alloc);
-        token.*.backing.?.appendSlice(token.*.real[0..]) catch {
-            return TokenErr.Unknown;
-        };
-        token.*.real = token.*.backing.?.items;
-        return token;
-    }
-
-    fn parse_token(self: *Tokenizer, token: *Token) TokenErr!*Token {
-        if (self.tokens.items.len == 0) {
-            return self.parse_action(token);
-        }
-
-        switch (token.raw[0]) {
-            '$' => return token,
-            else => return token,
-        }
-        return;
-    }
-
-    pub fn parse(self: *Tokenizer) TokenErr!bool {
-        self.tokens.clearAndFree();
-        var start: usize = 0;
-        while (start < self.raw.items.len) {
-            var etoken = switch (self.raw.items[start]) {
-                '\'', '"' => Tokenizer.parse_quote(self.raw.items[start..]),
-                ' ' => Tokenizer.parse_space(self.raw.items[start..]),
-                '$' => unreachable,
-                else => Tokenizer.parse_string(self.raw.items[start..]),
-            };
-            if (etoken) |*t| {
-                if (t.raw.len > 0) {
-                    _ = self.parse_token(t) catch unreachable;
-                    self.tokens.append(t.*) catch unreachable;
-                    start += t.raw.len;
-                } else {
-                    start += 1;
-                }
-            } else |_| {
-                return TokenErr.ParseError;
-            }
-        }
-        if (self.tokens.items.len == 0) return false;
-        const t = self.tokens.items[self.tokens.items.len - 1];
-        if (t.type == TokenType.Char) return true;
-        if (t.type == TokenType.String) return true;
-
         return false;
     }
 
