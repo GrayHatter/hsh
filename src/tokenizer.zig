@@ -113,6 +113,7 @@ pub const Tokenizer = struct {
             TokenType.Char,
             TokenType.String,
             TokenType.Exe,
+            TokenType.WhiteSpace,
             => true,
             else => false,
         };
