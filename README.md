@@ -18,4 +18,5 @@ clone<br>
  - [ ] globs
  - [ ] script support?
  - [ ] env
+ - [ ] real path support
 
