@@ -1,4 +1,5 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const Writer = std.fs.File.Writer;
 const ArrayList = std.ArrayList;
 
@@ -51,9 +52,15 @@ pub const LexTree = union(enum) {
 };
 
 pub const Drawable = struct {
+    alloc: Allocator,
     w: Writer,
     cursor: u32 = 0,
     cursor_reposition: bool = true,
+    b: ArrayList(u8) = undefined,
+
+    pub fn init() Drawable {}
+
+    pub fn raze() void {}
 };
 
 fn set_attr(buf: *ArrayList(u8), attr: Attr) DrawErr!void {
@@ -114,21 +121,35 @@ fn render_trees(buf: *ArrayList(u8), x: usize, y: usize, tree: []LexTree) DrawEr
     }
 }
 
-pub fn render(d: *const Drawable, tree: LexTree) !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    var buffer = ArrayList(u8).init(a);
-    try buffer.append('\r');
-    try buffer.appendSlice("\x1B[K");
-    try render_tree(&buffer, 0, 0, tree);
+fn draw_before(_: *Drawable, _: LexTree) !void {}
+
+pub fn draw(d: *Drawable, tree: LexTree) !void {
+    try d.b.append('\r');
+    try d.b.appendSlice("\x1B[K");
+    try render_tree(&d.b, 0, 0, tree);
+}
+
+fn draw_after(_: *Drawable, _: LexTree) !void {}
+
+pub fn render(d: *Drawable) !void {
     if (d.cursor_reposition) {
         var move = d.cursor;
         while (move > 0) : (move -= 1) {
-            try buffer.appendSlice("\x1B[D");
+            try d.b.appendSlice("\x1B[D");
         }
     }
 
     // finally
-    _ = try d.w.write(buffer.items);
+    _ = try d.w.write(d.b.items);
+    d.b.clearAndFree();
+}
+
+// TODO rm -rf
+/// feeling lazy, might delete later
+pub fn printAfter(d: *const Drawable, comptime c: []const u8, a: anytype) !void {
+    _ = try d.w.write("\r\n");
+    _ = try d.w.print(c, a);
+    _ = try d.w.write("\x1B[K");
+    _ = try d.w.write("\x1B[A");
+    _ = try d.w.write("\r");
 }

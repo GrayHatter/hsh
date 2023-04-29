@@ -4,14 +4,14 @@ const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const Draw = @import("draw.zig");
 const Lexeme = Draw.Lexeme;
 const Drawable = Draw.Drawable;
-const render = Draw.render;
+const draw = Draw.draw;
 
 fn user_text() void {}
 
-pub fn prompt(d: *const Drawable, tkn: *Tokenizer, env: std.process.EnvMap) !void {
+pub fn prompt(d: *Drawable, tkn: *Tokenizer, env: std.process.EnvMap) !void {
     var b_raw: [8]u8 = undefined;
     var b_tkns: [8]u8 = undefined;
-    try render(d, .{
+    try draw(d, .{
         .sibling = &[_]Lexeme{
             .{
                 .char = env.get("USER") orelse "[username unknown]",

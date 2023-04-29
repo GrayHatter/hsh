@@ -8,8 +8,9 @@ const mem = std.mem;
 const os = std.os;
 const std = @import("std");
 const tty_codes = TTY_.OpCodes;
-const Drawable = @import("draw.zig").Drawable;
-
+const Draw = @import("draw.zig");
+const Drawable = Draw.Drawable;
+const printAfter = Draw.printAfter;
 const prompt = @import("prompt.zig").prompt;
 
 var rc: std.fs.File = undefined;
@@ -61,7 +62,7 @@ pub fn esc(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !void {
     _ = try os.read(tty.tty, &buffer);
     switch (buffer[0]) {
         '[' => try csi(hsh, tty, tkn),
-        else => try tty.print("\r\ninput: escape {s} {}\n", .{ buffer, buffer[0] }),
+        else => std.debug.print("\r\ninput: escape {s} {}\n", .{ buffer, buffer[0] }),
     }
 }
 
@@ -107,6 +108,7 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
     while (true) {
         hsh.draw.cursor = @truncate(u32, tkn.cadj());
         try prompt(&hsh.draw, tkn, hsh.env);
+        try Draw.render(&hsh.draw);
 
         var buffer: [1]u8 = undefined;
         _ = try os.read(tty.tty, &buffer);
@@ -120,7 +122,6 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
             '\x09' => |b| {
                 if (tkn.tab()) {} else {
                     try tkn.consumec(b);
-                    try tty.printAfter("    {} {s}", .{ b, buffer });
                 }
             },
             '\x0E' => try tty.print("shift in\r\n", .{}),
@@ -131,7 +132,7 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
             '\x17' => try tkn.popUntil(),
             '\x20'...'\x7E' => |b| {
                 try tkn.consumec(b);
-                try tty.printAfter("    {} {s}", .{ b, buffer });
+                try printAfter(&hsh.draw, "    {} {s}", .{ b, buffer });
             },
             '\x7F' => try tkn.pop(), // backspace
             '\x03' => {
@@ -166,7 +167,7 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
                 }
             },
             else => |b| {
-                try tty.printAfter("unknown char    {} {s}", .{ b, buffer });
+                try tty.print("\n\n\runknown char    {} {s}", .{ b, buffer });
             },
         }
     }
@@ -302,6 +303,8 @@ pub fn main() !void {
 
     hsh.draw = Drawable{
         .w = tty.out,
+        .alloc = a,
+        .b = ArrayList(u8).init(a),
     };
 
     while (true) {
@@ -328,6 +331,7 @@ test "history" {}
 
 pub fn panic(msg: []const u8, trace: ?*std.builtin.StackTrace, retaddr: ?usize) noreturn {
     @setCold(true);
+    std.debug.print("Panic reached... your TTY is likely broken now.\n\n...sorry about that!\n", .{});
     TTY_.current_tty.?.raze();
     std.builtin.default_panic(msg, trace, retaddr);
 }
