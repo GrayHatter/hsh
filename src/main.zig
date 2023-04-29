@@ -12,48 +12,7 @@ const Draw = @import("draw.zig");
 const Drawable = Draw.Drawable;
 const printAfter = Draw.printAfter;
 const prompt = @import("prompt.zig").prompt;
-
-var rc: std.fs.File = undefined;
-var history: std.fs.File = undefined;
-
-const HSH = struct {
-    alloc: Allocator,
-    env: std.process.EnvMap,
-    confdir: ?[]const u8 = null,
-    rc: ?std.fs.File = null,
-    history: ?std.fs.File = null,
-    draw: Drawable = undefined,
-
-    pub fn init(a: Allocator) !HSH {
-        // I'm pulling all of env out at startup only because that's the first
-        // example I found. It's probably sub optimal, but ¯\_(ツ)_/¯. We may
-        // decide we care enough to fix this, or not. The internet seems to think
-        // it's a mistake to alter the env for a running process.
-        var env = try std.process.getEnvMap(a); // TODO err handling
-        var home = env.get("HOME");
-        if (home) |h| {
-            // TODO sanity checks
-            const dir = try std.fs.openDirAbsolute(h, .{});
-            rc = try dir.createFile(".hshrc", .{ .read = true, .truncate = false });
-            history = try dir.createFile(".hsh_history", .{ .read = true, .truncate = false });
-            history.seekFromEnd(0) catch unreachable;
-        }
-        return HSH{
-            .alloc = a,
-            .env = env,
-            .rc = rc,
-            .history = history,
-        };
-    }
-
-    pub fn raze(hsh: *HSH) void {
-        hsh.env.deinit();
-        if (hsh.rc) |rrc| rrc.close();
-        if (hsh.history) |h| h.close();
-    }
-
-    pub fn find_confdir(_: HSH) []const u8 {}
-};
+const HSH = @import("hsh.zig").HSH;
 
 pub fn esc(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !void {
     tkn.err_idx = 0;
@@ -73,20 +32,19 @@ pub fn csi(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !void {
         'A' => {
             if (tkn.hist_pos == 0) tkn.push_line();
             tkn.clear();
-            const top = read_history(tkn.hist_pos + 1, history, &tkn.raw) catch unreachable;
+            const top = read_history(tkn.hist_pos + 1, hsh.history.?, &tkn.raw) catch unreachable;
             if (!top) tkn.hist_pos += 1;
             tkn.push_hist();
             //while (!top and mem.eql(u8, tkn.raw.items, tkn.hist_z.?.items)) {
             //    tkn.hist_pos += 1;
             //    top = read_history(tkn.hist_pos + 1, history, &tkn.raw) catch unreachable;
             //}
-
         },
         'B' => {
             if (tkn.hist_pos > 1) {
                 tkn.hist_pos -= 1;
                 tkn.raw.clearAndFree();
-                _ = read_history(tkn.hist_pos, history, &tkn.raw) catch unreachable;
+                _ = read_history(tkn.hist_pos, hsh.history.?, &tkn.raw) catch unreachable;
                 tkn.push_hist();
             } else if (tkn.hist_pos == 1) {
                 tkn.hist_pos -= 1;
@@ -310,9 +268,9 @@ pub fn main() !void {
     while (true) {
         if (loop(&hsh, &tty, &t)) |l| {
             if (l) {
-                _ = try history.write(t.raw.items);
-                _ = try history.write("\n");
-                try history.sync();
+                _ = try hsh.history.?.write(t.raw.items);
+                _ = try hsh.history.?.write("\n");
+                try hsh.history.?.sync();
                 try exec(&tty, &t);
                 t.clear();
             } else {
