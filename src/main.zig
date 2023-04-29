@@ -28,6 +28,8 @@ const KeyAction = enum {
     ArrowDn,
     ArrowBk,
     ArrowFw,
+    Home,
+    End,
 };
 
 const KeyPress = union(KeyEvent) {
@@ -74,6 +76,7 @@ pub fn csi(hsh: *HSH, tkn: *Tokenizer) !KeyPress {
             //    tkn.hist_pos += 1;
             //    top = read_history(tkn.hist_pos + 1, history, &tkn.raw) catch unreachable;
             //}
+            return KeyPress{ .Action = .ArrowUp };
         },
         'B' => {
             if (tkn.hist_pos > 1) {
@@ -85,11 +88,12 @@ pub fn csi(hsh: *HSH, tkn: *Tokenizer) !KeyPress {
                 tkn.hist_pos -= 1;
                 tkn.pop_line();
             } else {}
+            return KeyPress{ .Action = .ArrowDn };
         },
+        'C' => return KeyPress{ .Action = .ArrowFw },
         'D' => return KeyPress{ .Action = .ArrowBk },
-        'C' => tkn.cinc(1),
-        'F' => tkn.cinc(@intCast(isize, tkn.raw.items.len)),
-        'H' => tkn.cinc(-@intCast(isize, tkn.raw.items.len)),
+        'H' => return KeyPress{ .Action = .Home },
+        'F' => return KeyPress{ .Action = .End },
         else => {
             try hsh.draw.w.print("\r\nCSI next: \r\n", .{});
             try hsh.draw.w.print("    {x} {s}\n\n", .{ buffer[0], buffer });
@@ -120,7 +124,12 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
                     .Char => |c| try printAfter(&hsh.draw, "key    {} {c}", .{ c, c }),
                     .Action => |a| {
                         switch (a) {
+                            .ArrowUp => {},
+                            .ArrowDn => {},
                             .ArrowBk => tkn.cinc(-1),
+                            .ArrowFw => tkn.cinc(1),
+                            .Home => tkn.cinc(-@intCast(isize, tkn.raw.items.len)),
+                            .End => tkn.cinc(@intCast(isize, tkn.raw.items.len)),
                             else => unreachable,
                         }
                     },
