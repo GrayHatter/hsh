@@ -71,7 +71,6 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
         var buffer: [1]u8 = undefined;
         const nbyte = try os.read(tty.tty, &buffer);
         if (nbyte == 0) {
-            std.debug.print("\n\r0\n\n\n", .{});
             continue;
         }
 
@@ -276,7 +275,10 @@ pub fn main() !void {
                 _ = try hsh.history.?.write(t.raw.items);
                 _ = try hsh.history.?.write("\n");
                 try hsh.history.?.sync();
-                try exec(&tty, &t);
+                exec(&tty, &t) catch |err| {
+                    if (err == hshExecErr.NotFound) std.os.exit(2);
+                    unreachable;
+                };
                 t.clear();
             } else {
                 break;

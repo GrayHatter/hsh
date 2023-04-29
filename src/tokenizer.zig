@@ -36,6 +36,14 @@ pub const Token = struct {
 
         try std.fmt.format(out, "Token({}){{{s}}}", .{ self.type, self.raw });
     }
+
+    pub fn cannon(self: Token) []const u8 {
+        return switch (self.type) {
+            .String => self.raw,
+            .Quote => self.real,
+            else => "error",
+        };
+    }
 };
 
 pub const Tokenizer = struct {
@@ -116,6 +124,7 @@ pub const Tokenizer = struct {
             TokenType.String,
             TokenType.Exe,
             TokenType.WhiteSpace,
+            TokenType.Quote,
             => true,
             else => false,
         };
