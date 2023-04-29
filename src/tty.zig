@@ -54,50 +54,15 @@ pub const TTY = struct {
 
     fn push_tty(tty: i32, tos: os.termios) !void {
         var raw = tos;
-        raw.lflag &= ~@as(
-            os.linux.tcflag_t,
-            os.linux.ECHO | os.linux.ICANON | os.linux.ISIG | os.linux.IEXTEN,
-        );
-        raw.iflag &= ~@as(
-            os.linux.tcflag_t,
-            os.linux.IXON | os.linux.ICRNL | os.linux.BRKINT | os.linux.INPCK | os.linux.ISTRIP,
-        );
-        raw.cc[os.system.V.TIME] = 0;
-        raw.cc[os.system.V.MIN] = 1;
+        raw.lflag &= ~(os.linux.ECHO | os.linux.ICANON | os.linux.ISIG | os.linux.IEXTEN);
+        raw.iflag &= ~(os.linux.IXON | os.linux.ICRNL | os.linux.BRKINT | os.linux.INPCK | os.linux.ISTRIP);
+        raw.cc[os.system.V.TIME] = 50;
+        raw.cc[os.system.V.MIN] = 0;
         try os.tcsetattr(tty, .FLUSH, raw);
-    }
-
-    pub fn write(tty: TTY, string: []const u8) !usize {
-        return try tty.out.write(string);
-    }
-
-    pub fn writeAll(tty: TTY, string: []const u8) !void {
-        try tty.out.writeAll(string);
-    }
-
-    pub fn prompt(tty: TTY, comptime fmt: []const u8, args: anytype) !void {
-        try tty.print(fmt, args);
-        try tty.opcode(OpCodes.EraseInLine, null);
-        var move = tty.chadj;
-        while (move > 0) : (move -= 1) {
-            try tty.opcode(OpCodes.CurMvLe, null);
-        }
     }
 
     pub fn print(tty: TTY, comptime fmt: []const u8, args: anytype) !void {
         try tty.out.print(fmt, args);
-    }
-
-    pub fn printAfter(tty: TTY, comptime fmt: []const u8, args: anytype) !void {
-        // TODO count cursor moves
-        // or TODO save and restore tty screen?
-
-        //try tty.opcode(OpCodes.CurHorzAbs, null);
-        //try tty.opcode(OpCodes.CurMvDn, null);
-        _ = try tty.write("\r\n");
-        try tty.print(fmt, args);
-        try tty.opcode(OpCodes.EraseInLine, null);
-        try tty.opcode(OpCodes.CurMvUp, null);
     }
 
     pub fn opcode(tty: TTY, comptime code: OpCodes, args: anytype) !void {
