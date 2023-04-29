@@ -10,6 +10,7 @@ pub const HSH = struct {
     rc: ?std.fs.File = null,
     history: ?std.fs.File = null,
     draw: Drawable = undefined,
+    input: i32 = 0,
 
     pub fn init(a: Allocator) !HSH {
         // I'm pulling all of env out at startup only because that's the first

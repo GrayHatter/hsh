@@ -14,20 +14,55 @@ const printAfter = Draw.printAfter;
 const prompt = @import("prompt.zig").prompt;
 const HSH = @import("hsh.zig").HSH;
 
-pub fn esc(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !void {
+const KeyEvent = enum {
+    Unknown,
+    Char,
+    Action,
+};
+
+const KeyAction = enum {
+    Null,
+    Handled,
+    Unhandled,
+    ArrowUp,
+    ArrowDn,
+    ArrowBk,
+    ArrowFw,
+};
+
+const KeyPress = union(KeyEvent) {
+    Unknown: void,
+    Char: u8,
+    Action: KeyAction,
+};
+
+pub fn esc(hsh: *HSH, tkn: *Tokenizer) !KeyPress {
     tkn.err_idx = 0;
     try prompt(&hsh.draw, tkn, hsh.env);
     var buffer: [1]u8 = undefined;
-    _ = try os.read(tty.tty, &buffer);
+    _ = try os.read(hsh.input, &buffer);
     switch (buffer[0]) {
-        '[' => try csi(hsh, tty, tkn),
+        '[' => {
+            switch (try csi(hsh, tkn)) {
+                .Action => |a| {
+                    switch (a) {
+                        .Handled => {},
+                        .Unhandled => {},
+                        else => return KeyPress{ .Action = a },
+                    }
+                },
+                .Unknown => {},
+                .Char => |c| return KeyPress{ .Char = c },
+            }
+        },
         else => std.debug.print("\r\ninput: escape {s} {}\n", .{ buffer, buffer[0] }),
     }
+    return KeyPress{ .Char = buffer[0] };
 }
 
-pub fn csi(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !void {
+pub fn csi(hsh: *HSH, tkn: *Tokenizer) !KeyPress {
     var buffer: [1]u8 = undefined;
-    _ = try os.read(tty.tty, &buffer);
+    _ = try os.read(hsh.input, &buffer);
     switch (buffer[0]) {
         'A' => {
             if (tkn.hist_pos == 0) tkn.push_line();
@@ -51,7 +86,7 @@ pub fn csi(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !void {
                 tkn.pop_line();
             } else {}
         },
-        'D' => tkn.cinc(-1),
+        'D' => return KeyPress{ .Action = .ArrowBk },
         'C' => tkn.cinc(1),
         'F' => tkn.cinc(@intCast(isize, tkn.raw.items.len)),
         'H' => tkn.cinc(-@intCast(isize, tkn.raw.items.len)),
@@ -60,6 +95,7 @@ pub fn csi(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !void {
             try hsh.draw.w.print("    {x} {s}\n\n", .{ buffer[0], buffer });
         },
     }
+    return KeyPress{ .Action = .Handled };
 }
 
 pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
@@ -78,7 +114,18 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
         // Tokens as an n=2 state machine at time of keypress. It might actually
         // be required to unbreak a bug in history.
         switch (buffer[0]) {
-            '\x1B' => try esc(hsh, tty, tkn),
+            '\x1B' => {
+                switch (try esc(hsh, tkn)) {
+                    .Unknown => {},
+                    .Char => |c| try printAfter(&hsh.draw, "key    {} {c}", .{ c, c }),
+                    .Action => |a| {
+                        switch (a) {
+                            .ArrowBk => tkn.cinc(-1),
+                            else => unreachable,
+                        }
+                    },
+                }
+            },
             '\x07' => try tty.print("^bel\r\n", .{}), // DC2
             '\x08' => try tty.print("\r\ninput: backspace\r\n", .{}),
             '\x09' => |b| {
@@ -268,6 +315,8 @@ pub fn main() !void {
         .alloc = a,
         .b = ArrayList(u8).init(a),
     };
+
+    hsh.input = tty.tty;
 
     while (true) {
         if (loop(&hsh, &tty, &t)) |l| {
