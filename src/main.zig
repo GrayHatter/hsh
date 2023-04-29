@@ -69,7 +69,12 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
         try Draw.render(&hsh.draw);
 
         var buffer: [1]u8 = undefined;
-        _ = try os.read(tty.tty, &buffer);
+        const nbyte = try os.read(tty.tty, &buffer);
+        if (nbyte == 0) {
+            std.debug.print("\n\r0\n\n\n", .{});
+            continue;
+        }
+
         // I no longer like this way of tokenization. I'd like to generate
         // Tokens as an n=2 state machine at time of keypress. It might actually
         // be required to unbreak a bug in history.
@@ -112,12 +117,12 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
                 try tty.print("\r\n", .{});
                 const run = tkn.parse() catch |e| {
                     std.debug.print("Parse Error {}\n", .{e});
-                    try tkn.dump_parsed();
+                    try tkn.dump_parsed(true);
                     try tkn.consumec(b);
                     continue;
                 };
                 if (run) {
-                    try tkn.dump_parsed();
+                    try tkn.dump_parsed(false);
                     if (tkn.tokens.items.len > 0) {
                         return true;
                     }

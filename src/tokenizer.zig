@@ -154,7 +154,7 @@ pub const Tokenizer = struct {
         for (src, 0..) |s, i| {
             end = i;
             switch (s) {
-                ' ', '\t' => break,
+                ' ', '\t', '"', '\'' => break,
                 else => continue,
             }
         } else end += 1;
@@ -207,9 +207,10 @@ pub const Tokenizer = struct {
         return false;
     }
 
-    pub fn dump_parsed(self: Tokenizer) !void {
+    pub fn dump_parsed(self: Tokenizer, ws: bool) !void {
         std.debug.print("\n\n", .{});
         for (self.tokens.items) |i| {
+            if (!ws and i.type == .WhiteSpace) continue;
             std.debug.print("{}\n", .{i});
         }
     }
