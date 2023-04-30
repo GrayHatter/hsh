@@ -3,10 +3,18 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const Drawable = @import("draw.zig").Drawable;
 
+const hshfs = struct {
+    cwd: std.fs.Dir,
+    cwdi: std.fs.IterableDir,
+    cwd_name: []u8 = undefined,
+    cwd_short: []u8 = undefined,
+    confdir: ?[]const u8 = null,
+};
+
 pub const HSH = struct {
     alloc: Allocator,
     env: std.process.EnvMap,
-    confdir: ?[]const u8 = null,
+    fs: hshfs,
     rc: ?std.fs.File = null,
     history: ?std.fs.File = null,
     draw: Drawable = undefined,
@@ -28,11 +36,30 @@ pub const HSH = struct {
             history = try dir.createFile(".hsh_history", .{ .read = true, .truncate = false });
             history.seekFromEnd(0) catch unreachable;
         }
+
         return HSH{
             .alloc = a,
             .env = env,
+            .fs = try init_fs(a, env),
             .rc = rc,
             .history = history,
+        };
+    }
+
+    fn init_fs(a: Allocator, env: std.process.EnvMap) !hshfs {
+        var cwd = std.fs.cwd();
+        var cwdi = try cwd.openIterableDir(".", .{});
+        var name = try cwd.realpathAlloc(a, ".");
+        const h = env.get("HOME");
+        std.debug.print("{s}\n", .{h.?});
+        var short = if (h != null and std.mem.startsWith(u8, name, h.?)) name[h.?.len..] else name;
+        std.debug.print("{s}\n", .{short});
+
+        return hshfs{
+            .cwd = cwd,
+            .cwdi = cwdi,
+            .cwd_name = name,
+            .cwd_short = short,
         };
     }
 
@@ -40,7 +67,9 @@ pub const HSH = struct {
         hsh.env.deinit();
         if (hsh.rc) |rrc| rrc.close();
         if (hsh.history) |h| h.close();
+        hsh.fs.cwd.close();
     }
 
     pub fn find_confdir(_: HSH) []const u8 {}
+    pub fn cd(_: HSH, _: []u8) ![]u8 {}
 };

@@ -40,7 +40,7 @@ const KeyPress = union(KeyEvent) {
 
 pub fn esc(hsh: *HSH, tkn: *Tokenizer) !KeyPress {
     tkn.err_idx = 0;
-    try prompt(&hsh.draw, tkn, hsh.env);
+    try prompt(hsh, tkn);
     var buffer: [1]u8 = undefined;
     _ = try os.read(hsh.input, &buffer);
     switch (buffer[0]) {
@@ -105,7 +105,7 @@ pub fn csi(hsh: *HSH, tkn: *Tokenizer) !KeyPress {
 pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
     while (true) {
         hsh.draw.cursor = @truncate(u32, tkn.cadj());
-        try prompt(&hsh.draw, tkn, hsh.env);
+        try prompt(hsh, tkn);
         try Draw.render(&hsh.draw);
 
         var buffer: [1]u8 = undefined;
@@ -138,7 +138,10 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
             '\x07' => try tty.print("^bel\r\n", .{}), // DC2
             '\x08' => try tty.print("\r\ninput: backspace\r\n", .{}),
             '\x09' => |b| {
-                if (tkn.tab()) {} else {
+                if (tkn.tab()) {
+                    _ = try tkn.parse();
+                    std.debug.print("Token ({})\n\n", .{try tkn.cursor_token()});
+                } else {
                     try tkn.consumec(b);
                 }
             },

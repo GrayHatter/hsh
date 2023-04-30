@@ -53,6 +53,7 @@ pub const Tokenizer = struct {
     hist_z: ?ArrayList(u8) = null,
     hist_pos: usize = 0,
     c_idx: usize = 0,
+    c_tkn: usize = 0, // cursor is over this token
     err_idx: usize = 0,
 
     pub const TokenErr = error{
@@ -81,11 +82,29 @@ pub const Tokenizer = struct {
         self.alloc.deinit();
     }
 
+    /// Increment the cursor over to current token position
+    fn ctinc(self: *Tokenizer) void {
+        var seek: usize = 0;
+        for (self.tokens.items, 0..) |t, i| {
+            self.c_tkn = i;
+            seek += t.raw.len;
+            if (seek >= self.c_idx) break;
+        }
+    }
+
     pub fn cinc(self: *Tokenizer, i: isize) void {
         self.c_idx = @intCast(usize, @max(0, @addWithOverflow(@intCast(isize, self.c_idx), i)[0]));
         if (self.c_idx > self.raw.items.len) {
             self.c_idx = self.raw.items.len;
         }
+        self.ctinc();
+    }
+
+    /// Warning no safety checks made before access!
+    /// TODO safety checks
+    pub fn cursor_token(self: *Tokenizer) !Token {
+        self.ctinc();
+        return self.tokens.items[self.c_tkn];
     }
 
     // Cursor adjustment to send to tty
@@ -103,6 +122,7 @@ pub const Tokenizer = struct {
                 '$' => unreachable,
                 else => Tokenizer.parse_string(self.raw.items[start..]),
             };
+            // TODO this doesn't belong here
             if (etoken) |*t| {
                 if (t.raw.len > 0) {
                     _ = self.parse_token(t) catch unreachable;
@@ -173,6 +193,8 @@ pub const Tokenizer = struct {
             .type = if (end == 1) TokenType.Char else TokenType.String,
         };
     }
+
+    fn parse_char(_: []const u8) !u8 {}
 
     /// Callers must ensure that src[0] is in (', ")
     pub fn parse_quote(src: []const u8) TokenErr!Token {
@@ -301,6 +323,7 @@ pub const Tokenizer = struct {
         self.tokens.clearAndFree();
         self.c_idx = 0;
         self.err_idx = 0;
+        self.c_tkn = 0;
     }
 
     pub fn consumes(self: *Tokenizer, r: Reader) TokenErr!void {
