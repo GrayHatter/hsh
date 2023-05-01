@@ -52,7 +52,11 @@ pub const HSH = struct {
         var name = try cwd.realpathAlloc(a, ".");
         const h = env.get("HOME");
         std.debug.print("{s}\n", .{h.?});
-        var short = if (h != null and std.mem.startsWith(u8, name, h.?)) name[h.?.len..] else name;
+        var short = if (h != null and std.mem.startsWith(u8, name, h.?)) n: {
+            var tmp = try a.dupe(u8, name[h.?.len - 1 ..]);
+            tmp[0] = '~';
+            break :n tmp;
+        } else name;
         std.debug.print("{s}\n", .{short});
 
         return hshfs{
@@ -71,7 +75,7 @@ pub const HSH = struct {
 
     fn raze_fs(hsh: *HSH) void {
         hsh.alloc.free(hsh.fs.cwd_name);
-        // TODO maybe short?
+        hsh.alloc.free(hsh.fs.cwd_short);
     }
 
     pub fn find_confdir(_: HSH) []const u8 {}
