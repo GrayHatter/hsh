@@ -67,7 +67,11 @@ pub const HSH = struct {
         hsh.env.deinit();
         if (hsh.rc) |rrc| rrc.close();
         if (hsh.history) |h| h.close();
-        // hsh.fs.cwd.close();
+    }
+
+    fn raze_fs(hsh: *HSH) void {
+        hsh.alloc.free(hsh.fs.cwd_name);
+        // TODO maybe short?
     }
 
     pub fn find_confdir(_: HSH) []const u8 {}

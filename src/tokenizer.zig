@@ -39,7 +39,7 @@ pub const Token = struct {
 
     pub fn cannon(self: Token) []const u8 {
         return switch (self.type) {
-            .String => self.raw,
+            .Char, .String => self.raw,
             .Quote => self.real,
             else => "error",
         };
@@ -198,7 +198,7 @@ pub const Tokenizer = struct {
 
     /// Callers must ensure that src[0] is in (', ")
     pub fn parse_quote(src: []const u8) TokenErr!Token {
-        if (src.len <= 1) {
+        if (src.len <= 1 or src[0] == '\\') {
             return TokenErr.InvalidSrc;
         }
         const subt = src[0];

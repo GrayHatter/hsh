@@ -13,6 +13,7 @@ const Drawable = Draw.Drawable;
 const printAfter = Draw.printAfter;
 const prompt = @import("prompt.zig").prompt;
 const HSH = @import("hsh.zig").HSH;
+const complete = @import("completion.zig").complete;
 
 const KeyEvent = enum {
     Unknown,
@@ -103,12 +104,12 @@ pub fn csi(hsh: *HSH, tkn: *Tokenizer) !KeyPress {
 }
 
 pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
+    var buffer: [1]u8 = undefined;
     while (true) {
         hsh.draw.cursor = @truncate(u32, tkn.cadj());
         try prompt(hsh, tkn);
         try Draw.render(&hsh.draw);
 
-        var buffer: [1]u8 = undefined;
         const nbyte = try os.read(tty.tty, &buffer);
         if (nbyte == 0) {
             continue;
@@ -139,8 +140,11 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
             '\x08' => try tty.print("\r\ninput: backspace\r\n", .{}),
             '\x09' => |b| {
                 if (tkn.tab()) {
-                    _ = try tkn.parse();
+                    _ = tkn.parse() catch continue;
                     std.debug.print("Token ({})\n\n", .{try tkn.cursor_token()});
+                    const comps = try complete(hsh, try tkn.cursor_token());
+                    for (comps) |c| std.debug.print("comp {}\n", .{c});
+                    // TODO free memory
                 } else {
                     try tkn.consumec(b);
                 }
