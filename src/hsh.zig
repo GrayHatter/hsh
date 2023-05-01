@@ -67,7 +67,7 @@ pub const HSH = struct {
         hsh.env.deinit();
         if (hsh.rc) |rrc| rrc.close();
         if (hsh.history) |h| h.close();
-        hsh.fs.cwd.close();
+        // hsh.fs.cwd.close();
     }
 
     pub fn find_confdir(_: HSH) []const u8 {}

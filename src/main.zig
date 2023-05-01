@@ -121,7 +121,7 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
             '\x1B' => {
                 switch (try esc(hsh, tkn)) {
                     .Unknown => {},
-                    .Char => |c| try printAfter(&hsh.draw, "key    {} {c}", .{ c, c }),
+                    .Char => |c| try printAfter(&hsh.draw, "\n\n\nkey    {} {c}", .{ c, c }),
                     .Action => |a| {
                         switch (a) {
                             .ArrowUp => {},
@@ -150,6 +150,7 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
             '\x12' => try tty.print("^R\r\n", .{}), // DC2
             '\x13' => try tty.print("^R\r\n", .{}), // DC3
             '\x14' => try tty.print("^T\r\n", .{}), // DC4
+            '\x1A' => try tty.print("^Z\r\n", .{}),
             '\x17' => try tkn.popUntil(),
             '\x20'...'\x7E' => |b| {
                 try tkn.consumec(b);
@@ -188,7 +189,7 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
                 }
             },
             else => |b| {
-                try tty.print("\n\n\runknown char    {} {s}", .{ b, buffer });
+                try tty.print("\n\n\runknown char    {} {s}\n", .{ b, buffer });
             },
         }
     }
