@@ -136,7 +136,7 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
                     },
                 }
             },
-            '\x07' => try tty.print("^bel\r\n", .{}), // DC2
+            '\x07' => try tty.print("^bel\r\n", .{}),
             '\x08' => try tty.print("\r\ninput: backspace\r\n", .{}),
             '\x09' => |b| {
                 if (tkn.tab()) {

@@ -21,10 +21,18 @@ pub const TokenType = enum(u8) {
     Tree, // Should this token be a separate type?
 };
 
+pub const TokenErr = error{
+    None,
+    Unknown,
+    LineTooLong,
+    ParseError,
+    InvalidSrc,
+};
+
 pub const Token = struct {
-    raw: []const u8,
+    raw: []const u8, // "full" Slice, you probably want to use cannon()
+    real: []const u8, // the "real" slice for everything but the user
     i: u16 = 0,
-    real: []const u8,
     backing: ?ArrayList(u8) = null,
     type: TokenType = TokenType.Untyped,
     subtoken: u8 = 0,
@@ -38,11 +46,22 @@ pub const Token = struct {
     }
 
     pub fn cannon(self: Token) []const u8 {
+        if (self.backing) |b| return b.items;
         return switch (self.type) {
             .Char, .String => self.raw,
             .Quote => self.real,
             else => "error",
         };
+    }
+
+    pub fn upgrade(self: *Token, a: Allocator, typ: TokenType) ![]u8 {
+        self.*.type = typ;
+        self.*.backing = ArrayList(u8).init(a);
+        self.*.backing.?.appendSlice(self.*.real[0..]) catch {
+            return TokenErr.Unknown;
+        };
+        self.*.real = self.*.backing.?.items;
+        return self.*.backing.?.items;
     }
 };
 
@@ -55,14 +74,6 @@ pub const Tokenizer = struct {
     c_idx: usize = 0,
     c_tkn: usize = 0, // cursor is over this token
     err_idx: usize = 0,
-
-    pub const TokenErr = error{
-        None,
-        Unknown,
-        LineTooLong,
-        ParseError,
-        InvalidSrc,
-    };
 
     const Builtins = [_][]const u8{
         "alias",
@@ -171,12 +182,7 @@ pub const Tokenizer = struct {
             }
         }
 
-        token.*.type = TokenType.Exe;
-        token.*.backing = ArrayList(u8).init(self.alloc);
-        token.*.backing.?.appendSlice(token.*.real[0..]) catch {
-            return TokenErr.Unknown;
-        };
-        token.*.real = token.*.backing.?.items;
+        _ = try token.upgrade(self.alloc, TokenType.Exe);
         return token;
     }
 
