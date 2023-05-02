@@ -13,7 +13,7 @@ const Drawable = Draw.Drawable;
 const printAfter = Draw.printAfter;
 const prompt = @import("prompt.zig").prompt;
 const HSH = @import("hsh.zig").HSH;
-const complete = @import("completion.zig").complete;
+const complete = @import("completion.zig");
 
 const KeyEvent = enum {
     Unknown,
@@ -105,11 +105,15 @@ pub fn csi(hsh: *HSH, tkn: *Tokenizer) !KeyPress {
 
 pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
     var buffer: [1]u8 = undefined;
+    var prev: [1]u8 = undefined;
     while (true) {
         hsh.draw.cursor = @truncate(u32, tkn.cadj());
         try prompt(hsh, tkn);
         try Draw.render(&hsh.draw);
 
+        // REALLY WISH I COULD BUILD ZIG, ARCH LINUX!!!
+        //@memcpy(prev, buffer);
+        prev[0] = buffer[0];
         const nbyte = try os.read(tty.tty, &buffer);
         if (nbyte == 0) {
             continue;
@@ -139,15 +143,32 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
             '\x07' => try tty.print("^bel\r\n", .{}),
             '\x08' => try tty.print("\r\ninput: backspace\r\n", .{}),
             '\x09' => |b| {
-                if (tkn.tab()) {
-                    _ = tkn.parse() catch continue;
-                    std.debug.print("Token ({})\n\n", .{try tkn.cursor_token()});
-                    const comps = try complete(hsh, try tkn.cursor_token());
-                    for (comps) |c| std.debug.print("comp {}\n", .{c});
-                    // TODO free memory
-                } else {
+                // Tab is best effort, it shouldn't be able to crash hsh
+                _ = tkn.parse() catch continue;
+                if (!tkn.tab()) {
                     try tkn.consumec(b);
+                    continue;
                 }
+                const ctkn = tkn.cursor_token() catch continue;
+                var comp = &complete.compset;
+                if (b != prev[0]) {
+                    _ = try complete.complete(hsh, ctkn);
+                    if (comp.list.items.len == 2) {
+                        // original and single, complete now
+                        comp.index = 1;
+                    } else {
+                        // multiple options, complete original first
+                        comp.index = 0;
+                    }
+                    // for (comp.list.items) |c| std.debug.print("comp {}\n", .{c});
+                } else {
+                    comp.index = (comp.index + 1) % comp.list.items.len;
+                }
+                if (comp.list.items.len > 0) {
+                    const new = comp.list.items[comp.index].str;
+                    try tkn.replaceToken(ctkn, new);
+                }
+                // TODO free memory
             },
             '\x0E' => try tty.print("shift in\r\n", .{}),
             '\x0F' => try tty.print("^shift out\r\n", .{}),
@@ -164,7 +185,7 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
             '\x03' => {
                 try tty.print("^C\r\n", .{});
                 tkn.reset();
-                // if (tkn.raw.items.len > 0) {
+                // if (tn.raw.items.len > 0) {
                 // } else {
                 //     return false;
                 //     try tty.print("\r\nExit caught... Bye ()\r\n", .{});
@@ -324,6 +345,8 @@ pub fn main() !void {
 
     var hsh = try HSH.init(a);
     defer hsh.raze();
+
+    _ = try complete.init(&hsh);
 
     try signals();
 

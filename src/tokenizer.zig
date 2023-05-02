@@ -54,6 +54,8 @@ pub const Token = struct {
         };
     }
 
+    // Don't upgrade raw, it must "always" point to the user prompt
+    // string[citation needed]
     pub fn upgrade(self: *Token, a: Allocator, typ: TokenType) ![]u8 {
         self.*.type = typ;
         self.*.backing = ArrayList(u8).init(a);
@@ -262,7 +264,19 @@ pub const Tokenizer = struct {
         return false;
     }
 
-    pub fn replaceToken(_: *Tokenizer, _: *Token) !void {}
+    /// This function edits user text, so extra care must be taken to ensure
+    /// it's something the user asked for!
+    pub fn replaceToken(self: *Tokenizer, old: *const Token, new: []u8) !void {
+        var sum: usize = 0;
+        for (self.tokens.items) |*t| {
+            if (t == old) break;
+            sum += t.raw.len;
+        }
+        self.c_idx = sum + old.raw.len;
+        // White space is a bit strange, this is probably the wrong hack for it
+        if (old.type != .WhiteSpace) for (0..old.raw.len) |_| try self.pop();
+        if (!std.mem.eql(u8, new, " ")) for (new) |c| try self.consumec(c);
+    }
 
     // this clearly needs a bit more love
     pub fn popUntil(self: *Tokenizer) TokenErr!void {

@@ -131,6 +131,10 @@ pub fn draw(d: *Drawable, tree: LexTree) !void {
 
 fn draw_after(_: *Drawable, _: LexTree) !void {}
 
+/// Renders the "prompt" line
+/// hsh is based around the idea of user keyboard-driven input, so plugin should
+/// provide the context, expecting not to know about, or touch the final user
+/// input line
 pub fn render(d: *Drawable) !void {
     if (d.cursor_reposition) {
         var move = d.cursor;
