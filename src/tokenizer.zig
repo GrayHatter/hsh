@@ -101,10 +101,12 @@ pub const Tokenizer = struct {
     }
 
     /// Warning no safety checks made before access!
+    /// Also, Tokeninzer continues to own memory, and may invalidate it whenever
+    /// it sees fit.
     /// TODO safety checks
-    pub fn cursor_token(self: *Tokenizer) !Token {
+    pub fn cursor_token(self: *Tokenizer) !*const Token {
         self.ctinc();
-        return self.tokens.items[self.c_tkn];
+        return &self.tokens.items[self.c_tkn];
     }
 
     // Cursor adjustment to send to tty
@@ -253,6 +255,8 @@ pub const Tokenizer = struct {
         }
         return false;
     }
+
+    pub fn replaceToken(_: *Tokenizer, _: *Token) !void {}
 
     // this clearly needs a bit more love
     pub fn popUntil(self: *Tokenizer) TokenErr!void {

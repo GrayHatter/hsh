@@ -14,7 +14,7 @@ pub const CompOption = struct {
     }
 };
 
-fn complete_cwd(hsh: *HSH, _: Token) ![]CompOption {
+fn complete_cwd(hsh: *HSH, _: *const Token) ![]CompOption {
     var list = ArrayList(CompOption).init(hsh.alloc);
     var itr = hsh.fs.cwdi.iterate();
     while (try itr.next()) |each| {
@@ -31,7 +31,7 @@ fn complete_cwd(hsh: *HSH, _: Token) ![]CompOption {
     return list.toOwnedSlice();
 }
 
-fn complete_cwd_token(hsh: *HSH, t: Token) ![]CompOption {
+fn complete_cwd_token(hsh: *HSH, t: *const Token) ![]CompOption {
     var list = ArrayList(CompOption).init(hsh.alloc);
     var itr = hsh.fs.cwdi.iterate();
     while (try itr.next()) |each| {
@@ -50,7 +50,7 @@ fn complete_cwd_token(hsh: *HSH, t: Token) ![]CompOption {
 }
 
 /// Caller owns both the array of options, and the option text memory for each as well
-pub fn complete(hsh: *HSH, t: Token) ![]CompOption {
+pub fn complete(hsh: *HSH, t: *const Token) ![]CompOption {
     switch (t.type) {
         .WhiteSpace => return try complete_cwd(hsh, t),
         .String, .Char => return try complete_cwd_token(hsh, t),
