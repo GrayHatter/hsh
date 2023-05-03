@@ -9,6 +9,7 @@ const hshfs = struct {
     cwd_name: []u8 = undefined,
     cwd_short: []u8 = undefined,
     confdir: ?[]const u8 = null,
+    home_name: []const u8 = undefined,
 };
 
 pub const HSH = struct {
@@ -40,31 +41,48 @@ pub const HSH = struct {
         return HSH{
             .alloc = a,
             .env = env,
-            .fs = try init_fs(a, env),
+            .fs = try initFs(a, env),
             .rc = rc,
             .history = history,
         };
     }
 
-    fn init_fs(a: Allocator, env: std.process.EnvMap) !hshfs {
+    fn initFs(a: Allocator, env: std.process.EnvMap) !hshfs {
         var cwd = std.fs.cwd();
         var cwdi = try cwd.openIterableDir(".", .{});
         var name = try cwd.realpathAlloc(a, ".");
         const h = env.get("HOME");
-        std.debug.print("{s}\n", .{h.?});
         var short = if (h != null and std.mem.startsWith(u8, name, h.?)) n: {
             var tmp = try a.dupe(u8, name[h.?.len - 1 ..]);
             tmp[0] = '~';
             break :n tmp;
         } else name;
-        std.debug.print("{s}\n", .{short});
 
         return hshfs{
             .cwd = cwd,
             .cwdi = cwdi,
             .cwd_name = name,
             .cwd_short = short,
+            .home_name = h orelse "",
         };
+    }
+
+    pub fn updateFs(hsh: *HSH) void {
+        hsh.razeFs();
+        var cwd = std.fs.cwd();
+        var cwdi = cwd.openIterableDir(".", .{}) catch unreachable;
+        var name = cwd.realpathAlloc(hsh.alloc, ".") catch unreachable;
+        const h = hsh.fs.home_name;
+        var short = if (std.mem.startsWith(u8, name, h)) n: {
+            var tmp = hsh.alloc.dupe(u8, name[h.len - 1 ..]) catch unreachable;
+            tmp[0] = '~';
+            break :n tmp;
+        } else name;
+
+        hsh.fs.cwd = cwd;
+        hsh.fs.cwdi = cwdi;
+        hsh.fs.cwd_name = name;
+        hsh.fs.cwd_short = short;
     }
 
     pub fn raze(hsh: *HSH) void {
@@ -73,7 +91,7 @@ pub const HSH = struct {
         if (hsh.history) |h| h.close();
     }
 
-    fn raze_fs(hsh: *HSH) void {
+    fn razeFs(hsh: *HSH) void {
         hsh.alloc.free(hsh.fs.cwd_name);
         hsh.alloc.free(hsh.fs.cwd_short);
     }

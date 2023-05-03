@@ -14,6 +14,7 @@ const printAfter = Draw.printAfter;
 const prompt = @import("prompt.zig").prompt;
 const HSH = @import("hsh.zig").HSH;
 const complete = @import("completion.zig");
+const Builtins = @import("builtins.zig");
 
 const KeyEvent = enum {
     Unknown,
@@ -233,10 +234,11 @@ test "c memory" {
 
     var argv: [:null]?[*:0]u8 = undefined;
     var list = ArrayList(?[*:0]u8).init(a);
-    try std.testing.expect(tkn.tokens.items.len == 2);
+    try std.testing.expect(tkn.tokens.items.len == 3);
     try std.testing.expect(mem.eql(u8, tkn.tokens.items[0].raw, "ls"));
     try std.testing.expect(mem.eql(u8, tkn.tokens.items[0].real, "ls"));
     for (tkn.tokens.items) |token| {
+        if (token.type == .WhiteSpace) continue;
         var arg = a.alloc(u8, token.real.len + 1) catch unreachable;
         mem.copy(u8, arg, token.real);
         arg[token.real.len] = 0;
@@ -364,11 +366,26 @@ pub fn main() !void {
                 _ = try hsh.history.?.write(t.raw.items);
                 _ = try hsh.history.?.write("\n");
                 try hsh.history.?.sync();
-                exec(&tty, &t) catch |err| {
-                    if (err == hshExecErr.NotFound) std.os.exit(2);
-                    unreachable;
-                };
-                t.clear();
+                if (!(t.parse() catch continue)) continue;
+
+                switch (t.tokens.items[0].type) {
+                    .Exe => {
+                        exec(&tty, &t) catch |err| {
+                            if (err == hshExecErr.NotFound) std.os.exit(2);
+                            unreachable;
+                        };
+                        t.reset();
+                    },
+                    .Builtin => {
+                        const bi_func = Builtins.strExec(t.tokens.items[0].cannon());
+                        bi_func(&hsh, t.tokens.items) catch |err| {
+                            std.debug.print("builtin error {}\n", .{err});
+                        };
+                        t.reset();
+                        continue;
+                    },
+                    else => continue,
+                }
             } else {
                 break;
             }

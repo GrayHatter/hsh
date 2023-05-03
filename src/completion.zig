@@ -15,8 +15,7 @@ pub var compset: CompSet = undefined;
 pub const CompKind = enum {
     Unknown,
     Original,
-    File,
-    Directory,
+    FileSystem,
 };
 
 pub const CompOption = struct {
@@ -56,10 +55,10 @@ fn complete_cwd(cwdi: *IterableDir, _: *const Token) !void {
     var itr = cwdi.iterate();
     while (try itr.next()) |each| {
         switch (each.kind) {
-            .File, .Directory => {
+            .File, .Directory, .SymLink => {
                 try compset.list.append(CompOption{
                     .str = try compset.alloc.dupe(u8, each.name),
-                    .kind = if (each.kind == .File) .File else .Directory,
+                    .kind = .FileSystem,
                 });
             },
             else => unreachable,
@@ -75,10 +74,13 @@ fn complete_cwd_token(cwdi: IterableDir, t: *const Token) !void {
                 if (!std.mem.startsWith(u8, each.name, t.cannon())) continue;
                 try compset.list.append(CompOption{
                     .str = try compset.alloc.dupe(u8, each.name),
-                    .kind = if (each.kind == .File) .File else .Directory,
+                    .kind = .FileSystem,
                 });
             },
-            else => unreachable,
+            else => |typ| {
+                std.debug.print("completion error! {}\n", .{typ});
+                unreachable;
+            },
         }
     }
 }

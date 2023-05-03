@@ -6,6 +6,7 @@ const fs = std.fs;
 const io = std.io;
 const mem = std.mem;
 const std = @import("std");
+const Builtins = @import("builtins.zig");
 
 pub const TokenType = enum(u8) {
     Untyped,
@@ -50,7 +51,8 @@ pub const Token = struct {
         return switch (self.type) {
             .Char, .String => self.raw,
             .Quote => self.real,
-            else => "error",
+            .Builtin => self.real,
+            else => unreachable,
         };
     }
 
@@ -76,12 +78,6 @@ pub const Tokenizer = struct {
     c_idx: usize = 0,
     c_tkn: usize = 0, // cursor is over this token
     err_idx: usize = 0,
-
-    const Builtins = [_][]const u8{
-        "alias",
-        "which",
-        "echo",
-    };
 
     pub fn init(a: Allocator) Tokenizer {
         return Tokenizer{
@@ -140,7 +136,7 @@ pub const Tokenizer = struct {
             // TODO this doesn't belong here
             if (etoken) |*t| {
                 if (t.raw.len > 0) {
-                    _ = self.parse_token(t) catch unreachable;
+                    _ = self.parseToken(t) catch unreachable;
                     self.tokens.append(t.*) catch unreachable;
                     start += t.raw.len;
                 } else {
@@ -155,19 +151,20 @@ pub const Tokenizer = struct {
         if (self.tokens.items.len == 0) return false;
         const t = self.tokens.items[self.tokens.items.len - 1];
         return switch (t.type) {
-            TokenType.Char,
-            TokenType.String,
-            TokenType.Exe,
-            TokenType.WhiteSpace,
-            TokenType.Quote,
+            .Char,
+            .String,
+            .Exe,
+            .WhiteSpace,
+            .Quote,
+            .Builtin,
             => true,
             else => false,
         };
     }
 
-    fn parse_token(self: *Tokenizer, token: *Token) TokenErr!*Token {
+    fn parseToken(self: *Tokenizer, token: *Token) TokenErr!*Token {
         if (self.tokens.items.len == 0) {
-            return self.parse_action(token);
+            return self.parseAction(token);
         }
 
         switch (token.raw[0]) {
@@ -177,12 +174,8 @@ pub const Tokenizer = struct {
         return;
     }
 
-    fn parse_action(self: *Tokenizer, token: *Token) TokenErr!*Token {
-        if (parse_builtin(token.raw)) {
-            for (Builtins) |bin| {
-                _ = bin;
-            }
-        }
+    fn parseAction(self: *Tokenizer, token: *Token) TokenErr!*Token {
+        if (Builtins.exists(token.raw)) return parseBuiltin(token);
 
         _ = try token.upgrade(self.alloc, TokenType.Exe);
         return token;
@@ -243,9 +236,9 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn parse_builtin(str: []const u8) bool {
-        _ = str;
-        return false;
+    fn parseBuiltin(tkn: *Token) TokenErr!*Token {
+        tkn.*.type = .Builtin;
+        return tkn;
     }
 
     pub fn dump_parsed(self: Tokenizer, ws: bool) !void {
@@ -377,7 +370,7 @@ test "parse quotes" {
     try expect(std.mem.eql(u8, t.real, "a"));
 
     var terr = Tokenizer.parse_quote("\"this is invalid");
-    try expectError(Tokenizer.TokenErr.InvalidSrc, terr);
+    try expectError(TokenErr.InvalidSrc, terr);
 
     t = try Tokenizer.parse_quote("\"this is some text\" more text");
     try expectEql(t.raw.len, 19);
@@ -392,7 +385,7 @@ test "parse quotes" {
     try expect(std.mem.eql(u8, t.real, "this is some text"));
 
     terr = Tokenizer.parse_quote("\"this is some text\\\" more text");
-    try expectError(Tokenizer.TokenErr.InvalidSrc, terr);
+    try expectError(TokenErr.InvalidSrc, terr);
 
     t = try Tokenizer.parse_quote("\"this is some text\\\" more text\"");
     try expectEql(t.raw.len, 31);
