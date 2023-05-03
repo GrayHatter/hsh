@@ -32,7 +32,6 @@ pub const TokenErr = error{
 
 pub const Token = struct {
     raw: []const u8, // "full" Slice, you probably want to use cannon()
-    real: []const u8, // the "real" slice for everything but the user
     i: u16 = 0,
     backing: ?ArrayList(u8) = null,
     type: TokenType = TokenType.Untyped,
@@ -48,10 +47,11 @@ pub const Token = struct {
 
     pub fn cannon(self: Token) []const u8 {
         if (self.backing) |b| return b.items;
+
         return switch (self.type) {
             .Char, .String => self.raw,
-            .Quote => self.real,
-            .Builtin => self.real,
+            .Quote => self.raw[1 .. self.raw.len - 1],
+            .Builtin => self.raw,
             else => unreachable,
         };
     }
@@ -61,10 +61,10 @@ pub const Token = struct {
     pub fn upgrade(self: *Token, a: Allocator, typ: TokenType) ![]u8 {
         self.*.type = typ;
         self.*.backing = ArrayList(u8).init(a);
-        self.*.backing.?.appendSlice(self.*.real[0..]) catch {
+        self.*.backing.?.appendSlice(self.*.raw[0..]) catch {
             return TokenErr.Unknown;
         };
-        self.*.real = self.*.backing.?.items;
+        self.*.raw = self.*.backing.?.items;
         return self.*.backing.?.items;
     }
 };
@@ -192,7 +192,6 @@ pub const Tokenizer = struct {
         } else end += 1;
         return Token{
             .raw = src[0..end],
-            .real = src[0..end],
             .type = if (end == 1) TokenType.Char else TokenType.String,
         };
     }
@@ -217,7 +216,6 @@ pub const Tokenizer = struct {
 
         return Token{
             .raw = src[0..end],
-            .real = src[1 .. end - 1],
             .type = TokenType.Quote,
             .subtoken = subt,
         };
@@ -231,7 +229,6 @@ pub const Tokenizer = struct {
         }
         return Token{
             .raw = src[0..end],
-            .real = src[0..end],
             .type = TokenType.WhiteSpace,
         };
     }

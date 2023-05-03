@@ -90,7 +90,7 @@ pub fn complete(hsh: *HSH, t: *const Token) !*CompSet {
     compset.raze();
     compset.orig_token = t;
     try compset.list.append(CompOption{
-        .str = try compset.alloc.dupe(u8, t.real),
+        .str = try compset.alloc.dupe(u8, t.cannon()),
         .kind = .Original,
     });
     switch (t.type) {

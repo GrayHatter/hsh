@@ -56,7 +56,7 @@ pub const TTY = struct {
         var raw = tos;
         raw.lflag &= ~(os.linux.ECHO | os.linux.ICANON | os.linux.ISIG | os.linux.IEXTEN);
         raw.iflag &= ~(os.linux.IXON | os.linux.ICRNL | os.linux.BRKINT | os.linux.INPCK | os.linux.ISTRIP);
-        raw.cc[os.system.V.TIME] = 5; // 0.1 sec resolution
+        raw.cc[os.system.V.TIME] = 1; // 0.1 sec resolution
         raw.cc[os.system.V.MIN] = 0;
         try os.tcsetattr(tty, .FLUSH, raw);
     }

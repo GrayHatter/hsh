@@ -236,12 +236,12 @@ test "c memory" {
     var list = ArrayList(?[*:0]u8).init(a);
     try std.testing.expect(tkn.tokens.items.len == 3);
     try std.testing.expect(mem.eql(u8, tkn.tokens.items[0].raw, "ls"));
-    try std.testing.expect(mem.eql(u8, tkn.tokens.items[0].real, "ls"));
+    try std.testing.expect(mem.eql(u8, tkn.tokens.items[0].cannon(), "ls"));
     for (tkn.tokens.items) |token| {
         if (token.type == .WhiteSpace) continue;
-        var arg = a.alloc(u8, token.real.len + 1) catch unreachable;
-        mem.copy(u8, arg, token.real);
-        arg[token.real.len] = 0;
+        var arg = a.alloc(u8, token.cannon().len + 1) catch unreachable;
+        mem.copy(u8, arg, token.cannon());
+        arg[token.cannon().len] = 0;
         try list.append(@ptrCast(?[*:0]u8, arg.ptr));
     }
     try std.testing.expect(list.items.len == 2);
@@ -270,11 +270,10 @@ pub fn exec(tty: *TTY, tkn: *Tokenizer) hshExecErr!void {
     for (tkn.tokens.items) |*token| {
         if (token.*.type == TokenType.Exe) {
             token.*.backing.?.insertSlice(0, "/usr/bin/") catch return hshExecErr.Unknown;
-            token.*.real = token.backing.?.items;
         } else if (token.*.type == TokenType.WhiteSpace) continue;
-        var arg = a.alloc(u8, token.*.real.len + 1) catch return hshExecErr.MemError;
-        mem.copy(u8, arg, token.*.real);
-        arg[token.*.real.len] = 0;
+        var arg = a.alloc(u8, token.*.cannon().len + 1) catch return hshExecErr.MemError;
+        mem.copy(u8, arg, token.*.cannon());
+        arg[token.*.cannon().len] = 0;
         list.append(@ptrCast(?[*:0]u8, arg.ptr)) catch return hshExecErr.MemError;
     }
     argv = list.toOwnedSliceSentinel(null) catch return hshExecErr.MemError;
