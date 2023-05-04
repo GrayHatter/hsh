@@ -9,6 +9,29 @@ const draw = Draw.draw;
 
 fn user_text() void {}
 
+var si: usize = 0;
+
+const Spinners = enum {
+    corners,
+    dots2t3,
+
+    const dots = [_][]const u8{ "⡄", "⡆", "⠆", "⠇", "⠃", "⠋", "⠉", "⠙", "⠘", "⠸", "⠰", "⢰", "⢠", "⣠", "⣀", "⣄" };
+    const corners = [_][]const u8{ "◢", "◣", "◤", "◥" };
+    pub fn spin(s: Spinners, pos: usize) []const u8 {
+        const art = switch (s) {
+            .corners => &[_][]const u8{ "◢", "◣", "◤", "◥" },
+            .dots2t3 => &[_][]const u8{ "⡄", "⡆", "⠆", "⠇", "⠃", "⠋", "⠉", "⠙", "⠘", "⠸", "⠰", "⢰", "⢠", "⣠", "⣀", "⣄" },
+        };
+        return art[pos % art.len];
+    }
+};
+
+fn spinner(s: Spinners) Lexeme {
+    // TODO if >1 spinners are in use, this will double increment
+    si += 1;
+    return .{ .char = s.spin(si) };
+}
+
 pub fn prompt(hsh: *HSH, tkn: *Tokenizer) !void {
     var b_raw: [8]u8 = undefined;
     var b_tkns: [8]u8 = undefined;
