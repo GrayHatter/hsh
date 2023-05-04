@@ -163,6 +163,10 @@ fn countPrintable(buf: []const u8) usize {
     return total;
 }
 
+fn countLines(buf: []const u8) usize {
+    return std.mem.count(u8, buf, '\n');
+}
+
 fn drawBefore(d: *Drawable, t: LexTree) !void {
     try d.before.append('\n');
     try drawTree(&d.before, 0, 0, t);
@@ -203,12 +207,11 @@ pub fn render(d: *Drawable) !void {
         var moving = [_:0]u8{0} ** 16;
         const right = try std.fmt.bufPrint(&moving, "\x1B[{}G", .{d.term_size.x});
         _ = try w.write(right);
-        const left = try std.fmt.bufPrint(&moving, "\x1B[{}D", .{countPrintable(d.right.items)});
+        const left = try std.fmt.bufPrint(&moving, "\x1B[{}D", .{countPrintable(d.right.items) - 1});
         _ = try w.write(left);
         _ = try w.write(d.right.items);
     }
 
-    // finally
     _ = try w.write(d.b.items);
     // TODO save backtrack line count?
     d.before.clearAndFree();
@@ -219,7 +222,7 @@ pub fn render(d: *Drawable) !void {
 
 /// Any context before the prompt line should be cleared and replaced with the
 /// prompt before exec.
-pub fn clear_before_context(_: *Drawable) void {}
+pub fn clear_before_exec(_: *Drawable) void {}
 
 // TODO rm -rf
 /// feeling lazy, might delete later

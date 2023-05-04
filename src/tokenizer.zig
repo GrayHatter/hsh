@@ -245,7 +245,7 @@ pub const Tokenizer = struct {
     }
 
     pub fn dump_parsed(self: Tokenizer, ws: bool) !void {
-        std.debug.print("\n\n", .{});
+        std.debug.print("\n", .{});
         for (self.tokens.items) |i| {
             if (!ws and i.type == .WhiteSpace) continue;
             std.debug.print("{}\n", .{i});

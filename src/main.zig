@@ -42,9 +42,9 @@ const KeyPress = union(KeyEvent) {
 
 pub fn esc(hsh: *HSH, tkn: *Tokenizer) !KeyPress {
     tkn.err_idx = 0;
-    try prompt(hsh, tkn);
     var buffer: [1]u8 = undefined;
-    _ = try os.read(hsh.input, &buffer);
+    const in = try os.read(hsh.input, &buffer);
+    if (in != 1) return KeyPress.Unknown;
     switch (buffer[0]) {
         '[' => {
             switch (try csi(hsh, tkn)) {
@@ -132,8 +132,8 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
         switch (buffer[0]) {
             '\x1B' => {
                 switch (try esc(hsh, tkn)) {
-                    .Unknown => {},
-                    .Char => |c| try printAfter(&hsh.draw, "\n\n\nkey    {} {c}", .{ c, c }),
+                    .Unknown => try printAfter(&hsh.draw, "Unknown esc --", .{}),
+                    .Char => |c| try printAfter(&hsh.draw, "key    {} {c}", .{ c, c }),
                     .Action => |a| {
                         switch (a) {
                             .ArrowUp => {},
