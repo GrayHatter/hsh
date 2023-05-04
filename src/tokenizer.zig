@@ -129,6 +129,7 @@ pub const Tokenizer = struct {
         while (start < self.raw.items.len) {
             const token = switch (self.raw.items[start]) {
                 '\'', '"' => Tokenizer.parseQuote(self.raw.items[start..]),
+                '`' => Tokenizer.parseQuote(self.raw.items[start..]), // TODO magic
                 ' ' => Tokenizer.parseSpace(self.raw.items[start..]),
                 '$' => unreachable,
                 else => Tokenizer.parseString(self.raw.items[start..]),
@@ -191,7 +192,7 @@ pub const Tokenizer = struct {
         for (src, 0..) |s, i| {
             end = i;
             switch (s) {
-                ' ', '\t', '"', '\'', '$', '{', '|', '>', '<' => break,
+                ' ', '\t', '"', '\'', '`', '$', '{', '|', '>', '<', '#' => break,
                 else => continue,
             }
         } else end += 1;
@@ -378,6 +379,12 @@ test "parse quotes" {
     try expectEql(t.raw.len, 19);
     try expectEql(t.cannon().len, 17);
     try expect(std.mem.eql(u8, t.raw, "\"this is some text\""));
+    try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
+
+    t = try Tokenizer.parseQuote("`this is some text` more text");
+    try expectEql(t.raw.len, 19);
+    try expectEql(t.cannon().len, 17);
+    try expect(std.mem.eql(u8, t.raw, "`this is some text`"));
     try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
 
     t = try Tokenizer.parseQuote("\"this is some text\" more text");
