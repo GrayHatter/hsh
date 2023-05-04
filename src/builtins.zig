@@ -86,7 +86,7 @@ test "fs" {
     const c = std.fs.cwd();
     //std.debug.print("cwd failed! {}", .{e});
     const ndir = try c.openDir("/home/grayhatter", .{});
-    std.debug.print("test {}\n", .{ndir});
+    //std.debug.print("test {}\n", .{ndir});
     try ndir.setAsCwd();
 }
 

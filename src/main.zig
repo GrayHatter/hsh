@@ -405,36 +405,3 @@ pub fn panic(msg: []const u8, trace: ?*std.builtin.StackTrace, retaddr: ?usize) 
     TTY_.current_tty.?.raze();
     std.builtin.default_panic(msg, trace, retaddr);
 }
-
-const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
-
-test "alloc" {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var t = Tokenizer.init(a);
-    try expect(std.mem.eql(u8, t.raw.items, ""));
-}
-
-test "tokens" {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var parsed = Tokenizer.init(a);
-    for ("token") |c| {
-        try parsed.consumec(c);
-    }
-    _ = try parsed.parse();
-    try expect(std.mem.eql(u8, parsed.raw.items, "token"));
-}
-
-test "parse string" {
-    var tkn = Tokenizer.parse_string("string is true");
-    if (tkn) |tk| {
-        try expect(std.mem.eql(u8, tk.raw, "string"));
-        try expect(tk.raw.len == 6);
-    } else |_| {}
-}
