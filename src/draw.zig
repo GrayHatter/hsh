@@ -1,7 +1,14 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const Writer = std.fs.File.Writer;
+const TTY = @import("tty.zig").TTY;
 const ArrayList = std.ArrayList;
+
+const DrawBuf = ArrayList(u8);
+
+pub const Cord = struct {
+    x: isize = 0,
+    y: isize = 0,
+};
 
 pub const DrawErr = error{
     Unknown,
@@ -53,24 +60,37 @@ pub const LexTree = union(enum) {
 
 pub const Drawable = struct {
     alloc: Allocator,
-    w: Writer,
+    tty: TTY,
     cursor: u32 = 0,
     cursor_reposition: bool = true,
-    b: ArrayList(u8) = undefined,
+    before: DrawBuf = undefined,
+    b: DrawBuf = undefined,
+    right: DrawBuf = undefined,
+    after: DrawBuf = undefined,
+    term_size: Cord = .{},
 
-    pub fn init() Drawable {}
+    pub fn init(a: Allocator, tty: TTY) DrawErr!Drawable {
+        return .{
+            .alloc = a,
+            .tty = tty,
+            .before = DrawBuf.init(a),
+            .b = DrawBuf.init(a),
+            .right = DrawBuf.init(a),
+            .after = DrawBuf.init(a),
+        };
+    }
 
-    pub fn raze() void {}
+    pub fn raze(_: *Drawable) void {}
 };
 
-fn set_attr(buf: *ArrayList(u8), attr: Attr) DrawErr!void {
+fn setAttr(buf: *DrawBuf, attr: Attr) DrawErr!void {
     switch (attr) {
         .Bold => buf.appendSlice("\x1B[1m") catch return DrawErr.Memory,
         else => buf.appendSlice("\x1B[0m") catch return DrawErr.Memory,
     }
 }
 
-fn bg_color(buf: *ArrayList(u8), c: ?Color) DrawErr!void {
+fn bgColor(buf: *DrawBuf, c: ?Color) DrawErr!void {
     if (c) |bg| {
         switch (bg) {
             .Red => buf.appendSlice("\x1B[41m") catch return DrawErr.Memory,
@@ -80,7 +100,7 @@ fn bg_color(buf: *ArrayList(u8), c: ?Color) DrawErr!void {
     }
 }
 
-fn fg_color(buf: *ArrayList(u8), c: ?Color) DrawErr!void {
+fn fgColor(buf: *DrawBuf, c: ?Color) DrawErr!void {
     if (c) |fg| {
         switch (fg) {
             .Blue => buf.appendSlice("\x1B[34m") catch return DrawErr.Memory,
@@ -89,53 +109,85 @@ fn fg_color(buf: *ArrayList(u8), c: ?Color) DrawErr!void {
     }
 }
 
-fn render_lexeme(buf: *ArrayList(u8), x: usize, y: usize, l: Lexeme) DrawErr!void {
+fn drawLexeme(buf: *DrawBuf, x: usize, y: usize, l: Lexeme) DrawErr!void {
     _ = x;
     _ = y;
-    try set_attr(buf, l.attr);
-    try fg_color(buf, l.fg);
-    try bg_color(buf, l.bg);
+    try setAttr(buf, l.attr);
+    try fgColor(buf, l.fg);
+    try bgColor(buf, l.bg);
     buf.appendSlice(l.char) catch return DrawErr.Memory;
-    try bg_color(buf, .None);
-    try fg_color(buf, .None);
-    try set_attr(buf, .Reset);
+    try bgColor(buf, .None);
+    try fgColor(buf, .None);
+    try setAttr(buf, .Reset);
 }
 
-fn render_sibling(buf: *ArrayList(u8), x: usize, y: usize, s: []Lexeme) DrawErr!void {
+fn drawSibling(buf: *DrawBuf, x: usize, y: usize, s: []Lexeme) DrawErr!void {
     for (s) |sib| {
-        render_lexeme(buf, x, y, sib) catch return DrawErr.Memory;
+        drawLexeme(buf, x, y, sib) catch return DrawErr.Memory;
     }
 }
 
-fn render_tree(buf: *ArrayList(u8), x: usize, y: usize, t: LexTree) DrawErr!void {
+fn drawTree(buf: *DrawBuf, x: usize, y: usize, t: LexTree) DrawErr!void {
     return switch (t) {
-        LexTree.lex => |lex| render_lexeme(buf, x, y, lex),
-        LexTree.sibling => |sib| render_sibling(buf, x, y, sib),
-        LexTree.children => |child| render_trees(buf, x, y, child),
+        LexTree.lex => |lex| drawLexeme(buf, x, y, lex),
+        LexTree.sibling => |sib| drawSibling(buf, x, y, sib),
+        LexTree.children => |child| drawTrees(buf, x, y, child),
     };
 }
 
-fn render_trees(buf: *ArrayList(u8), x: usize, y: usize, tree: []LexTree) DrawErr!void {
+fn drawTrees(buf: *DrawBuf, x: usize, y: usize, tree: []LexTree) DrawErr!void {
     for (tree) |t| {
-        render_tree(buf, x, y, t) catch return DrawErr.Memory;
+        drawTree(buf, x, y, t) catch return DrawErr.Memory;
     }
 }
 
-fn draw_before(_: *Drawable, _: LexTree) !void {}
+fn countPrintable(buf: []const u8) usize {
+    var total: usize = 0;
+    var csi = false;
+    for (buf) |b| {
+        if (csi) {
+            switch (b) {
+                0x41...0x5A,
+                0x61...0x7A,
+                => csi = false,
+                else => continue,
+            }
+            continue;
+        }
+        switch (b) {
+            0x1B => csi = true,
+            0x20...0x7E => total += 1,
+            else => {}, // not implemented
+        }
+    }
+    return total;
+}
+
+fn drawBefore(d: *Drawable, t: LexTree) !void {
+    try d.before.append('\n');
+    try drawTree(&d.before, 0, 0, t);
+}
+
+fn drawAfter(d: *Drawable, t: LexTree) !void {
+    try drawTree(&d.after, 0, 0, t);
+    try d.after.append('\n');
+}
+
+pub fn drawRight(d: *Drawable, tree: LexTree) !void {
+    try drawTree(&d.right, 0, 0, tree);
+}
 
 pub fn draw(d: *Drawable, tree: LexTree) !void {
     try d.b.append('\r');
-    try d.b.appendSlice("\x1B[K");
-    try render_tree(&d.b, 0, 0, tree);
+    try drawTree(&d.b, 0, 0, tree);
 }
-
-fn draw_after(_: *Drawable, _: LexTree) !void {}
 
 /// Renders the "prompt" line
 /// hsh is based around the idea of user keyboard-driven input, so plugin should
 /// provide the context, expecting not to know about, or touch the final user
 /// input line
 pub fn render(d: *Drawable) !void {
+    const w = d.tty.out;
     if (d.cursor_reposition) {
         var move = d.cursor;
         while (move > 0) : (move -= 1) {
@@ -143,17 +195,39 @@ pub fn render(d: *Drawable) !void {
         }
     }
 
+    if (d.before.items.len > 0) _ = try w.write(d.before.items);
+    if (d.after.items.len > 0) _ = try w.write(d.after.items);
+    // TODO seek back up
+    if (d.right.items.len > 0) {
+        _ = try w.write("\r\x1B[K");
+        var moving = [_:0]u8{0} ** 16;
+        const right = try std.fmt.bufPrint(&moving, "\x1B[{}G", .{d.term_size.x});
+        _ = try w.write(right);
+        const left = try std.fmt.bufPrint(&moving, "\x1B[{}D", .{countPrintable(d.right.items)});
+        _ = try w.write(left);
+        _ = try w.write(d.right.items);
+    }
+
     // finally
-    _ = try d.w.write(d.b.items);
+    _ = try w.write(d.b.items);
+    // TODO save backtrack line count?
+    d.before.clearAndFree();
+    d.after.clearAndFree();
+    d.right.clearAndFree();
     d.b.clearAndFree();
 }
+
+/// Any context before the prompt line should be cleared and replaced with the
+/// prompt before exec.
+pub fn clear_before_context(_: *Drawable) void {}
 
 // TODO rm -rf
 /// feeling lazy, might delete later
 pub fn printAfter(d: *const Drawable, comptime c: []const u8, a: anytype) !void {
-    _ = try d.w.write("\r\n");
-    _ = try d.w.print(c, a);
-    _ = try d.w.write("\x1B[K");
-    _ = try d.w.write("\x1B[A");
-    _ = try d.w.write("\r");
+    const w = d.tty.out;
+    _ = try w.write("\r\n");
+    _ = try w.print(c, a);
+    _ = try w.write("\x1B[K");
+    _ = try w.write("\x1B[A");
+    _ = try w.write("\r");
 }

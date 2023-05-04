@@ -6,11 +6,7 @@ const File = fs.File;
 const io = std.io;
 const Reader = fs.File.Reader;
 const Writer = fs.File.Writer;
-
-const Point = struct {
-    x: usize,
-    y: usize,
-};
+const Cord = @import("draw.zig").Cord;
 
 pub const OpCodes = enum {
     EraseInLine,
@@ -31,9 +27,6 @@ pub const TTY = struct {
     out: Writer,
     orig: os.termios,
 
-    cpos: Point,
-    size: Point,
-
     /// Calling init multiple times is UB
     pub fn init() !TTY {
         // TODO figure out how to handle multiple calls to current_tty?
@@ -46,8 +39,6 @@ pub const TTY = struct {
             .in = std.io.getStdIn().reader(),
             .out = std.io.getStdOut().writer(),
             .orig = orig,
-            .cpos = cpos(tty) catch unreachable,
-            .size = geom(tty) catch unreachable,
         };
         return current_tty.?;
     }
@@ -56,7 +47,7 @@ pub const TTY = struct {
         var raw = tos;
         raw.lflag &= ~(os.linux.ECHO | os.linux.ICANON | os.linux.ISIG | os.linux.IEXTEN);
         raw.iflag &= ~(os.linux.IXON | os.linux.ICRNL | os.linux.BRKINT | os.linux.INPCK | os.linux.ISTRIP);
-        raw.cc[os.system.V.TIME] = 1; // 0.1 sec resolution
+        raw.cc[os.system.V.TIME] = 5; // 0.1 sec resolution
         raw.cc[os.system.V.MIN] = 0;
         try os.tcsetattr(tty, .FLUSH, raw);
     }
@@ -80,7 +71,7 @@ pub const TTY = struct {
         }
     }
 
-    fn cpos(tty: i32) !Point {
+    pub fn cpos(tty: i32) !Cord {
         std.debug.print("\x1B[6n", .{});
         var buffer: [10]u8 = undefined;
         const len = try os.read(tty, &buffer);
@@ -90,21 +81,21 @@ pub const TTY = struct {
         if (splits.next()) |thing| {
             y = std.fmt.parseInt(usize, thing[0 .. len - 3], 10) catch 0;
         }
-        return Point{
+        return .{
             .x = x,
             .y = y,
         };
     }
 
-    pub fn geom(tty: i32) !Point {
-        var size = mem.zeroes(os.linux.winsize);
-        const err = os.system.ioctl(tty, os.linux.T.IOCGWINSZ, @ptrToInt(&size));
+    pub fn geom(self: *TTY) !Cord {
+        var size: os.linux.winsize = mem.zeroes(os.linux.winsize);
+        const err = os.system.ioctl(self.tty, os.linux.T.IOCGWINSZ, @ptrToInt(&size));
         if (os.errno(err) != .SUCCESS) {
             return os.unexpectedErrno(@intToEnum(os.system.E, err));
         }
-        return Point{
-            .x = size.ws_row,
-            .y = size.ws_col,
+        return .{
+            .x = size.ws_col,
+            .y = size.ws_row,
         };
     }
 

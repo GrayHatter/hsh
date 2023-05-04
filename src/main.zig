@@ -97,17 +97,23 @@ pub fn csi(hsh: *HSH, tkn: *Tokenizer) !KeyPress {
         'H' => return KeyPress{ .Action = .Home },
         'F' => return KeyPress{ .Action = .End },
         else => {
-            try hsh.draw.w.print("\r\nCSI next: \r\n", .{});
-            try hsh.draw.w.print("    {x} {s}\n\n", .{ buffer[0], buffer });
+            try hsh.draw.tty.out.print("\r\nCSI next: \r\n", .{});
+            try hsh.draw.tty.out.print("    {x} {s}\n\n", .{ buffer[0], buffer });
         },
     }
     return KeyPress{ .Action = .Handled };
 }
 
-pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
+var term_resized: bool = false;
+
+pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
     var buffer: [1]u8 = undefined;
     var prev: [1]u8 = undefined;
     while (true) {
+        if (term_resized) {
+            hsh.draw.term_size = hsh.tty.geom() catch unreachable;
+            term_resized = false;
+        }
         hsh.draw.cursor = @truncate(u32, tkn.cadj());
         try prompt(hsh, tkn);
         try Draw.render(&hsh.draw);
@@ -115,7 +121,7 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
         // REALLY WISH I COULD BUILD ZIG, ARCH LINUX!!!
         //@memcpy(prev, buffer);
         prev[0] = buffer[0];
-        const nbyte = try os.read(tty.tty, &buffer);
+        const nbyte = try os.read(hsh.tty.tty, &buffer);
         if (nbyte == 0) {
             continue;
         }
@@ -141,8 +147,8 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
                     },
                 }
             },
-            '\x07' => try tty.print("^bel\r\n", .{}),
-            '\x08' => try tty.print("\r\ninput: backspace\r\n", .{}),
+            '\x07' => try hsh.tty.print("^bel\r\n", .{}),
+            '\x08' => try hsh.tty.print("\r\ninput: backspace\r\n", .{}),
             '\x09' => |b| {
                 // Tab is best effort, it shouldn't be able to crash hsh
                 _ = tkn.parse() catch continue;
@@ -171,12 +177,12 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
                 }
                 // TODO free memory
             },
-            '\x0E' => try tty.print("shift in\r\n", .{}),
-            '\x0F' => try tty.print("^shift out\r\n", .{}),
-            '\x12' => try tty.print("^R\r\n", .{}), // DC2
-            '\x13' => try tty.print("^R\r\n", .{}), // DC3
-            '\x14' => try tty.print("^T\r\n", .{}), // DC4
-            '\x1A' => try tty.print("^Z\r\n", .{}),
+            '\x0E' => try hsh.tty.print("shift in\r\n", .{}),
+            '\x0F' => try hsh.tty.print("^shift out\r\n", .{}),
+            '\x12' => try hsh.tty.print("^R\r\n", .{}), // DC2
+            '\x13' => try hsh.tty.print("^R\r\n", .{}), // DC3
+            '\x14' => try hsh.tty.print("^T\r\n", .{}), // DC4
+            '\x1A' => try hsh.tty.print("^Z\r\n", .{}),
             '\x17' => try tkn.popUntil(),
             '\x20'...'\x7E' => |b| {
                 try tkn.consumec(b);
@@ -184,7 +190,7 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
             },
             '\x7F' => try tkn.pop(), // backspace
             '\x03' => {
-                try tty.print("^C\r\n", .{});
+                try hsh.tty.print("^C\r\n", .{});
                 tkn.reset();
                 // if (tn.raw.items.len > 0) {
                 // } else {
@@ -193,13 +199,13 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
                 // }
             },
             '\x04' => |b| {
-                try tty.print("^D\r\n", .{});
-                try tty.print("\r\nExit caught... Bye ({})\r\n", .{b});
+                try hsh.tty.print("^D\r\n", .{});
+                try hsh.tty.print("\r\nExit caught... Bye ({})\r\n", .{b});
                 return false;
             },
             '\n', '\r' => |b| {
                 hsh.draw.cursor = 0;
-                try tty.print("\r\n", .{});
+                try hsh.tty.print("\r\n", .{});
                 const run = tkn.parse() catch |e| {
                     std.debug.print("Parse Error {}\n", .{e});
                     try tkn.dump_parsed(true);
@@ -215,7 +221,7 @@ pub fn loop(hsh: *HSH, tty: *TTY, tkn: *Tokenizer) !bool {
                 }
             },
             else => |b| {
-                try tty.print("\n\n\runknown char    {} {s}\n", .{ b, buffer });
+                try hsh.tty.print("\n\n\runknown char    {} {s}\n", .{ b, buffer });
             },
         }
     }
@@ -259,8 +265,7 @@ const hshExecErr = error{
     NotFound,
 };
 
-pub fn exec(tty: *TTY, tkn: *Tokenizer) hshExecErr!void {
-    _ = tty;
+pub fn exec(_: *HSH, tkn: *Tokenizer) hshExecErr!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -281,6 +286,7 @@ pub fn exec(tty: *TTY, tkn: *Tokenizer) hshExecErr!void {
     const fork_pid = std.os.fork() catch return hshExecErr.Unknown;
     if (fork_pid == 0) {
         // TODO manage env
+        // TODO restore cooked!!
         const res = std.os.execveZ(argv[0].?, argv, @ptrCast([*:null]?[*:0]u8, std.os.environ));
         switch (res) {
             error.FileNotFound => return hshExecErr.NotFound,
@@ -297,12 +303,10 @@ pub fn exec(tty: *TTY, tkn: *Tokenizer) hshExecErr!void {
     }
 }
 
-pub fn sig_cb(sig: c_int, info: *const os.siginfo_t, uctx: ?*const anyopaque) callconv(.C) void {
+pub fn sig_cb(sig: c_int, _: *const os.siginfo_t, _: ?*const anyopaque) callconv(.C) void {
     if (sig != os.SIG.WINCH) unreachable;
-    _ = info;
-    _ = uctx; // TODO maybe install uctx and drop TTY.current_tty?
-    var curr = TTY_.current_tty.?;
-    curr.size = TTY.geom(curr.tty) catch unreachable;
+    //std.debug.print("{}\n", .{info});
+    term_resized = true;
 }
 
 pub fn signals() !void {
@@ -336,9 +340,6 @@ fn read_history(cnt: usize, hist: std.fs.File, buffer: *ArrayList(u8)) !bool {
 }
 
 pub fn main() !void {
-    var tty = TTY.init() catch unreachable;
-    defer tty.raze();
-
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -351,16 +352,15 @@ pub fn main() !void {
 
     try signals();
 
-    hsh.draw = Drawable{
-        .w = tty.out,
-        .alloc = a,
-        .b = ArrayList(u8).init(a),
-    };
-
-    hsh.input = tty.tty;
+    hsh.tty = TTY.init() catch unreachable;
+    defer hsh.tty.raze();
+    hsh.draw = Drawable.init(a, hsh.tty) catch unreachable;
+    defer hsh.draw.raze();
+    hsh.draw.term_size = hsh.tty.geom() catch unreachable;
+    hsh.input = hsh.tty.tty;
 
     while (true) {
-        if (loop(&hsh, &tty, &t)) |l| {
+        if (loop(&hsh, &t)) |l| {
             if (l) {
                 _ = try hsh.history.?.write(t.raw.items);
                 _ = try hsh.history.?.write("\n");
@@ -369,7 +369,7 @@ pub fn main() !void {
 
                 switch (t.tokens.items[0].type) {
                     .Exe => {
-                        exec(&tty, &t) catch |err| {
+                        exec(&hsh, &t) catch |err| {
                             if (err == hshExecErr.NotFound) std.os.exit(2);
                             unreachable;
                         };

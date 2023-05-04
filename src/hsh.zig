@@ -2,6 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const Drawable = @import("draw.zig").Drawable;
+const TTY = @import("tty.zig").TTY;
 
 const hshfs = struct {
     cwd: std.fs.Dir,
@@ -18,6 +19,7 @@ pub const HSH = struct {
     fs: hshfs,
     rc: ?std.fs.File = null,
     history: ?std.fs.File = null,
+    tty: TTY = undefined,
     draw: Drawable = undefined,
     input: i32 = 0,
 

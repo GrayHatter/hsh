@@ -6,6 +6,7 @@ const HSH = @import("hsh.zig").HSH;
 const Lexeme = Draw.Lexeme;
 const Drawable = Draw.Drawable;
 const draw = Draw.draw;
+const drawRight = Draw.drawRight;
 
 fn user_text() void {}
 
@@ -33,9 +34,6 @@ fn spinner(s: Spinners) Lexeme {
 }
 
 pub fn prompt(hsh: *HSH, tkn: *Tokenizer) !void {
-    var b_raw: [8]u8 = undefined;
-    var b_tkns: [8]u8 = undefined;
-    var c_tkn: [8]u8 = undefined;
     try draw(&hsh.draw, .{
         .sibling = &[_]Lexeme{
             .{
@@ -44,22 +42,7 @@ pub fn prompt(hsh: *HSH, tkn: *Tokenizer) !void {
                 .fg = .Blue,
             },
             .{ .char = "@" },
-            .{ .char = "host" },
-            .{ .char = try std.fmt.bufPrint(
-                &b_raw,
-                "({}) ",
-                .{tkn.raw.items.len},
-            ) },
-            .{ .char = try std.fmt.bufPrint(
-                &b_tkns,
-                "({}) ",
-                .{tkn.tokens.items.len},
-            ) },
-            .{ .char = try std.fmt.bufPrint(
-                &c_tkn,
-                "[{}] ",
-                .{tkn.c_tkn},
-            ) },
+            .{ .char = "host " },
             .{ .char = hsh.fs.cwd_short },
             .{ .char = " $ " },
             .{ .char = if (tkn.err_idx > 0) tkn.raw.items[0..tkn.err_idx] else tkn.raw.items },
@@ -69,4 +52,12 @@ pub fn prompt(hsh: *HSH, tkn: *Tokenizer) !void {
             },
         },
     });
+    var tokens: [16]u8 = undefined;
+    try drawRight(&hsh.draw, .{ .sibling = &[_]Lexeme{
+        .{ .char = try std.fmt.bufPrint(&tokens, "({}) ({}) [{}]", .{
+            tkn.raw.items.len,
+            tkn.tokens.items.len,
+            tkn.c_tkn,
+        }) },
+    } });
 }
