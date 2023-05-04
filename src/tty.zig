@@ -33,7 +33,7 @@ pub const TTY = struct {
         const tty = try os.open("/dev/tty", os.linux.O.RDWR, 0);
         const orig = try os.tcgetattr(tty);
 
-        try push_tty(tty, orig);
+        try pushTTY(tty, orig);
         current_tty = TTY{
             .tty = tty,
             .in = std.io.getStdIn().reader(),
@@ -43,7 +43,7 @@ pub const TTY = struct {
         return current_tty.?;
     }
 
-    fn push_tty(tty: i32, tos: os.termios) !void {
+    fn pushTTY(tty: i32, tos: os.termios) !void {
         var raw = tos;
         raw.lflag &= ~(os.linux.ECHO | os.linux.ICANON | os.linux.ISIG | os.linux.IEXTEN);
         raw.iflag &= ~(os.linux.IXON | os.linux.ICRNL | os.linux.BRKINT | os.linux.INPCK | os.linux.ISTRIP);
