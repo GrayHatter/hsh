@@ -47,10 +47,9 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
                 tkn.err_idx = 0;
                 switch (try Keys.esc(hsh)) {
                     .Unknown => try printAfter(&hsh.draw, "Unknown esc --", .{}),
-                    .Char => |c| try printAfter(&hsh.draw, "key    {} {c}", .{ c, c }),
-                    .Action => |a| {
+                    .Key => |a| {
                         switch (a) {
-                            .ArrowUp => {
+                            .Up => {
                                 if (tkn.hist_pos == 0) tkn.push_line();
                                 tkn.clear();
                                 const top = read_history(tkn.hist_pos + 1, hsh.history.?, &tkn.raw) catch unreachable;
@@ -61,7 +60,7 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
                                 //    top = read_history(tkn.hist_pos + 1, history, &tkn.raw) catch unreachable;
                                 //}
                             },
-                            .ArrowDn => {
+                            .Down => {
                                 if (tkn.hist_pos > 1) {
                                     tkn.hist_pos -= 1;
                                     tkn.raw.clearAndFree();
@@ -72,11 +71,18 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
                                     tkn.pop_line();
                                 } else {}
                             },
-                            .ArrowBk => tkn.cinc(-1),
-                            .ArrowFw => tkn.cinc(1),
+                            .Left => tkn.cinc(-1),
+                            .Right => tkn.cinc(1),
                             .Home => tkn.cinc(-@intCast(isize, tkn.raw.items.len)),
                             .End => tkn.cinc(@intCast(isize, tkn.raw.items.len)),
-                            else => {}, // unable to use range on KeyAction :<
+                            else => {}, // unable to use range on Key :<
+                        }
+                    },
+                    .ModKey => |mk| {
+                        switch (mk.key) {
+                            .Left => {},
+                            .Right => {},
+                            else => {},
                         }
                     },
                 }
