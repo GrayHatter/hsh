@@ -125,8 +125,8 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
             '\x1A' => try hsh.tty.print("^Z\r\n", .{}),
             '\x17' => try tkn.popUntil(),
             '\x20'...'\x7E' => |b| {
+                // Normal printable ascii
                 try tkn.consumec(b);
-                try printAfter(&hsh.draw, "    {} {s}", .{ b, buffer });
             },
             '\x7F' => try tkn.pop(), // backspace
             '\x03' => {
