@@ -308,7 +308,7 @@ pub fn main() !void {
                 if (!(t.parse() catch continue)) continue;
 
                 switch (t.tokens.items[0].type) {
-                    .Exe => {
+                    .String, .Exe => {
                         exec(&hsh, &t) catch |err| {
                             if (err == hshExecErr.NotFound) std.os.exit(2);
                             unreachable;
