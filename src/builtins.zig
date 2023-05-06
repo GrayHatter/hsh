@@ -58,7 +58,7 @@ fn cd(hsh: *HSH, tkns: []const Token) BuiltinErr!void {
     var path_len: usize = 0;
     for (tkns[1..]) |t| {
         switch (t.type) {
-            .String, .Char, .Quote, .Var => {
+            .String, .Quote, .Var => {
                 std.mem.copy(u8, &path, t.cannon());
                 path_len = t.cannon().len;
                 break;

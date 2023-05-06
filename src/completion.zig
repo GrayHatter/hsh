@@ -95,7 +95,7 @@ pub fn complete(hsh: *HSH, t: *const Token) !*CompSet {
     });
     switch (t.type) {
         .WhiteSpace => try complete_cwd(&hsh.fs.cwdi, t),
-        .String, .Char => try complete_cwd_token(hsh.fs.cwdi, t),
+        .String => try complete_cwd_token(hsh.fs.cwdi, t),
         else => {},
     }
     return &compset;

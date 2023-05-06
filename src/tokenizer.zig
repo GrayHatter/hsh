@@ -15,7 +15,6 @@ pub const TokenType = enum(u8) {
     Command, // custom string that alters hsh in some way
     String,
     WhiteSpace,
-    Char,
     Quote,
     Var,
     IoRedir,
@@ -47,7 +46,7 @@ pub const Token = struct {
         if (self.backing) |b| return b.items;
 
         return switch (self.type) {
-            .Char, .String => self.raw,
+            .String => self.raw,
             .Quote => return self.raw[1 .. self.raw.len - 1],
             .Builtin => self.raw,
             else => unreachable,
@@ -154,7 +153,6 @@ pub const Tokenizer = struct {
 
         const t = self.tokens.items[self.tokens.items.len - 1];
         return switch (t.type) {
-            .Char,
             .String,
             .Exe,
             .WhiteSpace,
@@ -212,7 +210,7 @@ pub const Tokenizer = struct {
         } else end += 1;
         return Token{
             .raw = src[0..end],
-            .type = if (end == 1) TokenType.Char else TokenType.String,
+            .type = TokenType.String,
         };
     }
 
