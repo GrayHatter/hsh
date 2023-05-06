@@ -8,7 +8,7 @@ const mem = std.mem;
 const std = @import("std");
 const Builtins = @import("builtins.zig");
 
-const breaking_tokens = " \t\"'`${|><#;:";
+const breaking_tokens = " \t\"'`${|><#;:!";
 pub const TokenType = enum(u8) {
     WhiteSpace,
     String,
