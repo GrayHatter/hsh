@@ -16,6 +16,8 @@ const HSH = @import("hsh.zig").HSH;
 const complete = @import("completion.zig");
 const Builtins = @import("builtins.zig");
 const Keys = @import("keys.zig");
+const Exec = @import("exec.zig");
+const exec = Exec.exec;
 
 var term_resized: bool = false;
 
@@ -199,51 +201,6 @@ test "c memory" {
     try std.testing.expect(argv[2] == null);
 }
 
-const hshExecErr = error{
-    None,
-    Unknown,
-    MemError,
-    NotFound,
-};
-
-pub fn exec(_: *HSH, tkn: *Tokenizer) hshExecErr!void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var argv: [:null]?[*:0]u8 = undefined;
-    var list = ArrayList(?[*:0]u8).init(a);
-    for (tkn.tokens.items) |*token| {
-        if (token.*.type == TokenType.Exe) {
-            token.*.backing.?.insertSlice(0, "/usr/bin/") catch return hshExecErr.Unknown;
-        } else if (token.*.type == TokenType.WhiteSpace) continue;
-        var arg = a.alloc(u8, token.*.cannon().len + 1) catch return hshExecErr.MemError;
-        mem.copy(u8, arg, token.*.cannon());
-        arg[token.*.cannon().len] = 0;
-        list.append(@ptrCast(?[*:0]u8, arg.ptr)) catch return hshExecErr.MemError;
-    }
-    argv = list.toOwnedSliceSentinel(null) catch return hshExecErr.MemError;
-
-    const fork_pid = std.os.fork() catch return hshExecErr.Unknown;
-    if (fork_pid == 0) {
-        // TODO manage env
-        // TODO restore cooked!!
-        const res = std.os.execveZ(argv[0].?, argv, @ptrCast([*:null]?[*:0]u8, std.os.environ));
-        switch (res) {
-            error.FileNotFound => return hshExecErr.NotFound,
-            else => {
-                std.debug.print("exec error {}", .{res});
-                unreachable;
-            },
-        }
-    } else {
-        tkn.reset();
-        const res = std.os.waitpid(fork_pid, 0);
-        const status = res.status >> 8 & 0xff;
-        std.debug.print("fork res {}\n", .{status});
-    }
-}
-
 pub fn sig_cb(sig: c_int, _: *const os.siginfo_t, _: ?*const anyopaque) callconv(.C) void {
     if (sig != os.SIG.WINCH) unreachable;
     //std.debug.print("{}\n", .{info});
@@ -312,7 +269,7 @@ pub fn main() !void {
                 switch (t.tokens.items[0].type) {
                     .String, .Exe => {
                         exec(&hsh, &t) catch |err| {
-                            if (err == hshExecErr.NotFound) std.os.exit(99);
+                            if (err == Exec.Error.NotFound) std.os.exit(99);
                             unreachable;
                         };
                         t.reset();
