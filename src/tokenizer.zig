@@ -175,7 +175,7 @@ pub const Tokenizer = struct {
 
                 _ = try token.upgrade(self.alloc);
                 var i: usize = 0;
-                var backing = &token.backing.?;
+                const backing = &token.backing.?;
                 while (i + 1 < backing.items.len) : (i += 1) {
                     if (backing.items[i] == '\\') {
                         if (mem.indexOfAny(u8, backing.items[i + 1 .. i + 2], &needle)) |_| {
