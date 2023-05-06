@@ -8,16 +8,17 @@ const mem = std.mem;
 const std = @import("std");
 const Builtins = @import("builtins.zig");
 
+const breaking_tokens = " \t\"'`${|><#~;:";
 pub const TokenType = enum(u8) {
-    Untyped,
-    Exe,
-    Builtin,
-    Command, // custom string that alters hsh in some way
-    String,
     WhiteSpace,
+    String,
+    Builtin,
     Quote,
-    Var,
     IoRedir,
+    Exe,
+    Path,
+    Var,
+    Command, // custom string that alters hsh in some way
     Tree, // Should this token be a separate type?
 };
 
@@ -33,7 +34,7 @@ pub const Token = struct {
     raw: []const u8, // "full" Slice, you probably want to use cannon()
     i: u16 = 0,
     backing: ?ArrayList(u8) = null,
-    type: TokenType = TokenType.Untyped,
+    type: TokenType,
     subtoken: u8 = 0,
 
     pub fn format(self: Token, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
@@ -46,10 +47,8 @@ pub const Token = struct {
         if (self.backing) |b| return b.items;
 
         return switch (self.type) {
-            .String => self.raw,
             .Quote => return self.raw[1 .. self.raw.len - 1],
-            .Builtin => self.raw,
-            else => unreachable,
+            else => self.raw,
         };
     }
 
@@ -124,11 +123,12 @@ pub const Tokenizer = struct {
         var start: usize = 0;
         while (start < self.raw.items.len) {
             const token = switch (self.raw.items[start]) {
-                '\'', '"' => Tokenizer.parseQuote(self.raw.items[start..]),
-                '`' => Tokenizer.parseQuote(self.raw.items[start..]), // TODO magic
-                ' ' => Tokenizer.parseSpace(self.raw.items[start..]),
+                '\'', '"' => Tokenizer.quote(self.raw.items[start..]),
+                '`' => Tokenizer.quote(self.raw.items[start..]), // TODO magic
+                ' ' => Tokenizer.space(self.raw.items[start..]),
+                '~', '/' => Tokenizer.path(self.raw.items[start..]),
                 '$' => unreachable,
-                else => Tokenizer.parseString(self.raw.items[start..]),
+                else => Tokenizer.string(self.raw.items[start..]),
             } catch {
                 self.err_idx = start;
                 return TokenErr.ParseError;
@@ -199,14 +199,11 @@ pub const Tokenizer = struct {
         return token;
     }
 
-    fn parseString(src: []const u8) TokenErr!Token {
+    fn string(src: []const u8) TokenErr!Token {
         var end: usize = 0;
-        for (src, 0..) |s, i| {
+        for (src, 0..) |_, i| {
             end = i;
-            switch (s) {
-                ' ', '\t', '"', '\'', '`', '$', '{', '|', '>', '<', '#' => break,
-                else => continue,
-            }
+            if (mem.indexOfAny(u8, src[i .. i + 1], breaking_tokens)) |_| break else continue;
         } else end += 1;
         return Token{
             .raw = src[0..end],
@@ -217,7 +214,7 @@ pub const Tokenizer = struct {
     fn parse_char(_: []const u8) !u8 {}
 
     /// Callers must ensure that src[0] is in (', ")
-    pub fn parseQuote(src: []const u8) TokenErr!Token {
+    pub fn quote(src: []const u8) TokenErr!Token {
         if (src.len <= 1 or src[0] == '\\') {
             return TokenErr.InvalidSrc;
         }
@@ -238,7 +235,7 @@ pub const Tokenizer = struct {
         };
     }
 
-    pub fn parseSpace(src: []const u8) TokenErr!Token {
+    fn space(src: []const u8) TokenErr!Token {
         var end: usize = 0;
         for (src) |s| {
             if (s != ' ') break;
@@ -253,6 +250,13 @@ pub const Tokenizer = struct {
     fn parseBuiltin(tkn: *Token) TokenErr!*Token {
         tkn.*.type = .Builtin;
         return tkn;
+    }
+
+    fn path(src: []const u8) TokenErr!Token {
+        return Token{
+            .raw = src[0..],
+            .type = TokenType.Path,
+        };
     }
 
     pub fn dump_parsed(self: Tokenizer, ws: bool) !void {
@@ -371,53 +375,53 @@ const expect = std.testing.expect;
 const expectEql = std.testing.expectEqual;
 const expectError = std.testing.expectError;
 test "quotes" {
-    var t = try Tokenizer.parseQuote("\"\"");
+    var t = try Tokenizer.quote("\"\"");
     try expectEql(t.raw.len, 2);
     try expectEql(t.cannon().len, 0);
 
-    t = try Tokenizer.parseQuote("\"a\"");
+    t = try Tokenizer.quote("\"a\"");
     try expectEql(t.raw.len, 3);
     try expectEql(t.cannon().len, 1);
     try expect(std.mem.eql(u8, t.raw, "\"a\""));
     try expect(std.mem.eql(u8, t.cannon(), "a"));
 
-    var terr = Tokenizer.parseQuote("\"this is invalid");
+    var terr = Tokenizer.quote("\"this is invalid");
     try expectError(TokenErr.InvalidSrc, terr);
 
-    t = try Tokenizer.parseQuote("\"this is some text\" more text");
+    t = try Tokenizer.quote("\"this is some text\" more text");
     try expectEql(t.raw.len, 19);
     try expectEql(t.cannon().len, 17);
     try expect(std.mem.eql(u8, t.raw, "\"this is some text\""));
     try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
 
-    t = try Tokenizer.parseQuote("`this is some text` more text");
+    t = try Tokenizer.quote("`this is some text` more text");
     try expectEql(t.raw.len, 19);
     try expectEql(t.cannon().len, 17);
     try expect(std.mem.eql(u8, t.raw, "`this is some text`"));
     try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
 
-    t = try Tokenizer.parseQuote("\"this is some text\" more text");
+    t = try Tokenizer.quote("\"this is some text\" more text");
     try expectEql(t.raw.len, 19);
     try expectEql(t.cannon().len, 17);
     try expect(std.mem.eql(u8, t.raw, "\"this is some text\""));
     try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
 
-    terr = Tokenizer.parseQuote("\"this is some text\\\" more text");
+    terr = Tokenizer.quote("\"this is some text\\\" more text");
     try expectError(TokenErr.InvalidSrc, terr);
 
-    t = try Tokenizer.parseQuote("\"this is some text\\\" more text\"");
+    t = try Tokenizer.quote("\"this is some text\\\" more text\"");
     try expectEql(t.raw.len, 31);
     try expectEql(t.cannon().len, 29);
     try expect(std.mem.eql(u8, t.raw, "\"this is some text\\\" more text\""));
     try expect(std.mem.eql(u8, t.cannon(), "this is some text\\\" more text"));
 
-    t = try Tokenizer.parseQuote("\"this is some text\\\\\" more text\"");
+    t = try Tokenizer.quote("\"this is some text\\\\\" more text\"");
     try expectEql(t.raw.len, 21);
     try expectEql(t.cannon().len, 19);
     try expect(std.mem.eql(u8, t.raw, "\"this is some text\\\\\""));
     try expect(std.mem.eql(u8, t.cannon(), "this is some text\\\\"));
 
-    t = try Tokenizer.parseQuote("'this is some text' more text");
+    t = try Tokenizer.quote("'this is some text' more text");
     try expectEql(t.raw.len, 19);
     try expectEql(t.cannon().len, 17);
     try expect(std.mem.eql(u8, t.raw, "'this is some text'"));
@@ -441,7 +445,7 @@ test "quotes parsed" {
     try expectEql(t.tokens.items[0].cannon().len, 1);
     try expect(std.mem.eql(u8, t.tokens.items[0].cannon(), "a"));
 
-    var terr = Tokenizer.parseQuote("\"this is invalid");
+    var terr = Tokenizer.quote("\"this is invalid");
     try expectError(TokenErr.InvalidSrc, terr);
 
     t.reset();
@@ -468,7 +472,7 @@ test "quotes parsed" {
     try expect(std.mem.eql(u8, t.tokens.items[0].raw, "\"this is some text\""));
     try expect(std.mem.eql(u8, t.tokens.items[0].cannon(), "this is some text"));
 
-    terr = Tokenizer.parseQuote("\"this is some text\\\" more text");
+    terr = Tokenizer.quote("\"this is some text\\\" more text");
     try expectError(TokenErr.InvalidSrc, terr);
 
     t.reset();
@@ -549,7 +553,7 @@ test "tokens" {
 }
 
 test "parse string" {
-    var tkn = Tokenizer.parseString("string is true");
+    var tkn = Tokenizer.string("string is true");
     if (tkn) |tk| {
         try expect(std.mem.eql(u8, tk.raw, "string"));
         try expect(tk.raw.len == 6);

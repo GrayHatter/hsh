@@ -63,7 +63,7 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
                             .Down => {
                                 if (tkn.hist_pos > 1) {
                                     tkn.hist_pos -= 1;
-                                    tkn.raw.clearAndFree();
+                                    tkn.clear();
                                     _ = read_history(tkn.hist_pos, hsh.history.?, &tkn.raw) catch unreachable;
                                     tkn.push_hist();
                                 } else if (tkn.hist_pos == 1) {
