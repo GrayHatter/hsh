@@ -22,7 +22,7 @@ pub const TokenType = enum(u8) {
     Tree, // Should this token be a separate type?
 };
 
-pub const TokenErr = error{
+pub const Error = error{
     Unknown,
     Memory,
     LineTooLong,
@@ -58,7 +58,7 @@ pub const Token = struct {
         if (self.*.backing) |_| return self.*.backing.?.items;
 
         var backing = ArrayList(u8).init(a);
-        backing.appendSlice(self.*.cannon()) catch return TokenErr.Memory;
+        backing.appendSlice(self.*.cannon()) catch return Error.Memory;
         self.*.backing = backing;
         return self.*.backing.?.items;
     }
@@ -118,7 +118,7 @@ pub const Tokenizer = struct {
         return self.raw.items.len - self.c_idx;
     }
 
-    pub fn parse(self: *Tokenizer) TokenErr!bool {
+    pub fn parse(self: *Tokenizer) Error!bool {
         _ = try self.tokenize();
 
         if (self.tokens.items.len == 0) return false;
@@ -132,7 +132,7 @@ pub const Tokenizer = struct {
         return true;
     }
 
-    fn parseToken(self: *Tokenizer, token: *Token) TokenErr!*Token {
+    fn parseToken(self: *Tokenizer, token: *Token) Error!*Token {
         if (token.raw.len == 0) return token;
 
         switch (token.type) {
@@ -161,14 +161,14 @@ pub const Tokenizer = struct {
         }
     }
 
-    fn parseAction(self: *Tokenizer, token: *Token) TokenErr!*Token {
+    fn parseAction(self: *Tokenizer, token: *Token) Error!*Token {
         if (Builtins.exists(token.raw)) return parseBuiltin(token);
         _ = try token.upgrade(self.alloc);
         if (token.*.type == TokenType.String) token.*.type = TokenType.Exe;
         return token;
     }
 
-    pub fn tokenize(self: *Tokenizer) TokenErr!bool {
+    pub fn tokenize(self: *Tokenizer) Error!bool {
         self.tokens.clearAndFree();
         var start: usize = 0;
         while (start < self.raw.items.len) {
@@ -177,20 +177,26 @@ pub const Tokenizer = struct {
                 '`' => Tokenizer.quote(self.raw.items[start..]), // TODO magic
                 ' ' => Tokenizer.space(self.raw.items[start..]),
                 '~', '/' => Tokenizer.path(self.raw.items[start..]),
+                '|' => Tokenizer.ioredir(self.raw.items[start..]),
                 '$' => unreachable,
                 else => Tokenizer.string(self.raw.items[start..]),
             } catch {
                 self.err_idx = start;
-                return TokenErr.ParseError;
+                return Error.ParseError;
             };
-            self.tokens.append(token) catch return TokenErr.Memory;
-            start += if (token.raw.len > 0) token.raw.len else 1;
+            if (token.raw.len == 0) {
+                self.err_idx = start;
+                return Error.ParseError;
+            }
+            self.tokens.append(token) catch return Error.Memory;
+            start += token.raw.len;
         }
         self.err_idx = 0;
         return self.err_idx == 0;
     }
 
-    fn string(src: []const u8) TokenErr!Token {
+    fn string(src: []const u8) Error!Token {
+        if (mem.indexOfAny(u8, src[0..1], breaking_tokens)) |_| return Error.InvalidSrc;
         var end: usize = 0;
         for (src, 0..) |_, i| {
             end = i;
@@ -202,12 +208,19 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn parse_char(_: []const u8) !u8 {}
+    fn ioredir(src: []const u8) Error!Token {
+        if (src.len < 2) return Token{ .raw = src[0..1], .type = .IoRedir };
+        //const follower = try Tokenizer.string(src[1..]);
+        return Token{
+            .raw = src[0..1],
+            .type = .IoRedir,
+        };
+    }
 
     /// Callers must ensure that src[0] is in (', ")
-    pub fn quote(src: []const u8) TokenErr!Token {
+    pub fn quote(src: []const u8) Error!Token {
         if (src.len <= 1 or src[0] == '\\') {
-            return TokenErr.InvalidSrc;
+            return Error.InvalidSrc;
         }
         const subt = src[0];
 
@@ -217,7 +230,7 @@ pub const Tokenizer = struct {
             if (s == subt and !(src[i - 1] == '\\' and src[i - 2] != '\\')) break;
         }
 
-        if (src[end - 1] != subt) return TokenErr.InvalidSrc;
+        if (src[end - 1] != subt) return Error.InvalidSrc;
 
         return Token{
             .raw = src[0..end],
@@ -226,7 +239,7 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn space(src: []const u8) TokenErr!Token {
+    fn space(src: []const u8) Error!Token {
         var end: usize = 0;
         for (src) |s| {
             if (s != ' ') break;
@@ -238,12 +251,12 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn parseBuiltin(tkn: *Token) TokenErr!*Token {
+    fn parseBuiltin(tkn: *Token) Error!*Token {
         tkn.*.type = .Builtin;
         return tkn;
     }
 
-    fn path(src: []const u8) TokenErr!Token {
+    fn path(src: []const u8) Error!Token {
         var t = try Tokenizer.string(src);
         t.type = TokenType.Path;
         return t;
@@ -280,7 +293,7 @@ pub const Tokenizer = struct {
     }
 
     // this clearly needs a bit more love
-    pub fn popUntil(self: *Tokenizer) TokenErr!void {
+    pub fn popUntil(self: *Tokenizer) Error!void {
         if (self.raw.items.len == 0 or self.c_idx == 0) return;
 
         self.c_idx -|= 1;
@@ -301,19 +314,19 @@ pub const Tokenizer = struct {
             try self.consumec(t);
     }
 
-    pub fn pop(self: *Tokenizer) TokenErr!void {
+    pub fn pop(self: *Tokenizer) Error!void {
         if (self.raw.items.len == 0 or self.c_idx == 0) return;
         self.c_idx -|= 1;
         _ = self.raw.orderedRemove(@bitCast(usize, self.c_idx));
         self.err_idx = @min(self.c_idx, self.err_idx);
     }
 
-    pub fn rpop(self: *Tokenizer) TokenErr!void {
+    pub fn rpop(self: *Tokenizer) Error!void {
         _ = self;
     }
 
-    pub fn consumec(self: *Tokenizer, c: u8) TokenErr!void {
-        self.raw.insert(@bitCast(usize, self.c_idx), c) catch return TokenErr.Unknown;
+    pub fn consumec(self: *Tokenizer, c: u8) Error!void {
+        self.raw.insert(@bitCast(usize, self.c_idx), c) catch return Error.Unknown;
         self.c_idx += 1;
         if (self.err_idx > 0) _ = self.parse() catch {};
     }
@@ -356,7 +369,7 @@ pub const Tokenizer = struct {
         self.c_tkn = 0;
     }
 
-    pub fn consumes(self: *Tokenizer, str: []const u8) TokenErr!void {
+    pub fn consumes(self: *Tokenizer, str: []const u8) Error!void {
         for (str) |s| try self.consumec(s);
     }
 };
@@ -377,7 +390,7 @@ test "quotes" {
     try expect(std.mem.eql(u8, t.cannon(), "a"));
 
     var terr = Tokenizer.quote("\"this is invalid");
-    try expectError(TokenErr.InvalidSrc, terr);
+    try expectError(Error.InvalidSrc, terr);
 
     t = try Tokenizer.quote("\"this is some text\" more text");
     try expectEql(t.raw.len, 19);
@@ -398,7 +411,7 @@ test "quotes" {
     try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
 
     terr = Tokenizer.quote("\"this is some text\\\" more text");
-    try expectError(TokenErr.InvalidSrc, terr);
+    try expectError(Error.InvalidSrc, terr);
 
     t = try Tokenizer.quote("\"this is some text\\\" more text\"");
     try expectEql(t.raw.len, 31);
@@ -437,7 +450,7 @@ test "quotes parsed" {
     try expect(std.mem.eql(u8, t.tokens.items[0].cannon(), "a"));
 
     var terr = Tokenizer.quote("\"this is invalid");
-    try expectError(TokenErr.InvalidSrc, terr);
+    try expectError(Error.InvalidSrc, terr);
 
     t.reset();
     try t.consumes("\"this is some text\" more text");
@@ -464,7 +477,7 @@ test "quotes parsed" {
     try expect(std.mem.eql(u8, t.tokens.items[0].cannon(), "this is some text"));
 
     terr = Tokenizer.quote("\"this is some text\\\" more text");
-    try expectError(TokenErr.InvalidSrc, terr);
+    try expectError(Error.InvalidSrc, terr);
 
     t.reset();
     try t.consumes("\"this is some text\\\" more text\"");
@@ -489,7 +502,7 @@ test "quotes parse complex" {
     try expectEql(t.raw.items.len, 32);
 
     const err = t.parse();
-    try expectError(TokenErr.ParseError, err);
+    try expectError(Error.ParseError, err);
     try expectEql(t.err_idx, t.raw.items.len - 1);
 
     t.reset();
