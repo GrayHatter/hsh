@@ -8,7 +8,7 @@ const mem = std.mem;
 const std = @import("std");
 const Builtins = @import("builtins.zig");
 
-const breaking_tokens = " \t\"'`${|><#~;:";
+const breaking_tokens = " \t\"'`${|><#;:";
 pub const TokenType = enum(u8) {
     WhiteSpace,
     String,
@@ -253,10 +253,9 @@ pub const Tokenizer = struct {
     }
 
     fn path(src: []const u8) TokenErr!Token {
-        return Token{
-            .raw = src[0..],
-            .type = TokenType.Path,
-        };
+        var t = try Tokenizer.string(src);
+        t.type = TokenType.Path;
+        return t;
     }
 
     pub fn dump_parsed(self: Tokenizer, ws: bool) !void {
@@ -374,6 +373,7 @@ pub const Tokenizer = struct {
 const expect = std.testing.expect;
 const expectEql = std.testing.expectEqual;
 const expectError = std.testing.expectError;
+const eql = std.mem.eql;
 test "quotes" {
     var t = try Tokenizer.quote("\"\"");
     try expectEql(t.raw.len, 2);
@@ -531,31 +531,49 @@ test "quotes parse complex" {
 }
 
 test "alloc" {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var t = Tokenizer.init(a);
+    var t = Tokenizer.init(std.testing.allocator);
     try expect(std.mem.eql(u8, t.raw.items, ""));
 }
 
 test "tokens" {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var parsed = Tokenizer.init(a);
+    var parsed = Tokenizer.init(std.testing.allocator);
     for ("token") |c| {
         try parsed.consumec(c);
     }
     _ = try parsed.parse();
     try expect(std.mem.eql(u8, parsed.raw.items, "token"));
+    parsed.reset();
 }
 
-test "parse string" {
-    var tkn = Tokenizer.string("string is true");
+test "tokenize string" {
+    const tkn = Tokenizer.string("string is true");
     if (tkn) |tk| {
         try expect(std.mem.eql(u8, tk.raw, "string"));
         try expect(tk.raw.len == 6);
-    } else |_| {}
+    } else |_| {
+        try expect(false);
+    }
+}
+
+test "tokenize path" {
+    const token = try Tokenizer.path("blerg");
+    try expect(eql(u8, token.raw, "blerg"));
+
+    var t = Tokenizer.init(std.testing.allocator);
+    defer t.reset();
+
+    try t.consumes("blerg ~/dir");
+    _ = try t.parse();
+    try expectEql(t.raw.items.len, "blerg ~/dir".len);
+    try expectEql(t.tokens.items.len, 3);
+    try expect(t.tokens.items[2].type == TokenType.Path);
+    try expect(eql(u8, t.tokens.items[2].raw, "~/dir"));
+    t.reset();
+
+    try t.consumes("blerg /home/user/something");
+    _ = try t.parse();
+    try expectEql(t.raw.items.len, "blerg /home/user/something".len);
+    try expectEql(t.tokens.items.len, 3);
+    try expect(t.tokens.items[2].type == TokenType.Path);
+    try expect(eql(u8, t.tokens.items[2].raw, "/home/user/something"));
 }
