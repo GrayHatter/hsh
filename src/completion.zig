@@ -51,7 +51,7 @@ pub const CompSet = struct {
     }
 };
 
-fn complete_cwd(cwdi: *IterableDir, _: *const Token) !void {
+fn completeCwd(cwdi: *IterableDir, _: *const Token) !void {
     var itr = cwdi.iterate();
     while (try itr.next()) |each| {
         switch (each.kind) {
@@ -66,7 +66,9 @@ fn complete_cwd(cwdi: *IterableDir, _: *const Token) !void {
     }
 }
 
-fn complete_cwd_token(cwdi: IterableDir, t: *const Token) !void {
+fn completePath(_: *HSH, _: *const Token) !void {}
+
+fn completeCwdToken(cwdi: IterableDir, t: *const Token) !void {
     var itr = cwdi.iterate();
     while (try itr.next()) |each| {
         switch (each.kind) {
@@ -94,8 +96,9 @@ pub fn complete(hsh: *HSH, t: *const Token) !*CompSet {
         .kind = .Original,
     });
     switch (t.type) {
-        .WhiteSpace => try complete_cwd(&hsh.fs.cwdi, t),
-        .String => try complete_cwd_token(hsh.fs.cwdi, t),
+        .WhiteSpace => try completeCwd(&hsh.fs.cwdi, t),
+        .Path => try completePath(hsh, t),
+        .String => try completeCwdToken(hsh.fs.cwdi, t),
         else => {},
     }
     return &compset;

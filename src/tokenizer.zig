@@ -151,16 +151,7 @@ pub const Tokenizer = struct {
 
         _ = try self.parseAction(&self.tokens.items[0]);
 
-        const t = self.tokens.items[self.tokens.items.len - 1];
-        return switch (t.type) {
-            .String,
-            .Exe,
-            .WhiteSpace,
-            .Quote,
-            .Builtin,
-            => true,
-            else => false,
-        };
+        return true;
     }
 
     fn parseToken(self: *Tokenizer, token: *Token) TokenErr!*Token {
