@@ -44,9 +44,10 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
         // be required to unbreak a bug in history.
         switch (buffer[0]) {
             '\x1B' => {
+                const to_reset = tkn.err_idx != 0;
                 tkn.err_idx = 0;
                 switch (try Keys.esc(hsh)) {
-                    .Unknown => try printAfter(&hsh.draw, "Unknown esc --", .{}),
+                    .Unknown => if (!to_reset) try printAfter(&hsh.draw, "Unknown esc --", .{}),
                     .Key => |a| {
                         switch (a) {
                             .Up => {
@@ -294,7 +295,7 @@ pub fn main() !void {
 
     hsh.tty = TTY.init() catch unreachable;
     defer hsh.tty.raze();
-    hsh.draw = Drawable.init(a, hsh.tty) catch unreachable;
+    hsh.draw = Drawable.init(&hsh) catch unreachable;
     defer hsh.draw.raze();
     hsh.draw.term_size = hsh.tty.geom() catch unreachable;
     hsh.input = hsh.tty.tty;
@@ -311,7 +312,7 @@ pub fn main() !void {
                 switch (t.tokens.items[0].type) {
                     .String, .Exe => {
                         exec(&hsh, &t) catch |err| {
-                            if (err == hshExecErr.NotFound) std.os.exit(2);
+                            if (err == hshExecErr.NotFound) std.os.exit(99);
                             unreachable;
                         };
                         t.reset();

@@ -3,6 +3,29 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const Drawable = @import("draw.zig").Drawable;
 const TTY = @import("tty.zig").TTY;
+const builtin = @import("builtin");
+
+pub const Features = enum {
+    Debugging,
+    TabComplete,
+    Colorize,
+};
+
+pub const hshFeature = struct {
+    Debugging: bool = builtin.mode == std.builtin.OptimizeMode.Debug,
+    TabComplete: ?bool = true,
+    Colorize: ?bool = null,
+};
+
+// Until tagged structs are a thing, enforce these to be equal at compile time
+// it's probably not important for the order to be equal... but here we are :)
+comptime {
+    std.debug.assert(@typeInfo(Features).Enum.fields.len == @typeInfo(hshFeature).Struct.fields.len);
+    for (@typeInfo(Features).Enum.fields, 0..) |field, i| {
+        std.debug.assert(std.mem.eql(u8, field.name, @typeInfo(hshFeature).Struct.fields[i].name));
+        //@compileLog("{s}\n", .{field.name});
+    }
+}
 
 const hshfs = struct {
     cwd: std.fs.Dir,
@@ -13,8 +36,17 @@ const hshfs = struct {
     home_name: []const u8 = undefined,
 };
 
+// var __hsh: ?*HSH = null;
+// pub fn globalEnabled(comptime f: Features) bool {
+//     if (__hsh) |hsh| {
+//         hsh.enabled(f);
+//     }
+//     return true;
+// }
+
 pub const HSH = struct {
     alloc: Allocator,
+    features: hshFeature,
     env: std.process.EnvMap,
     fs: hshfs,
     rc: ?std.fs.File = null,
@@ -39,14 +71,16 @@ pub const HSH = struct {
             history = try dir.createFile(".hsh_history", .{ .read = true, .truncate = false });
             history.seekFromEnd(0) catch unreachable;
         }
-
         return HSH{
             .alloc = a,
+            .features = .{},
             .env = env,
             .fs = try initFs(a, env),
             .rc = rc,
             .history = history,
         };
+        //__hsh = hsh;
+        //return hsh;
     }
 
     fn initFs(a: Allocator, env: std.process.EnvMap) !hshfs {
@@ -85,6 +119,14 @@ pub const HSH = struct {
         hsh.fs.cwdi = cwdi;
         hsh.fs.cwd_name = name;
         hsh.fs.cwd_short = short;
+    }
+
+    pub fn enabled(hsh: *const HSH, comptime f: Features) bool {
+        return switch (f) {
+            .Debugging => if (hsh.features.Debugging) true else false,
+            .TabComplete => hsh.feature.TabComplete,
+            .Colorize => hsh.features.Colorize orelse true,
+        };
     }
 
     pub fn raze(hsh: *HSH) void {

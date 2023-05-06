@@ -3,6 +3,7 @@ const Writer = std.fs.File.Writer;
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const Draw = @import("draw.zig");
 const HSH = @import("hsh.zig").HSH;
+const Feature = @import("hsh.zig").Features;
 const Lexeme = Draw.Lexeme;
 const Drawable = Draw.Drawable;
 const draw = Draw.draw;
@@ -53,6 +54,8 @@ pub fn prompt(hsh: *HSH, tkn: *Tokenizer) !void {
         },
     });
     var tokens: [16]u8 = undefined;
+    if (!hsh.enabled(Feature.Debugging)) return;
+
     try drawRight(&hsh.draw, .{ .sibling = &[_]Lexeme{
         .{ .char = try std.fmt.bufPrint(&tokens, "({}) ({}) [{}]", .{
             tkn.raw.items.len,

@@ -118,28 +118,6 @@ pub const Tokenizer = struct {
         return self.raw.items.len - self.c_idx;
     }
 
-    pub fn tokenize(self: *Tokenizer) TokenErr!bool {
-        self.tokens.clearAndFree();
-        var start: usize = 0;
-        while (start < self.raw.items.len) {
-            const token = switch (self.raw.items[start]) {
-                '\'', '"' => Tokenizer.quote(self.raw.items[start..]),
-                '`' => Tokenizer.quote(self.raw.items[start..]), // TODO magic
-                ' ' => Tokenizer.space(self.raw.items[start..]),
-                '~', '/' => Tokenizer.path(self.raw.items[start..]),
-                '$' => unreachable,
-                else => Tokenizer.string(self.raw.items[start..]),
-            } catch {
-                self.err_idx = start;
-                return TokenErr.ParseError;
-            };
-            self.tokens.append(token) catch return TokenErr.Memory;
-            start += if (token.raw.len > 0) token.raw.len else 1;
-        }
-        self.err_idx = 0;
-        return self.err_idx == 0;
-    }
-
     pub fn parse(self: *Tokenizer) TokenErr!bool {
         _ = try self.tokenize();
 
@@ -188,6 +166,28 @@ pub const Tokenizer = struct {
         _ = try token.upgrade(self.alloc);
         if (token.*.type == TokenType.String) token.*.type = TokenType.Exe;
         return token;
+    }
+
+    pub fn tokenize(self: *Tokenizer) TokenErr!bool {
+        self.tokens.clearAndFree();
+        var start: usize = 0;
+        while (start < self.raw.items.len) {
+            const token = switch (self.raw.items[start]) {
+                '\'', '"' => Tokenizer.quote(self.raw.items[start..]),
+                '`' => Tokenizer.quote(self.raw.items[start..]), // TODO magic
+                ' ' => Tokenizer.space(self.raw.items[start..]),
+                '~', '/' => Tokenizer.path(self.raw.items[start..]),
+                '$' => unreachable,
+                else => Tokenizer.string(self.raw.items[start..]),
+            } catch {
+                self.err_idx = start;
+                return TokenErr.ParseError;
+            };
+            self.tokens.append(token) catch return TokenErr.Memory;
+            start += if (token.raw.len > 0) token.raw.len else 1;
+        }
+        self.err_idx = 0;
+        return self.err_idx == 0;
     }
 
     fn string(src: []const u8) TokenErr!Token {

@@ -2,6 +2,9 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const TTY = @import("tty.zig").TTY;
 const ArrayList = std.ArrayList;
+const hsh_ = @import("hsh.zig");
+const HSH = hsh_.HSH;
+const Features = hsh_.Features;
 
 const DrawBuf = ArrayList(u8);
 
@@ -58,9 +61,12 @@ pub const LexTree = union(enum) {
     children: []LexTree,
 };
 
+var colorize: bool = true;
+
 pub const Drawable = struct {
     alloc: Allocator,
-    tty: TTY,
+    tty: *TTY,
+    hsh: *HSH,
     cursor: u32 = 0,
     cursor_reposition: bool = true,
     before: DrawBuf = undefined,
@@ -69,14 +75,16 @@ pub const Drawable = struct {
     after: DrawBuf = undefined,
     term_size: Cord = .{},
 
-    pub fn init(a: Allocator, tty: TTY) DrawErr!Drawable {
+    pub fn init(hsh: *HSH) DrawErr!Drawable {
+        colorize = hsh.enabled(Features.Colorize);
         return .{
-            .alloc = a,
-            .tty = tty,
-            .before = DrawBuf.init(a),
-            .b = DrawBuf.init(a),
-            .right = DrawBuf.init(a),
-            .after = DrawBuf.init(a),
+            .alloc = hsh.alloc,
+            .tty = &hsh.tty,
+            .hsh = hsh,
+            .before = DrawBuf.init(hsh.alloc),
+            .b = DrawBuf.init(hsh.alloc),
+            .right = DrawBuf.init(hsh.alloc),
+            .after = DrawBuf.init(hsh.alloc),
         };
     }
 
@@ -112,13 +120,17 @@ fn fgColor(buf: *DrawBuf, c: ?Color) DrawErr!void {
 fn drawLexeme(buf: *DrawBuf, x: usize, y: usize, l: Lexeme) DrawErr!void {
     _ = x;
     _ = y;
-    try setAttr(buf, l.attr);
-    try fgColor(buf, l.fg);
-    try bgColor(buf, l.bg);
+    if (colorize) {
+        try setAttr(buf, l.attr);
+        try fgColor(buf, l.fg);
+        try bgColor(buf, l.bg);
+    }
     buf.appendSlice(l.char) catch return DrawErr.Memory;
-    try bgColor(buf, .None);
-    try fgColor(buf, .None);
-    try setAttr(buf, .Reset);
+    if (colorize) {
+        try bgColor(buf, .None);
+        try fgColor(buf, .None);
+        try setAttr(buf, .Reset);
+    }
 }
 
 fn drawSibling(buf: *DrawBuf, x: usize, y: usize, s: []Lexeme) DrawErr!void {
@@ -191,6 +203,7 @@ pub fn draw(d: *Drawable, tree: LexTree) !void {
 /// provide the context, expecting not to know about, or touch the final user
 /// input line
 pub fn render(d: *Drawable) !void {
+    var cntx: usize = 0;
     const w = d.tty.out;
     if (d.cursor_reposition) {
         var move = d.cursor;
@@ -199,19 +212,22 @@ pub fn render(d: *Drawable) !void {
         }
     }
 
-    if (d.before.items.len > 0) _ = try w.write(d.before.items);
-    if (d.after.items.len > 0) _ = try w.write(d.after.items);
+    if (d.before.items.len > 0) cntx += try w.write(d.before.items);
+    if (d.after.items.len > 0) cntx += try w.write(d.after.items);
     // TODO seek back up
     if (d.right.items.len > 0) {
-        _ = try w.write("\r\x1B[K");
+        cntx += try w.write("\r\x1B[K");
         var moving = [_:0]u8{0} ** 16;
+        // Depending on movement being a nop once at term width
         const right = try std.fmt.bufPrint(&moving, "\x1B[{}G", .{d.term_size.x});
-        _ = try w.write(right);
-        const left = try std.fmt.bufPrint(&moving, "\x1B[{}D", .{countPrintable(d.right.items) - 1});
-        _ = try w.write(left);
-        _ = try w.write(d.right.items);
+        cntx += try w.write(right);
+        const printable = countPrintable(d.right.items) - 1;
+        const left = try std.fmt.bufPrint(&moving, "\x1B[{}D", .{printable});
+        cntx += try w.write(left);
+        cntx += try w.write(d.right.items);
     }
 
+    if (cntx == 0) _ = try w.write("\r\x1B[K");
     _ = try w.write(d.b.items);
     // TODO save backtrack line count?
     d.before.clearAndFree();
