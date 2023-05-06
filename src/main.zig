@@ -302,6 +302,7 @@ pub fn main() !void {
     while (true) {
         if (loop(&hsh, &t)) |l| {
             if (l) {
+                _ = try hsh.history.?.seekFromEnd(0);
                 _ = try hsh.history.?.write(t.raw.items);
                 _ = try hsh.history.?.write("\n");
                 try hsh.history.?.sync();
