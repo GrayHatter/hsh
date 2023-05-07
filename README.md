@@ -3,6 +3,15 @@
 You probably don't want to use this yet, while I have started to dog food this
 as my shell... I'm crazy.
 
+## Goals
+ - Support *modern* pttys
+ - Composable vs decomposable mode
+
+## [De]composable mode
+ A default, unconfigured install of hsh should enable all features and
+ functionality. Running hsh non-interactive, or [other] should disable all
+ helful, or context aware features unless explicitly enabled. 
+
 ## Install
 install zig (you probably need zig master, or atleast > v0.10)<br>
 clone [hsh]<br>

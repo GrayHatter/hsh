@@ -4,6 +4,7 @@ const Allocator = mem.Allocator;
 const Drawable = @import("draw.zig").Drawable;
 const TTY = @import("tty.zig").TTY;
 const builtin = @import("builtin");
+const ArrayList = std.ArrayList;
 
 pub const Features = enum {
     Debugging,
@@ -34,6 +35,8 @@ const hshfs = struct {
     cwd_short: []u8 = undefined,
     confdir: ?[]const u8 = null,
     home_name: []const u8 = undefined,
+    path_env: ?[]const u8 = null,
+    paths: ArrayList([]const u8),
 };
 
 // var __hsh: ?*HSH = null;
@@ -94,13 +97,29 @@ pub const HSH = struct {
             break :n tmp;
         } else name;
 
+        const penv = env.get("PATH");
+        const path_env = if (penv) |_| a.dupe(u8, penv.?) catch null else null;
+
         return hshfs{
             .cwd = cwd,
             .cwdi = cwdi,
             .cwd_name = name,
             .cwd_short = short,
             .home_name = h orelse "",
+            .path_env = path_env,
+            .paths = try initPath(a, path_env),
         };
+    }
+
+    fn initPath(a: Allocator, path_env: ?[]const u8) !ArrayList([]const u8) {
+        var paths = ArrayList([]const u8).init(a);
+        if (path_env) |env| {
+            var mpaths = std.mem.tokenize(u8, env, ":");
+            while (mpaths.next()) |path| {
+                try paths.append(path);
+            }
+        }
+        return paths;
     }
 
     pub fn updateFs(hsh: *HSH) void {
@@ -138,6 +157,8 @@ pub const HSH = struct {
     fn razeFs(hsh: *HSH) void {
         hsh.alloc.free(hsh.fs.cwd_name);
         hsh.alloc.free(hsh.fs.cwd_short);
+        hsh.fs.paths.clearAndFree();
+        if (hsh.fs.path_env) |env| hsh.alloc.free(env);
     }
 
     pub fn find_confdir(_: HSH) []const u8 {}

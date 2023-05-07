@@ -15,7 +15,6 @@ pub const TokenType = enum(u8) {
     Builtin,
     Quote,
     IoRedir,
-    Exe,
     Path,
     Var,
     Command, // custom string that alters hsh in some way
@@ -63,6 +62,13 @@ pub const Token = struct {
         return self.*.backing.?.items;
     }
 };
+
+pub fn tokenPos(comptime t: TokenType, hs: []const Token) ?usize {
+    for (hs, 0..) |tk, i| {
+        if (t == tk.type) return i;
+    }
+    return null;
+}
 
 pub const Tokenizer = struct {
     alloc: Allocator,
@@ -164,7 +170,6 @@ pub const Tokenizer = struct {
     fn parseAction(self: *Tokenizer, token: *Token) Error!*Token {
         if (Builtins.exists(token.raw)) return parseBuiltin(token);
         _ = try token.upgrade(self.alloc);
-        if (token.*.type == TokenType.String) token.*.type = TokenType.Exe;
         return token;
     }
 

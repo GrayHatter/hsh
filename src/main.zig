@@ -21,6 +21,10 @@ const exec = Exec.exec;
 
 var term_resized: bool = false;
 
+test {
+    std.testing.refAllDecls(@This());
+}
+
 pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
     var buffer: [1]u8 = undefined;
     var prev: [1]u8 = undefined;
@@ -170,37 +174,6 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
     }
 }
 
-test "c memory" {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var tkn = Tokenizer.init(a);
-    for ("ls -la") |c| {
-        try tkn.consumec(c);
-    }
-    _ = try tkn.parse();
-
-    var argv: [:null]?[*:0]u8 = undefined;
-    var list = ArrayList(?[*:0]u8).init(a);
-    try std.testing.expect(tkn.tokens.items.len == 3);
-    try std.testing.expect(mem.eql(u8, tkn.tokens.items[0].raw, "ls"));
-    try std.testing.expect(mem.eql(u8, tkn.tokens.items[0].cannon(), "ls"));
-    for (tkn.tokens.items) |token| {
-        if (token.type == .WhiteSpace) continue;
-        var arg = a.alloc(u8, token.cannon().len + 1) catch unreachable;
-        mem.copy(u8, arg, token.cannon());
-        arg[token.cannon().len] = 0;
-        try list.append(@ptrCast(?[*:0]u8, arg.ptr));
-    }
-    try std.testing.expect(list.items.len == 2);
-    argv = list.toOwnedSliceSentinel(null) catch unreachable;
-
-    try std.testing.expect(mem.eql(u8, argv[0].?[0..2 :0], "ls"));
-    try std.testing.expect(mem.eql(u8, argv[1].?[0..3 :0], "-la"));
-    try std.testing.expect(argv[2] == null);
-}
-
 pub fn sig_cb(sig: c_int, _: *const os.siginfo_t, _: ?*const anyopaque) callconv(.C) void {
     if (sig != os.SIG.WINCH) unreachable;
     //std.debug.print("{}\n", .{info});
@@ -267,7 +240,8 @@ pub fn main() !void {
                 if (!(t.parse() catch continue)) continue;
 
                 switch (t.tokens.items[0].type) {
-                    .String, .Exe => {
+                    .String => {
+                        if (!Exec.executable(&hsh, t.tokens.items[0].cannon())) continue;
                         exec(&hsh, &t) catch |err| {
                             if (err == Exec.Error.NotFound) std.os.exit(99);
                             unreachable;
@@ -293,10 +267,6 @@ pub fn main() !void {
         }
     }
 }
-
-test "rc" {}
-
-test "history" {}
 
 pub fn panic(msg: []const u8, trace: ?*std.builtin.StackTrace, retaddr: ?usize) noreturn {
     @setCold(true);
