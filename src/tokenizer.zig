@@ -214,7 +214,10 @@ pub const Tokenizer = struct {
     }
 
     fn ioredir(src: []const u8) Error!Token {
-        if (src.len < 2) return Token{ .raw = src[0..1], .type = .IoRedir };
+        if (src[0] != '|') return Error.InvalidSrc;
+
+        if (src.len < 2) return Error.InvalidSrc;
+        //if (src.len < 2) return Token{ .raw = src[0..1], .type = .IoRedir };
         //const follower = try Tokenizer.string(src[1..]);
         return Token{
             .raw = src[0..1],

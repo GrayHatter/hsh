@@ -11,8 +11,10 @@ const fd_t = std.os.fd_t;
 pub const Error = error{
     InvalidSrc,
     Unknown,
+    OSErr,
     Memory,
     NotFound,
+    ExecFailed,
     ExeNotFound,
 };
 
@@ -20,21 +22,22 @@ const ARG = [*:0]u8;
 const ARGV = [:null]?ARG;
 
 const StdIo = struct {
-    stdin: fd_t,
-    stdout: fd_t,
+    stdin: [2]fd_t,
+    stdout: [2]fd_t,
     stderr: fd_t,
 };
 
 const ExecStack = struct {
     arg: ARG,
     argv: ARGV,
-    stdio: StdIo,
+    stdio: ?StdIo,
 };
 
 fn setup() void {}
 
 pub fn executable(hsh: *HSH, str: []const u8) bool {
-    _ = makeAbsExecutable(hsh.alloc, hsh.fs.paths.items, str) catch return false;
+    var plsfree = makeAbsExecutable(hsh.alloc, hsh.fs.paths.items, str) catch return false;
+    plsfree.clearAndFree();
     return true;
 }
 
@@ -70,51 +73,125 @@ pub fn makeAbsExecutable(a: Allocator, paths: [][]const u8, str: []const u8) Err
     return exe;
 }
 
-/// Caller owns memory of argv, and the open fd_s
-fn makeExecStack(hsh: *const HSH, tkns: []const Tokens.Token) Error!ExecStack {
+/// Caller will own memory
+fn makeExeZ(a: Allocator, paths: [][]const u8, str: []const u8) Error!ARG {
+    var exe = makeAbsExecutable(a, paths, str) catch |e| return e;
+    return exe.toOwnedSliceSentinel(0) catch return Error.Memory;
+}
+
+/// Caller owns memory of argv, and the open fds
+fn makeExecStack(hsh: *const HSH, tkns: []const Tokens.Token) Error![]ExecStack {
     if (tkns.len == 0) return Error.InvalidSrc;
 
+    var stack = ArrayList(ExecStack).init(hsh.alloc);
+    var exeZ: ?ARG = null;
     var argv = ArrayList(?ARG).init(hsh.alloc);
-    var exe = makeAbsExecutable(hsh.alloc, hsh.fs.paths.items, tkns[0].cannon()) catch |e| return e;
-    const exeZ = exe.toOwnedSliceSentinel(0) catch return Error.Memory;
-    argv.append(exeZ) catch return Error.Memory;
+    var stdio: ?StdIo = null;
 
-    for (tkns[1..]) |t| {
-        if (t.type == TokenType.WhiteSpace) continue;
-        argv.append(hsh.alloc.dupeZ(u8, t.cannon()) catch return Error.Memory) catch return Error.Memory;
+    for (tkns) |t| {
+        switch (t.type) {
+            .WhiteSpace => continue,
+            .IoRedir => {
+                if (!std.mem.eql(u8, "|", t.cannon())) unreachable;
+                const io = StdIo{
+                    .stdin = std.os.pipe2(0) catch return Error.Unknown,
+                    .stdout = std.os.pipe2(0) catch return Error.Unknown,
+                    .stderr = std.os.STDERR_FILENO,
+                };
+                stack.append(ExecStack{
+                    .arg = exeZ.?,
+                    .argv = argv.toOwnedSliceSentinel(null) catch return Error.Memory,
+                    .stdio = io,
+                }) catch return Error.Memory;
+                exeZ = null;
+                argv = ArrayList(?ARG).init(hsh.alloc);
+                continue;
+            },
+            else => {
+                if (exeZ) |_| {} else {
+                    exeZ = makeExeZ(hsh.alloc, hsh.fs.paths.items, t.cannon()) catch |e| return e;
+                    argv.append(exeZ.?) catch return Error.Memory;
+                    continue;
+                }
+                argv.append(hsh.alloc.dupeZ(u8, t.cannon()) catch return Error.Memory) catch return Error.Memory;
+            },
+        }
     }
-    return ExecStack{
-        .arg = exeZ,
+
+    stack.append(ExecStack{
+        .arg = exeZ.?,
         .argv = argv.toOwnedSliceSentinel(null) catch return Error.Memory,
-        .stdio = StdIo{
-            .stdin = 0,
-            .stdout = 0,
-            .stderr = 0,
-        },
-    };
+        .stdio = stdio,
+    }) catch return Error.Memory;
+    return stack.toOwnedSlice() catch return Error.Memory;
 }
 
 pub fn exec(hsh: *const HSH, tkn: *const Tokenizer) Error!void {
-    const stack = try makeExecStack(hsh, tkn.tokens.items);
+    const stack = makeExecStack(hsh, tkn.tokens.items) catch |e| return e;
 
-    const fork_pid = std.os.fork() catch return Error.Unknown;
-    if (fork_pid == 0) {
-        // TODO manage env
-        // TODO restore cooked!!
-        const res = std.os.execveZ(stack.arg, stack.argv, @ptrCast([*:null]?[*:0]u8, std.os.environ));
-        switch (res) {
-            error.FileNotFound => return Error.NotFound,
-            else => {
-                std.debug.print("exec error {}", .{res});
-                unreachable;
-            },
+    var fpid: std.os.pid_t = 0;
+    var previo: ?StdIo = null;
+    var rootin = std.os.dup(std.os.STDIN_FILENO) catch return Error.OSErr;
+    var rootout = std.os.dup(std.os.STDOUT_FILENO) catch return Error.OSErr;
+
+    std.debug.print("stack looks like {any}\n", .{stack});
+    for (stack) |s| {
+        fpid = std.os.fork() catch return Error.OSErr;
+        std.debug.print("forked {any}\n", .{fpid});
+        if (fpid == 0) {
+            std.debug.print("forked for {s}\n", .{s.arg});
+            if (previo) |pio| {
+                std.debug.print("rewriting in\n", .{});
+                std.os.dup2(pio.stdout[0], std.os.STDIN_FILENO) catch return Error.OSErr;
+            } else {
+                std.debug.print("setting in\n", .{});
+                std.os.dup2(hsh.tty.tty, std.os.STDIN_FILENO) catch return Error.OSErr;
+            }
+            if (s.stdio) |io| {
+                std.debug.print("rewriting out\n", .{});
+                std.os.dup2(io.stdout[1], std.os.STDOUT_FILENO) catch return Error.OSErr;
+                //std.os.dup2(io.stderr, std.os.STDERR_FILENO) catch return Error.OSErr;
+                std.os.close(io.stdin[0]);
+                std.os.close(io.stdin[1]);
+                std.os.close(io.stdout[0]);
+                std.os.close(io.stdout[1]);
+            } else if (previo) |io| {
+                std.debug.print("restoring out\n", .{});
+                std.os.dup2(rootout, std.os.STDOUT_FILENO) catch return Error.OSErr;
+                std.os.close(io.stdin[0]);
+                std.os.close(io.stdin[1]);
+                std.os.close(io.stdout[0]);
+                std.os.close(io.stdout[1]);
+            }
+
+            // TODO manage env
+            const res = std.os.execveZ(s.arg, s.argv, @ptrCast([*:null]?[*:0]u8, std.os.environ));
+            switch (res) {
+                error.FileNotFound => {
+                    // we validate exes internall now this should be impossible
+                    unreachable;
+                },
+                else => std.debug.print("exec error {}", .{res}),
+            }
+            unreachable;
+        } else {
+            if (s.stdio) |io| previo = io;
         }
-    } else {
-        //tkn.reset();
-        const res = std.os.waitpid(fork_pid, 0);
+    }
+
+    if (fpid != 0) {
+        const res = std.os.waitpid(fpid, 0);
         const status = res.status >> 8 & 0xff;
         std.debug.print("fork res {}\n", .{status});
     }
+    if (true) {
+        std.debug.print("restoring in\n", .{});
+        //try std.os.dup(rootout)
+        std.os.dup2(rootin, std.os.STDIN_FILENO) catch return Error.OSErr;
+        std.os.close(rootin); // catch return Error.OSErr;
+        std.os.close(rootout); // catch return Error.OSEr;
+    }
+    if (stack.len > 1) _ = std.os.waitpid(-1, 0);
 }
 
 test "c memory" {

@@ -160,7 +160,7 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
                     continue;
                 };
                 if (run) {
-                    try tkn.dump_parsed(false);
+                    //try tkn.dump_parsed(false);
                     if (tkn.tokens.items.len > 0) {
                         return true;
                     }
@@ -242,10 +242,15 @@ pub fn main() !void {
                 switch (t.tokens.items[0].type) {
                     .String => {
                         if (!Exec.executable(&hsh, t.tokens.items[0].cannon())) continue;
+                        try hsh.tty.popTTY();
                         exec(&hsh, &t) catch |err| {
-                            if (err == Exec.Error.NotFound) std.os.exit(99);
+                            if (err == Exec.Error.ExeNotFound) {
+                                std.debug.print("exe pipe error {}\n", .{err});
+                            }
+                            std.debug.print("Exec error {}\n", .{err});
                             unreachable;
                         };
+                        try hsh.tty.pushTTY(hsh.tty.raw);
                         t.reset();
                     },
                     .Builtin => {

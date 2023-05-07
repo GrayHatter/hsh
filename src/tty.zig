@@ -26,30 +26,48 @@ pub const TTY = struct {
     in: Reader,
     out: Writer,
     orig: os.termios,
+    prev: os.termios,
+    raw: os.termios,
 
     /// Calling init multiple times is UB
     pub fn init() !TTY {
         // TODO figure out how to handle multiple calls to current_tty?
         const tty = try os.open("/dev/tty", os.linux.O.RDWR, 0);
         const orig = try os.tcgetattr(tty);
-
-        try pushTTY(tty, orig);
+        try initTTY(tty);
         current_tty = TTY{
             .tty = tty,
             .in = std.io.getStdIn().reader(),
             .out = std.io.getStdOut().writer(),
             .orig = orig,
+            .prev = orig,
+            .raw = try rawTTY(tty),
         };
         return current_tty.?;
     }
 
-    fn pushTTY(tty: i32, tos: os.termios) !void {
-        var raw = tos;
+    fn rawTTY(tty: i32) !os.termios {
+        var raw = try os.tcgetattr(tty);
         raw.lflag &= ~(os.linux.ECHO | os.linux.ICANON | os.linux.ISIG | os.linux.IEXTEN);
         raw.iflag &= ~(os.linux.IXON | os.linux.ICRNL | os.linux.BRKINT | os.linux.INPCK | os.linux.ISTRIP);
-        raw.cc[os.system.V.TIME] = 5; // 0.1 sec resolution
-        raw.cc[os.system.V.MIN] = 0;
-        try os.tcsetattr(tty, .FLUSH, raw);
+        raw.cc[os.system.V.TIME] = 0; // 0.1 sec resolution
+        raw.cc[os.system.V.MIN] = 1;
+        return raw;
+    }
+
+    fn initTTY(tty: i32) !void {
+        try os.tcsetattr(tty, .FLUSH, try rawTTY(tty));
+    }
+
+    pub fn pushTTY(self: *TTY, tios: os.termios) !void {
+        self.prev = try os.tcgetattr(self.tty);
+        try os.tcsetattr(self.tty, .NOW, tios);
+    }
+
+    pub fn popTTY(self: *TTY) !void {
+        os.tcsetattr(self.tty, .NOW, self.orig) catch |err| {
+            std.debug.print("\r\n\nTTY ERROR encountered, {} when popping.\r\n\n", .{err});
+        };
     }
 
     pub fn print(tty: TTY, comptime fmt: []const u8, args: anytype) !void {
