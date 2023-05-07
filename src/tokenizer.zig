@@ -227,6 +227,7 @@ pub const Tokenizer = struct {
 
     /// Callers must ensure that src[0] is in (', ")
     pub fn quote(src: []const u8) Error!Token {
+        // TODO posix says a ' cannot appear within 'string'
         if (src.len <= 1 or src[0] == '\\') {
             return Error.InvalidSrc;
         }

@@ -10,7 +10,7 @@ as my shell... I'm crazy.
 ## [De]composable mode
  A default, unconfigured install of hsh should enable all features and
  functionality. Running hsh non-interactive, or [other] should disable all
- helful, or context aware features unless explicitly enabled. 
+ helful, or context aware features unless explicitly enabled.
 
 ## Install
 install zig (you probably need zig master, or atleast > v0.10)<br>
@@ -19,15 +19,26 @@ clone [hsh]<br>
 
 ## TODO
  - [x] basic parsing
+ - [ ] .hshrc support
  - [x] exec
    - [ ] friendly exec
+   - [ ] && success
+   - [ ] || failues
+   - [ ] ; cmd
+ - [ ] IoRedir
+   - [x] | func
+   - [ ] > std clobber
+   - [ ] >> std append
+   - [ ] 2> err clobber
+   - [ ] 2>&1 err to out
+   - [ ] < in
+   - [ ] << here-doc;
  - [ ] tab complete
    - [x] cwd
    - [ ] the rest
  - [x] history
    - [ ] advanced history
  - [ ] sane error handling
- - [ ] .hshrc support
  - [ ] complex parsing
  - [ ] context aware hints
  - [ ] built ins
@@ -56,6 +67,8 @@ clone [hsh]<br>
    - [ ] the rest?
  - [ ] globs
  - [ ] script support?
+   - [ ] logic (if, else, elif, case)
+   - [ ] loops (for, while)
  - [ ] env
  - [ ] real path support
  - [ ] debugging configuration
