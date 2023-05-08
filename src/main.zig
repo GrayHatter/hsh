@@ -18,8 +18,7 @@ const Builtins = @import("builtins.zig");
 const Keys = @import("keys.zig");
 const Exec = @import("exec.zig");
 const exec = Exec.exec;
-
-var term_resized: bool = false;
+const Signals = @import("signals.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -29,11 +28,9 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
     var buffer: [1]u8 = undefined;
     var prev: [1]u8 = undefined;
     while (true) {
-        if (term_resized) {
-            hsh.draw.term_size = hsh.tty.geom() catch unreachable;
-            term_resized = false;
-        }
         hsh.draw.cursor = @truncate(u32, tkn.cadj());
+        hsh.doSignals();
+
         try prompt(hsh, tkn);
         try Draw.render(&hsh.draw);
 
@@ -59,19 +56,23 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
                             .Up => {
                                 if (tkn.hist_pos == 0) tkn.push_line();
                                 tkn.clear();
-                                const top = read_history(tkn.hist_pos + 1, hsh.history.?, &tkn.raw) catch unreachable;
+                                const top = read_history(
+                                    tkn.hist_pos + 1,
+                                    hsh.history.?,
+                                    &tkn.raw,
+                                ) catch unreachable;
                                 if (!top) tkn.hist_pos += 1;
                                 tkn.push_hist();
-                                //while (!top and mem.eql(u8, tkn.raw.items, tkn.hist_z.?.items)) {
-                                //    tkn.hist_pos += 1;
-                                //    top = read_history(tkn.hist_pos + 1, history, &tkn.raw) catch unreachable;
-                                //}
                             },
                             .Down => {
                                 if (tkn.hist_pos > 1) {
                                     tkn.hist_pos -= 1;
                                     tkn.clear();
-                                    _ = read_history(tkn.hist_pos, hsh.history.?, &tkn.raw) catch unreachable;
+                                    _ = read_history(
+                                        tkn.hist_pos,
+                                        hsh.history.?,
+                                        &tkn.raw,
+                                    ) catch unreachable;
                                     tkn.push_hist();
                                 } else if (tkn.hist_pos == 1) {
                                     tkn.hist_pos -= 1;
@@ -174,40 +175,6 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
     }
 }
 
-pub fn sig_cb(sig: c_int, info: *const os.siginfo_t, _: ?*const anyopaque) callconv(.C) void {
-    switch (sig) {
-        os.SIG.INT => std.debug.print("INT signal (oopsies) => ({})\n", .{info}),
-        os.SIG.CHLD => std.debug.print("CHLD signal => ({})\n", .{info}),
-        os.SIG.TSTP => std.debug.print("TSTP signal => ({})\n", .{info}),
-        os.SIG.CONT => std.debug.print("CONT signal => ({})\n", .{info}),
-        os.SIG.WINCH => term_resized = true,
-        else => std.debug.print("Unknown signal {} => ({})\n", .{ sig, info }),
-    }
-}
-
-pub fn initSignals() !void {
-    // zsh blocks and unblocks winch signals during most processing, collecting
-    // them only when needed. It's likely something we should do as well
-    const signals = [_]u6{
-        os.SIG.HUP,
-        os.SIG.INT,
-        os.SIG.QUIT,
-        os.SIG.TERM,
-        os.SIG.CHLD,
-        os.SIG.CONT,
-        os.SIG.TSTP,
-        os.SIG.WINCH,
-    };
-
-    for (signals) |s| {
-        try os.sigaction(s, &os.Sigaction{
-            .handler = .{ .sigaction = sig_cb },
-            .mask = os.empty_sigset,
-            .flags = 0,
-        }, null);
-    }
-}
-
 fn read_history(cnt: usize, hist: std.fs.File, buffer: *ArrayList(u8)) !bool {
     var row = cnt;
     var len: usize = try hist.getEndPos();
@@ -239,7 +206,7 @@ pub fn main() !void {
 
     _ = try complete.init(&hsh);
 
-    try signals();
+    try Signals.init(hsh.alloc, &hsh.sig_stack);
 
     hsh.tty = TTY.init() catch unreachable;
     defer hsh.tty.raze();
