@@ -174,20 +174,38 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
     }
 }
 
-pub fn sig_cb(sig: c_int, _: *const os.siginfo_t, _: ?*const anyopaque) callconv(.C) void {
-    if (sig != os.SIG.WINCH) unreachable;
-    //std.debug.print("{}\n", .{info});
-    term_resized = true;
+pub fn sig_cb(sig: c_int, info: *const os.siginfo_t, _: ?*const anyopaque) callconv(.C) void {
+    switch (sig) {
+        os.SIG.INT => std.debug.print("INT signal (oopsies) => ({})\n", .{info}),
+        os.SIG.CHLD => std.debug.print("CHLD signal => ({})\n", .{info}),
+        os.SIG.TSTP => std.debug.print("TSTP signal => ({})\n", .{info}),
+        os.SIG.CONT => std.debug.print("CONT signal => ({})\n", .{info}),
+        os.SIG.WINCH => term_resized = true,
+        else => std.debug.print("Unknown signal {} => ({})\n", .{ sig, info }),
+    }
 }
 
-pub fn signals() !void {
+pub fn initSignals() !void {
     // zsh blocks and unblocks winch signals during most processing, collecting
     // them only when needed. It's likely something we should do as well
-    try os.sigaction(os.SIG.WINCH, &os.Sigaction{
-        .handler = .{ .sigaction = sig_cb },
-        .mask = os.empty_sigset,
-        .flags = 0,
-    }, null);
+    const signals = [_]u6{
+        os.SIG.HUP,
+        os.SIG.INT,
+        os.SIG.QUIT,
+        os.SIG.TERM,
+        os.SIG.CHLD,
+        os.SIG.CONT,
+        os.SIG.TSTP,
+        os.SIG.WINCH,
+    };
+
+    for (signals) |s| {
+        try os.sigaction(s, &os.Sigaction{
+            .handler = .{ .sigaction = sig_cb },
+            .mask = os.empty_sigset,
+            .flags = 0,
+        }, null);
+    }
 }
 
 fn read_history(cnt: usize, hist: std.fs.File, buffer: *ArrayList(u8)) !bool {
@@ -242,7 +260,7 @@ pub fn main() !void {
                 switch (t.tokens.items[0].type) {
                     .String => {
                         if (!Exec.executable(&hsh, t.tokens.items[0].cannon())) continue;
-                        try hsh.tty.popTTY();
+                        //try hsh.tty.popTTY();
                         exec(&hsh, &t) catch |err| {
                             if (err == Exec.Error.ExeNotFound) {
                                 std.debug.print("exe pipe error {}\n", .{err});
@@ -250,7 +268,7 @@ pub fn main() !void {
                             std.debug.print("Exec error {}\n", .{err});
                             unreachable;
                         };
-                        try hsh.tty.pushTTY(hsh.tty.raw);
+                        //try hsh.tty.pushTTY(hsh.tty.raw);
                         t.reset();
                     },
                     .Builtin => {
@@ -276,6 +294,8 @@ pub fn main() !void {
 pub fn panic(msg: []const u8, trace: ?*std.builtin.StackTrace, retaddr: ?usize) noreturn {
     @setCold(true);
     std.debug.print("Panic reached... your TTY is likely broken now.\n\n...sorry about that!\n", .{});
-    TTY_.current_tty.?.raze();
+    if (TTY_.current_tty) |t| {
+        t.raze();
+    }
     std.builtin.default_panic(msg, trace, retaddr);
 }

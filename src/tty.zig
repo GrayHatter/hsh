@@ -48,8 +48,9 @@ pub const TTY = struct {
 
     fn rawTTY(tty: i32) !os.termios {
         var raw = try os.tcgetattr(tty);
-        raw.lflag &= ~(os.linux.ECHO | os.linux.ICANON | os.linux.ISIG | os.linux.IEXTEN);
         raw.iflag &= ~(os.linux.IXON | os.linux.ICRNL | os.linux.BRKINT | os.linux.INPCK | os.linux.ISTRIP);
+        //raw.lflag &= ~(os.linux.ECHO | os.linux.ICANON | os.linux.ISIG | os.linux.IEXTEN);
+        raw.lflag &= ~(os.linux.ECHO | os.linux.ICANON | os.linux.IEXTEN);
         raw.cc[os.system.V.TIME] = 0; // 0.1 sec resolution
         raw.cc[os.system.V.MIN] = 1;
         return raw;

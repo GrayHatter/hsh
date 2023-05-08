@@ -57,6 +57,7 @@ pub const HSH = struct {
     tty: TTY = undefined,
     draw: Drawable = undefined,
     input: i32 = 0,
+    pid: std.os.pid_t = undefined,
 
     pub fn init(a: Allocator) !HSH {
         // I'm pulling all of env out at startup only because that's the first
