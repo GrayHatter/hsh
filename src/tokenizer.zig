@@ -88,8 +88,8 @@ pub const Tokenizer = struct {
         };
     }
 
-    pub fn raze(self: Tokenizer) void {
-        self.alloc.deinit();
+    pub fn raze(self: *Tokenizer) void {
+        self.reset();
     }
 
     /// Increment the cursor over to current token position

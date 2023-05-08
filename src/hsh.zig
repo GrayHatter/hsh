@@ -2,9 +2,21 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const Drawable = @import("draw.zig").Drawable;
+const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const TTY = @import("tty.zig").TTY;
 const builtin = @import("builtin");
 const ArrayList = std.ArrayList;
+const Signals = @import("signals.zig");
+const Stack = std.atomic.Stack;
+
+pub const Error = error{
+    Unknown,
+    Memory,
+    JobNotFound,
+    FSysGeneric,
+    Other,
+};
+const E = Error;
 
 pub const Features = enum {
     Debugging,
@@ -47,39 +59,68 @@ const hshfs = struct {
 //     return true;
 // }
 
+pub const JobStatus = enum {
+    RIP, // reaped
+    Ded, // zombie
+    Paused, // SIGSTOP
+    Waiting, // Stopped needs to output
+    Piped,
+    Background, // in background
+    Running, // foreground
+    Unknown, // :<
+};
+
+pub const Job = struct {
+    name: ?[]const u8,
+    pid: std.os.pid_t = -1,
+    status: JobStatus = .Unknown,
+};
+
 pub const HSH = struct {
     alloc: Allocator,
     features: hshFeature,
     env: std.process.EnvMap,
     fs: hshfs,
+    pid: std.os.pid_t,
+    sig_stack: Stack(Signals.Signal),
+    jobs: ArrayList(Job),
     rc: ?std.fs.File = null,
     history: ?std.fs.File = null,
     tty: TTY = undefined,
     draw: Drawable = undefined,
+    tkn: Tokenizer = undefined,
     input: i32 = 0,
-    pid: std.os.pid_t = undefined,
 
-    pub fn init(a: Allocator) !HSH {
+    pub fn init(a: Allocator) Error!HSH {
         // I'm pulling all of env out at startup only because that's the first
         // example I found. It's probably sub optimal, but ¯\_(ツ)_/¯. We may
         // decide we care enough to fix this, or not. The internet seems to think
         // it's a mistake to alter the env for a running process.
-        var env = try std.process.getEnvMap(a); // TODO err handling
+        var env = std.process.getEnvMap(a) catch return E.Unknown; // TODO err handling
         var home = env.get("HOME");
         var rc: std.fs.File = undefined;
         var history: std.fs.File = undefined;
         if (home) |h| {
             // TODO sanity checks
-            const dir = try std.fs.openDirAbsolute(h, .{});
-            rc = try dir.createFile(".hshrc", .{ .read = true, .truncate = false });
-            history = try dir.createFile(".hsh_history", .{ .read = true, .truncate = false });
+            const dir = std.fs.openDirAbsolute(h, .{}) catch return E.FSysGeneric;
+            rc = dir.createFile(
+                ".hshrc",
+                .{ .read = true, .truncate = false },
+            ) catch return E.FSysGeneric;
+            history = dir.createFile(
+                ".hsh_history",
+                .{ .read = true, .truncate = false },
+            ) catch return E.FSysGeneric;
             history.seekFromEnd(0) catch unreachable;
         }
         return HSH{
             .alloc = a,
             .features = .{},
             .env = env,
-            .fs = try initFs(a, env),
+            .fs = initFs(a, env) catch return E.FSysGeneric,
+            .pid = std.os.linux.getpid(),
+            .sig_stack = Stack(Signals.Signal).init(),
+            .jobs = ArrayList(Job).init(a),
             .rc = rc,
             .history = history,
         };
@@ -164,4 +205,81 @@ pub const HSH = struct {
 
     pub fn find_confdir(_: HSH) []const u8 {}
     pub fn cd(_: HSH, _: []u8) ![]u8 {}
+
+    pub fn getJob(hsh: *HSH, jid: std.os.pid_t) Error!*Job {
+        for (hsh.jobs.items) |*j| {
+            if (j.*.pid == jid) {
+                return j;
+            }
+        }
+        return Error.JobNotFound;
+    }
+
+    pub fn newJob(hsh: *HSH, pid: std.os.pid_t, s: JobStatus) Error!void {
+        hsh.jobs.append(Job{
+            .name = null,
+            .pid = pid,
+            .status = s,
+        }) catch return E.Memory;
+    }
+
+    pub fn getFgJob(hsh: *const HSH) ?*const Job {
+        for (hsh.jobs.items) |j| {
+            if (j.status == .Running) {
+                return &j;
+            }
+        }
+        return null;
+    }
+
+    pub fn spin(hsh: *HSH) void {
+        while (hsh.getFgJob()) |_| {
+            hsh.doSignals();
+            std.time.sleep(10 * 1000 * 1000);
+        }
+    }
+
+    pub fn doSignals(hsh: *HSH) void {
+        while (hsh.sig_stack.pop()) |node| {
+            var sig = node.data;
+            switch (sig.signal) {
+                std.os.SIG.INT => {
+                    std.debug.print("^C\n\r", .{});
+                    hsh.tkn.reset();
+                    //std.debug.print("\n\rSIGNAL INT(oopsies)\n", .{});
+                },
+                std.os.SIG.CHLD => {
+                    const child = hsh.getJob(sig.info.fields.common.first.piduid.pid) catch {
+                        // TODO we should never not know about a job, but it's not a
+                        // reason to die just yet.
+                        return;
+                    };
+                    child.*.status = .Ded;
+                },
+                std.os.SIG.TSTP => {
+                    const child = hsh.getJob(sig.info.fields.common.first.piduid.pid) catch {
+                        // TODO we should never not know about a job, but it's not a
+                        // reason to die just yet.
+                        return;
+                    };
+                    child.*.status = .Waiting;
+
+                    //std.debug.print("\n\rSIGNAL TSTP => ({})\n", .{sig.info});
+                },
+                std.os.SIG.CONT => std.debug.print("\n\rSIGNAL CONT => ({})\n", .{sig.info}),
+                std.os.SIG.WINCH => {
+                    hsh.draw.term_size = hsh.tty.geom() catch unreachable;
+                },
+                else => {
+                    std.debug.print("\n\rUnknown signal {} => ({})\n", .{ sig.signal, sig.info });
+                    std.debug.print("\n\r dump = {}\n", .{std.fmt.fmtSliceHexUpper(std.mem.asBytes(&sig.info))});
+                    std.debug.print("\n\rpid = {}", .{sig.info.fields.common.first.piduid.pid});
+                    std.debug.print("\n\ruid = {}", .{sig.info.fields.common.first.piduid.uid});
+                    std.debug.print("\n", .{});
+                },
+            }
+
+            hsh.alloc.free(@as(*[1]Stack(Signals.Signal).Node, node));
+        }
+    }
 };

@@ -199,51 +199,72 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    var t = Tokenizer.init(a);
 
     var hsh = try HSH.init(a);
     defer hsh.raze();
+
+    hsh.tkn = Tokenizer.init(a);
+    defer hsh.tkn.raze();
 
     _ = try complete.init(&hsh);
 
     try Signals.init(hsh.alloc, &hsh.sig_stack);
 
-    hsh.tty = TTY.init() catch unreachable;
+    hsh.tty = try TTY.init(a);
     defer hsh.tty.raze();
+
+    const pwn_tty = true;
+    if (pwn_tty) {
+        // Look at me, I'm the captain now!
+        hsh.tty.pwnTTY();
+    }
+
     hsh.draw = Drawable.init(&hsh) catch unreachable;
     defer hsh.draw.raze();
     hsh.draw.term_size = hsh.tty.geom() catch unreachable;
     hsh.input = hsh.tty.tty;
 
     while (true) {
-        if (loop(&hsh, &t)) |l| {
+        if (loop(&hsh, &hsh.tkn)) |l| {
             if (l) {
                 _ = try hsh.history.?.seekFromEnd(0);
-                _ = try hsh.history.?.write(t.raw.items);
+                _ = try hsh.history.?.write(hsh.tkn.raw.items);
                 _ = try hsh.history.?.write("\n");
                 try hsh.history.?.sync();
-                if (!(t.parse() catch continue)) continue;
+                if (!(hsh.tkn.parse() catch continue)) continue;
 
-                switch (t.tokens.items[0].type) {
+                switch (hsh.tkn.tokens.items[0].type) {
                     .String => {
-                        if (!Exec.executable(&hsh, t.tokens.items[0].cannon())) continue;
-                        //try hsh.tty.popTTY();
-                        exec(&hsh, &t) catch |err| {
+                        if (!Exec.executable(&hsh, hsh.tkn.tokens.items[0].cannon())) continue;
+
+                        // while (forks.popOrNull()) |_| {
+                        //     const res = std.os.waitpid(-1, 0);
+                        //     const status = res.status >> 8 & 0xff;
+                        //     std.debug.print("fork res ({}){}\n", .{ res.pid, status });
+                        // }
+                        try hsh.tty.pushOrig();
+                        var pids = exec(&hsh, &hsh.tkn) catch |err| {
                             if (err == Exec.Error.ExeNotFound) {
                                 std.debug.print("exe pipe error {}\n", .{err});
                             }
                             std.debug.print("Exec error {}\n", .{err});
                             unreachable;
                         };
-                        //try hsh.tty.pushTTY(hsh.tty.raw);
-                        t.reset();
+                        hsh.tkn.reset();
+                        _ = try hsh.newJob(pids.pop(), .Running);
+                        while (pids.popOrNull()) |p| {
+                            _ = try hsh.newJob(p, .Piped);
+                        }
+                        pids.clearAndFree();
+                        hsh.spin();
+                        try hsh.tty.popTTY();
                     },
                     .Builtin => {
-                        const bi_func = Builtins.strExec(t.tokens.items[0].cannon());
-                        bi_func(&hsh, t.tokens.items) catch |err| {
+                        const bi_func = Builtins.strExec(hsh.tkn.tokens.items[0].cannon());
+                        bi_func(&hsh, hsh.tkn.tokens.items) catch |err| {
                             std.debug.print("builtin error {}\n", .{err});
                         };
-                        t.reset();
+                        hsh.tkn.reset();
                         continue;
                     },
                     else => continue,
@@ -261,7 +282,7 @@ pub fn main() !void {
 pub fn panic(msg: []const u8, trace: ?*std.builtin.StackTrace, retaddr: ?usize) noreturn {
     @setCold(true);
     std.debug.print("Panic reached... your TTY is likely broken now.\n\n...sorry about that!\n", .{});
-    if (TTY_.current_tty) |t| {
+    if (TTY_.current_tty) |*t| {
         t.raze();
     }
     std.builtin.default_panic(msg, trace, retaddr);

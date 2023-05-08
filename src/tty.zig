@@ -1,4 +1,6 @@
 const std = @import("std");
+const Allocator = mem.Allocator;
+const ArrayList = std.ArrayList;
 const os = std.os;
 const mem = std.mem;
 const fs = std.fs;
@@ -7,6 +9,9 @@ const io = std.io;
 const Reader = fs.File.Reader;
 const Writer = fs.File.Writer;
 const Cord = @import("draw.zig").Cord;
+const custom_syscalls = @import("syscalls.zig");
+const pid_t = std.os.linux.pid_t;
+const fd_t = std.os.fd_t;
 
 pub const OpCodes = enum {
     EraseInLine,
@@ -22,53 +27,79 @@ pub const OpCodes = enum {
 pub var current_tty: ?TTY = undefined;
 
 pub const TTY = struct {
+    alloc: Allocator,
     tty: i32,
     in: Reader,
     out: Writer,
-    orig: os.termios,
-    prev: os.termios,
-    raw: os.termios,
+    attrs: ArrayList(os.termios),
 
     /// Calling init multiple times is UB
-    pub fn init() !TTY {
+    pub fn init(a: Allocator) !TTY {
         // TODO figure out how to handle multiple calls to current_tty?
-        const tty = try os.open("/dev/tty", os.linux.O.RDWR, 0);
-        const orig = try os.tcgetattr(tty);
-        try initTTY(tty);
-        current_tty = TTY{
+        const tty = os.open("/dev/tty", os.linux.O.RDWR, 0) catch unreachable;
+
+        var self = TTY{
+            .alloc = a,
             .tty = tty,
             .in = std.io.getStdIn().reader(),
             .out = std.io.getStdOut().writer(),
-            .orig = orig,
-            .prev = orig,
-            .raw = try rawTTY(tty),
+            .attrs = ArrayList(os.termios).init(a),
         };
-        return current_tty.?;
+
+        const current = self.getAttr();
+        const raw = makeRaw(current);
+        try self.pushTTY(raw);
+        current_tty = self;
+
+        return self;
     }
 
-    fn rawTTY(tty: i32) !os.termios {
-        var raw = try os.tcgetattr(tty);
-        raw.iflag &= ~(os.linux.IXON | os.linux.ICRNL | os.linux.BRKINT | os.linux.INPCK | os.linux.ISTRIP);
-        //raw.lflag &= ~(os.linux.ECHO | os.linux.ICANON | os.linux.ISIG | os.linux.IEXTEN);
-        raw.lflag &= ~(os.linux.ECHO | os.linux.ICANON | os.linux.IEXTEN);
-        raw.cc[os.system.V.TIME] = 0; // 0.1 sec resolution
-        raw.cc[os.system.V.MIN] = 1;
-        return raw;
+    fn getAttr(self: *TTY) os.termios {
+        return os.tcgetattr(self.tty) catch unreachable;
     }
 
-    fn initTTY(tty: i32) !void {
-        try os.tcsetattr(tty, .FLUSH, try rawTTY(tty));
+    fn makeRaw(orig: os.termios) os.termios {
+        var next = orig;
+        next.iflag &= ~(os.linux.IXON | os.linux.ICRNL | os.linux.BRKINT | os.linux.INPCK | os.linux.ISTRIP);
+        //next.lflag &= ~(os.linux.ECHO | os.linux.ICANON | os.linux.ISIG | os.linux.IEXTEN);
+        next.lflag &= ~(os.linux.ECHO | os.linux.ICANON | os.linux.IEXTEN);
+        next.cc[os.system.V.TIME] = 1; // 0.1 sec resolution
+        next.cc[os.system.V.MIN] = 0;
+        return next;
+    }
+
+    pub fn pushOrig(self: *TTY) !void {
+        try self.pushTTY(self.attrs.items[0]);
     }
 
     pub fn pushTTY(self: *TTY, tios: os.termios) !void {
-        self.prev = try os.tcgetattr(self.tty);
-        try os.tcsetattr(self.tty, .NOW, tios);
+        try self.attrs.append(self.getAttr());
+        try os.tcsetattr(self.tty, .DRAIN, tios);
     }
 
     pub fn popTTY(self: *TTY) !void {
-        os.tcsetattr(self.tty, .NOW, self.orig) catch |err| {
+        // Not using assert, because this is *always* an dangerously invalid state!
+        if (self.attrs.items.len <= 1) unreachable;
+
+        const tail = self.attrs.pop();
+        os.tcsetattr(self.tty, .FLUSH, tail) catch |err| {
             std.debug.print("\r\n\nTTY ERROR encountered, {} when popping.\r\n\n", .{err});
+            unreachable;
         };
+    }
+
+    pub fn pwnTTY(self: *TTY) void {
+        const pid = std.os.linux.getpid();
+        const ssid = custom_syscalls.getsid(0);
+        //std.debug.print("pwning {} and {} \n", .{ pid, ssid });
+        if (ssid != pid) {
+            _ = custom_syscalls.setpgid(pid, pid);
+        }
+        //std.debug.print("pwning tc \n", .{});
+        _ = custom_syscalls.tcsetpgrp(self.tty, pid);
+        //std.debug.print("tc pwnd {}\n", .{res});
+        _ = custom_syscalls.tcgetpgrp(self.tty);
+        //std.debug.print("get  {}\n", .{get});
     }
 
     pub fn print(tty: TTY, comptime fmt: []const u8, args: anytype) !void {
@@ -118,8 +149,12 @@ pub const TTY = struct {
         };
     }
 
-    pub fn raze(tty: TTY) void {
-        os.tcsetattr(tty.tty, .FLUSH, tty.orig) catch |err| {
+    pub fn raze(self: *TTY) void {
+        while (self.attrs.items.len > 1) {
+            try self.popTTY();
+        }
+        const last = self.attrs.pop();
+        os.tcsetattr(self.tty, .NOW, last) catch |err| {
             std.debug.print(
                 "\r\n\nTTY ERROR RAZE encountered, {} when attempting to raze.\r\n\n",
                 .{err},

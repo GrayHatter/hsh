@@ -15,7 +15,11 @@ as my shell... I'm crazy.
 ## Install
 install zig (you probably need zig master, or atleast > v0.10)<br>
 clone [hsh]<br>
-`zig build run`<br>
+~~`zig build run`~~<br>
+`zig build`<br>
+`./zig-out/bin/hsh`
+
+(`zig build run` does some magic that causes hsh to segv)
 
 ## TODO
  - [x] basic parsing

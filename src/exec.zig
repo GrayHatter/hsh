@@ -132,18 +132,16 @@ fn makeExecStack(hsh: *const HSH, tkns: []const Tokens.Token) Error![]ExecStack 
     return stack.toOwnedSlice() catch return Error.Memory;
 }
 
-pub fn exec(hsh: *const HSH, tkn: *const Tokenizer) Error!void {
+pub fn exec(hsh: *const HSH, tkn: *const Tokenizer) Error!ArrayList(std.os.pid_t) {
     const stack = makeExecStack(hsh, tkn.tokens.items) catch |e| return e;
 
     var previo: ?StdIo = null;
     var rootout = std.os.dup(std.os.STDOUT_FILENO) catch return Error.OSErr;
 
     var forks = ArrayList(std.os.pid_t).init(hsh.alloc);
-    defer forks.clearAndFree();
 
     for (stack) |s| {
         const fpid: std.os.pid_t = std.os.fork() catch return Error.OSErr;
-        forks.append(fpid) catch return Error.Memory;
         if (fpid == 0) {
             if (previo) |pio| {
                 std.os.dup2(pio.right, std.os.STDIN_FILENO) catch return Error.OSErr;
@@ -174,17 +172,16 @@ pub fn exec(hsh: *const HSH, tkn: *const Tokenizer) Error!void {
             unreachable;
         }
 
+        // Child must noreturn
+        // Parent
+        forks.append(fpid) catch return Error.Memory;
         if (previo) |pio| {
             std.os.close(pio.left);
             std.os.close(pio.right);
         }
         previo = s.stdio;
     }
-    while (forks.popOrNull()) |_| {
-        const res = std.os.waitpid(-1, 0);
-        const status = res.status >> 8 & 0xff;
-        std.debug.print("fork res ({}){}\n", .{ res.pid, status });
-    }
+    return forks;
 }
 
 test "c memory" {
