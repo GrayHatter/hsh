@@ -4,19 +4,21 @@ const HSH = @import("hsh.zig").HSH;
 
 var Self = @This();
 
-pub const BuiltinErr = error{
+pub const Err = error{
     Unknown,
     InvalidToken,
     InvalidCommand,
     FileSysErr,
 };
 
-const BuiltinFn = *const fn (a: *HSH, b: []const Token) BuiltinErr!void;
+const BuiltinFn = *const fn (a: *HSH, b: []const Token) Err!void;
 
 pub const Builtins = enum {
     alias,
+    bg,
     cd,
     echo,
+    fg,
     which,
 };
 
@@ -27,9 +29,11 @@ pub fn builtinToName(comptime bi: Builtins) []const u8 {
 pub fn exec(self: Builtins) BuiltinFn {
     return switch (self) {
         .alias => alias,
+        .bg => bg,
         .cd => cd,
         .echo => echo,
         .which => which,
+        .fg => fg,
     };
 }
 
@@ -49,10 +53,12 @@ pub fn exists(str: []const u8) bool {
     return false;
 }
 
-fn alias(_: *HSH, _: []const Token) BuiltinErr!void {}
+fn alias(_: *HSH, _: []const Token) Err!void {}
+
+fn bg(_: *HSH, _: []const Token) Err!void {}
 
 /// Someone should add some sane input sanitzation to this
-fn cd(hsh: *HSH, tkns: []const Token) BuiltinErr!void {
+fn cd(hsh: *HSH, tkns: []const Token) Err!void {
     // TODO pushd and popd
     var path: [1 << 10]u8 = undefined;
     var path_len: usize = 0;
@@ -64,20 +70,20 @@ fn cd(hsh: *HSH, tkns: []const Token) BuiltinErr!void {
                 break;
             },
             .WhiteSpace => continue,
-            else => return BuiltinErr.InvalidToken,
+            else => return Err.InvalidToken,
         }
     } else {
         if (tkns.len < 2) {
             std.mem.copy(u8, &path, hsh.fs.home_name);
             path_len = hsh.fs.home_name.len;
-        } else return BuiltinErr.InvalidCommand;
+        } else return Err.InvalidCommand;
     }
 
     // std.debug.print("cd path {s} default {s}\n", .{ &path, hsh.fs.home_name });
-    const dir = hsh.fs.cwd.openDir(path[0..path_len], .{}) catch return BuiltinErr.FileSysErr;
+    const dir = hsh.fs.cwd.openDir(path[0..path_len], .{}) catch return Err.FileSysErr;
     dir.setAsCwd() catch |e| {
         std.debug.print("cwd failed! {}", .{e});
-        return BuiltinErr.FileSysErr;
+        return Err.FileSysErr;
     };
     hsh.updateFs();
 }
@@ -90,9 +96,11 @@ test "fs" {
     try ndir.setAsCwd();
 }
 
-fn echo(_: *HSH, _: []const Token) BuiltinErr!void {}
+fn echo(_: *HSH, _: []const Token) Err!void {}
 
-fn which(_: *HSH, _: []const Token) BuiltinErr!void {}
+fn fg(_: *HSH, _: []const Token) Err!void {}
+
+fn which(_: *HSH, _: []const Token) Err!void {}
 
 test "builtins" {
     const str = @tagName(Builtins.alias);
