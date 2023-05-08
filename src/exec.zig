@@ -109,11 +109,17 @@ fn makeExecStack(hsh: *const HSH, tkns: []const Tokens.Token) Error![]ExecStack 
             },
             else => {
                 if (exeZ) |_| {} else {
-                    exeZ = makeExeZ(hsh.alloc, hsh.fs.paths.items, t.cannon()) catch |e| return e;
+                    exeZ = makeExeZ(
+                        hsh.alloc,
+                        hsh.fs.paths.items,
+                        t.cannon(),
+                    ) catch |e| return e;
                     argv.append(exeZ.?) catch return Error.Memory;
                     continue;
                 }
-                argv.append(hsh.alloc.dupeZ(u8, t.cannon()) catch return Error.Memory) catch return Error.Memory;
+                argv.append(
+                    hsh.alloc.dupeZ(u8, t.cannon()) catch return Error.Memory,
+                ) catch return Error.Memory;
             },
         }
     }
@@ -153,7 +159,11 @@ pub fn exec(hsh: *const HSH, tkn: *const Tokenizer) Error!void {
             }
 
             // TODO manage env
-            const res = std.os.execveZ(s.arg, s.argv, @ptrCast([*:null]?[*:0]u8, std.os.environ));
+            const res = std.os.execveZ(
+                s.arg,
+                s.argv,
+                @ptrCast([*:null]?[*:0]u8, std.os.environ),
+            );
             switch (res) {
                 error.FileNotFound => {
                     // we validate exes internall now this should be impossible
