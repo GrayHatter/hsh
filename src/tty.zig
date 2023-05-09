@@ -96,10 +96,11 @@ pub const TTY = struct {
             _ = custom_syscalls.setpgid(pid, pid);
         }
         //std.debug.print("pwning tc \n", .{});
-        _ = custom_syscalls.tcsetpgrp(self.tty, pid);
+        _ = custom_syscalls.tcsetpgrp(self.tty, &pid);
         //std.debug.print("tc pwnd {}\n", .{res});
-        _ = custom_syscalls.tcgetpgrp(self.tty);
-        //std.debug.print("get  {}\n", .{get});
+        var pgrp: pid_t = undefined;
+        _ = custom_syscalls.tcgetpgrp(self.tty, &pgrp);
+        //std.debug.print("get  {}\n", .{pgrp});
     }
 
     pub fn print(tty: TTY, comptime fmt: []const u8, args: anytype) !void {

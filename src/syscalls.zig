@@ -20,24 +20,22 @@ comptime {
         @compileError("Os already provides custom setpgid");
 }
 
-pub fn tcgetpgrp(fd: fd_t) pid_t {
-    var gpid: pid_t = 0;
-    _ = std.os.linux.syscall3(
+pub fn tcgetpgrp(fd: fd_t, pgrp: *pid_t) usize {
+    return std.os.linux.syscall3(
         .ioctl,
         @bitCast(usize, @as(isize, fd)),
         std.os.linux.T.IOCGPGRP,
-        @ptrToInt(&gpid),
+        @ptrToInt(pgrp),
     );
-    return gpid;
 }
 
-pub fn tcsetpgrp(fd: fd_t, pgrp: pid_t) isize {
-    return @bitCast(isize, std.os.linux.syscall3(
+pub fn tcsetpgrp(fd: fd_t, pgrp: *const pid_t) usize {
+    return std.os.linux.syscall3(
         .ioctl,
         @bitCast(usize, @as(isize, fd)),
         std.os.linux.T.IOCSPGRP,
-        @bitCast(usize, @as(isize, pgrp)),
-    ));
+        @ptrToInt(pgrp),
+    );
 }
 
 pub fn getsid(pid: pid_t) pid_t {

@@ -52,11 +52,12 @@ pub fn init(a: Allocator, s: *Stack(Signal)) !void {
         os.SIG.WINCH,
     };
 
+    const SA = std.os.linux.SA;
     for (signals) |sig| {
         try os.sigaction(sig, &os.Sigaction{
             .handler = .{ .sigaction = sig_cb },
             .mask = os.empty_sigset,
-            .flags = 0x04,
+            .flags = SA.SIGINFO | SA.NOCLDWAIT,
         }, null);
     }
 }

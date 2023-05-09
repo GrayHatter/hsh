@@ -174,6 +174,7 @@ pub fn exec(hsh: *const HSH, tkn: *const Tokenizer) Error!ArrayList(std.os.pid_t
 
         // Child must noreturn
         // Parent
+        //std.debug.print("chld pid {}\n", .{fpid});
         forks.append(fpid) catch return Error.Memory;
         if (previo) |pio| {
             std.os.close(pio.left);
