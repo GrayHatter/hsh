@@ -20,7 +20,7 @@ const Exec = @import("exec.zig");
 const exec = Exec.exec;
 const Signals = @import("signals.zig");
 
-test {
+test "main" {
     std.testing.refAllDecls(@This());
 }
 
@@ -35,8 +35,7 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
         try Draw.render(&hsh.draw);
 
         // REALLY WISH I COULD BUILD ZIG, ARCH LINUX!!!
-        //@memcpy(prev, buffer);
-        prev[0] = buffer[0];
+        @memcpy(&prev, &buffer);
         const nbyte = try os.read(hsh.tty.tty, &buffer);
         if (nbyte == 0) {
             continue;
