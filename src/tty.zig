@@ -91,16 +91,20 @@ pub const TTY = struct {
     pub fn pwnTTY(self: *TTY) void {
         const pid = std.os.linux.getpid();
         const ssid = custom_syscalls.getsid(0);
-        //std.debug.print("pwning {} and {} \n", .{ pid, ssid });
+        std.debug.print("pwning {} and {} \n", .{ pid, ssid });
         if (ssid != pid) {
             _ = custom_syscalls.setpgid(pid, pid);
         }
         //std.debug.print("pwning tc \n", .{});
-        _ = custom_syscalls.tcsetpgrp(self.tty, &pid);
+        //_ = custom_syscalls.tcsetpgrp(self.tty, &pid);
+        //var res = custom_syscalls.tcsetpgrp(self.tty, &pid);
+        _ = std.os.tcsetpgrp(self.tty, pid) catch unreachable;
         //std.debug.print("tc pwnd {}\n", .{res});
-        var pgrp: pid_t = undefined;
-        _ = custom_syscalls.tcgetpgrp(self.tty, &pgrp);
-        //std.debug.print("get  {}\n", .{pgrp});
+        //var pgrp: pid_t = undefined;
+        //_ = custom_syscalls.tcgetpgrp(self.tty, &pgrp);
+        //std.debug.print("get {}\n", .{pgrp});
+        _ = std.os.tcgetpgrp(self.tty) catch unreachable;
+        //std.debug.print("get {} {}\n", .{ out, pgrp });
     }
 
     pub fn print(tty: TTY, comptime fmt: []const u8, args: anytype) !void {
