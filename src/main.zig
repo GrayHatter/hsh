@@ -234,7 +234,10 @@ pub fn main() !void {
 
                 switch (hsh.tkn.tokens.items[0].type) {
                     .String => {
-                        if (!Exec.executable(&hsh, hsh.tkn.tokens.items[0].cannon())) continue;
+                        if (!Exec.executable(&hsh, hsh.tkn.tokens.items[0].cannon())) {
+                            std.debug.print("Unable to find {s}\n", .{hsh.tkn.tokens.items[0].cannon()});
+                            continue;
+                        }
 
                         // while (forks.popOrNull()) |_| {
                         //     const res = std.os.waitpid(-1, 0);

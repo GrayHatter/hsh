@@ -46,7 +46,7 @@ const hshfs = struct {
     cwd_name: []u8 = undefined,
     cwd_short: []u8 = undefined,
     confdir: ?[]const u8 = null,
-    home_name: []const u8 = undefined,
+    home_name: ?[]const u8 = null,
     path_env: ?[]const u8 = null,
     paths: ArrayList([]const u8),
 };
@@ -100,7 +100,7 @@ pub const HSH = struct {
     alloc: Allocator,
     features: hshFeature,
     env: std.process.EnvMap,
-    fs: hshfs,
+    fs: hshfs = undefined,
     pid: std.os.pid_t,
     pgrp: std.os.pid_t = -1,
     sig_stack: Stack(Signals.Signal),
@@ -134,44 +134,43 @@ pub const HSH = struct {
             ) catch return E.FSysGeneric;
             history.seekFromEnd(0) catch unreachable;
         }
-        return HSH{
+        var hsh = HSH{
             .alloc = a,
             .features = .{},
             .env = env,
-            .fs = initFs(a, env) catch return E.FSysGeneric,
             .pid = std.os.linux.getpid(),
             .sig_stack = Stack(Signals.Signal).init(),
             .jobs = ArrayList(Job).init(a),
             .rc = rc,
             .history = history,
         };
+        hsh.initFs() catch return E.FSysGeneric;
+        return hsh;
         //__hsh = hsh;
         //return hsh;
     }
 
-    fn initFs(a: Allocator, env: std.process.EnvMap) !hshfs {
-        var cwd = std.fs.cwd();
-        var cwdi = try cwd.openIterableDir(".", .{});
-        var name = try cwd.realpathAlloc(a, ".");
-        const h = env.get("HOME");
-        var short = if (h != null and std.mem.startsWith(u8, name, h.?)) n: {
-            var tmp = try a.dupe(u8, name[h.?.len - 1 ..]);
-            tmp[0] = '~';
-            break :n tmp;
-        } else name;
+    fn initFs(hsh: *HSH) !void {
+        var fs = &hsh.fs;
+        const env = hsh.env;
+        fs.cwd = std.fs.cwd();
+        fs.cwdi = try fs.cwd.openIterableDir(".", .{});
+        fs.cwd_name = try fs.cwd.realpathAlloc(hsh.alloc, ".");
 
+        fs.home_name = env.get("HOME");
         const penv = env.get("PATH");
-        const path_env = if (penv) |_| a.dupe(u8, penv.?) catch null else null;
 
-        return hshfs{
-            .cwd = cwd,
-            .cwdi = cwdi,
-            .cwd_name = name,
-            .cwd_short = short,
-            .home_name = h orelse "",
-            .path_env = path_env,
-            .paths = try initPath(a, path_env),
-        };
+        fs.path_env = if (penv) |_| hsh.alloc.dupe(u8, penv.?) catch null else null;
+
+        fs.cwd_short = fs.cwd_name;
+        if (fs.home_name) |home| {
+            if (std.mem.startsWith(u8, fs.cwd_name, home)) {
+                fs.cwd_short = hsh.alloc.dupe(u8, fs.cwd_name[home.len - 1 ..]) catch return E.Memory;
+                fs.cwd_short[0] = '~';
+            }
+        }
+
+        fs.paths = initPath(hsh.alloc, fs.path_env) catch return E.Memory;
     }
 
     fn initPath(a: Allocator, path_env: ?[]const u8) !ArrayList([]const u8) {
@@ -187,20 +186,7 @@ pub const HSH = struct {
 
     pub fn updateFs(hsh: *HSH) void {
         hsh.razeFs();
-        var cwd = std.fs.cwd();
-        var cwdi = cwd.openIterableDir(".", .{}) catch unreachable;
-        var name = cwd.realpathAlloc(hsh.alloc, ".") catch unreachable;
-        const h = hsh.fs.home_name;
-        var short = if (std.mem.startsWith(u8, name, h)) n: {
-            var tmp = hsh.alloc.dupe(u8, name[h.len - 1 ..]) catch unreachable;
-            tmp[0] = '~';
-            break :n tmp;
-        } else name;
-
-        hsh.fs.cwd = cwd;
-        hsh.fs.cwdi = cwdi;
-        hsh.fs.cwd_name = name;
-        hsh.fs.cwd_short = short;
+        hsh.initFs() catch unreachable;
     }
 
     pub fn enabled(hsh: *const HSH, comptime f: Features) bool {

@@ -83,9 +83,9 @@ fn cd(hsh: *HSH, tkns: []const Token) Err!void {
             else => return Err.InvalidToken,
         }
     } else {
-        if (tkns.len < 2) {
-            std.mem.copy(u8, &path, hsh.fs.home_name);
-            path_len = hsh.fs.home_name.len;
+        if (tkns.len < 2 and hsh.fs.home_name != null) {
+            std.mem.copy(u8, &path, hsh.fs.home_name.?);
+            path_len = hsh.fs.home_name.?.len;
         } else return Err.InvalidCommand;
     }
 
