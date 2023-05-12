@@ -11,8 +11,6 @@ const cust_siginfo = extern struct {
     code: isize,
 };
 
-//const siginfo_t = cust_
-
 pub const Signal = struct {
     signal: c_int,
     info: os.siginfo_t,
@@ -22,7 +20,6 @@ var alloc: Allocator = undefined;
 var stack: *Stack(Signal) = undefined;
 
 export fn sig_cb(sig: c_int, info: *const os.siginfo_t, _: ?*const anyopaque) callconv(.C) void {
-    //pub fn sig_cb(sig: c_int, info: *const cust_siginfo, _: ?*const anyopaque) callconv(.C) void {
     const sigp = alloc.alloc(Stack(Signal).Node, 1) catch {
         std.debug.print(
             "ERROR: unable to allocate memory for incoming signal {}\n",
