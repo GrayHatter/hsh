@@ -44,6 +44,7 @@ pub fn init(a: Allocator, s: *Stack(Signal)) !void {
     const signals = [_]u6{
         os.SIG.HUP,
         os.SIG.INT,
+        os.SIG.USR1,
         os.SIG.QUIT,
         os.SIG.TERM,
         os.SIG.CHLD,

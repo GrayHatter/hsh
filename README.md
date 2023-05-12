@@ -55,6 +55,7 @@ clone [hsh]<br>
    - [ ] echo
    - [ ] eval
    - [ ] exec
+   - [ ] exit
    - [ ] export
    - [ ] fg
    - [ ] help

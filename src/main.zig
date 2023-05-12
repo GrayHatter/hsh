@@ -29,7 +29,7 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
     var prev: [1]u8 = undefined;
     while (true) {
         hsh.draw.cursor = @truncate(u32, tkn.cadj());
-        hsh.doSignals();
+        hsh.spin();
 
         try prompt(hsh, tkn);
         try Draw.render(&hsh.draw);
@@ -242,7 +242,7 @@ pub fn main() !void {
                         //     std.debug.print("fork res ({}){}\n", .{ res.pid, status });
                         // }
                         try hsh.tty.pushOrig();
-                        var pids = exec(&hsh, &hsh.tkn) catch |err| {
+                        var jobs = exec(&hsh, &hsh.tkn) catch |err| {
                             if (err == Exec.Error.ExeNotFound) {
                                 std.debug.print("exe pipe error {}\n", .{err});
                             }
@@ -250,13 +250,11 @@ pub fn main() !void {
                             unreachable;
                         };
                         hsh.tkn.reset();
-                        _ = try hsh.newJob(pids.pop(), .Running);
-                        while (pids.popOrNull()) |p| {
-                            _ = try hsh.newJob(p, .Piped);
+                        _ = try hsh.newJob(jobs.pop());
+                        while (jobs.popOrNull()) |j| {
+                            _ = try hsh.newJob(j);
                         }
-                        pids.clearAndFree();
-                        hsh.spin();
-                        try hsh.tty.popTTY();
+                        jobs.clearAndFree();
                     },
                     .Builtin => {
                         const bi_func = Builtins.strExec(hsh.tkn.tokens.items[0].cannon());

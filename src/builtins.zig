@@ -17,9 +17,14 @@ pub const Builtins = enum {
     alias,
     bg,
     cd,
+    die,
     echo,
+    exit,
     fg,
+    jobs,
     which,
+    // DEBUGGING BUILTINS
+    tty,
 };
 
 pub fn builtinToName(comptime bi: Builtins) []const u8 {
@@ -31,9 +36,14 @@ pub fn exec(self: Builtins) BuiltinFn {
         .alias => alias,
         .bg => bg,
         .cd => cd,
+        .die => die,
         .echo => echo,
-        .which => which,
+        .exit => die, // TODO exit should be kinder than die
         .fg => fg,
+        .jobs => jobs,
+        .which => which,
+        // DEBUGGING BUILTIN
+        .tty => tty,
     };
 }
 
@@ -88,6 +98,10 @@ fn cd(hsh: *HSH, tkns: []const Token) Err!void {
     hsh.updateFs();
 }
 
+pub fn die(_: *HSH, _: []const Token) Err!void {
+    unreachable;
+}
+
 test "fs" {
     const c = std.fs.cwd();
     //std.debug.print("cwd failed! {}", .{e});
@@ -96,9 +110,37 @@ test "fs" {
     try ndir.setAsCwd();
 }
 
-fn echo(_: *HSH, _: []const Token) Err!void {}
+fn echo(hsh: *HSH, _: []const Token) Err!void {
+    hsh.tty.print("echo not yet implemented\n", .{}) catch return Err.Unknown;
+}
 
-fn fg(_: *HSH, _: []const Token) Err!void {}
+/// TODO implement real version of exit
+fn exit(_: *HSH, _: []const Token) Err!void {}
+
+/// TODO implement job selection support
+fn fg(hsh: *HSH, _: []const Token) Err!void {
+    var paused: usize = 0;
+    for (hsh.jobs.items) |j| {
+        paused += if (j.status == .Paused or j.status == .Waiting) 1 else 0;
+    }
+    if (paused == 0) {
+        hsh.tty.print("No resumeable jobs\n", .{}) catch {};
+        return;
+    }
+    if (paused == 1) {
+        hsh.tty.print("Restarting job\n", .{}) catch {};
+        hsh.contNextJob(true) catch unreachable;
+        return;
+    }
+
+    hsh.tty.print("More than one job paused, fg not yet implemented\n", .{}) catch return Err.Unknown;
+}
+
+fn jobs(hsh: *HSH, _: []const Token) Err!void {
+    for (hsh.jobs.items) |j| {
+        hsh.tty.print("{}", .{j}) catch return Err.Unknown;
+    }
+}
 
 fn which(_: *HSH, _: []const Token) Err!void {}
 
@@ -124,4 +166,11 @@ test "builtins alias" {
     try std.testing.expect(exists(@tagName(Builtins.which)));
 
     try std.testing.expect(!exists("BLERG"));
+}
+
+//DEBUGGING BUILTINS
+fn tty(hsh: *HSH, _: []const Token) Err!void {
+    for (hsh.tty.attrs.items) |i| {
+        std.debug.print("attr {any}\n", .{i});
+    }
 }

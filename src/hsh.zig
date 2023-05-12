@@ -60,7 +60,7 @@ const hshfs = struct {
 // }
 
 pub const JobStatus = enum {
-    RIP, // reaped
+    RIP, // reaped (user notified)
     Ded, // zombie
     Paused, // SIGSTOP
     Waiting, // Stopped needs to output
@@ -73,7 +73,27 @@ pub const JobStatus = enum {
 pub const Job = struct {
     name: ?[]const u8,
     pid: std.os.pid_t = -1,
+    pgid: std.os.pid_t = -1,
+    exit_code: u8 = 0,
     status: JobStatus = .Unknown,
+    termattr: std.os.termios = undefined,
+
+    pub fn format(self: Job, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
+        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
+        try std.fmt.format(out,
+            \\Job({s}){{
+            \\    name = {s},
+            \\    pid = {},
+            \\    exit = {},
+            \\}}
+            \\
+        , .{
+            @tagName(self.status),
+            self.name orelse "none",
+            self.pid,
+            self.exit_code,
+        });
+    }
 };
 
 pub const HSH = struct {
@@ -82,6 +102,7 @@ pub const HSH = struct {
     env: std.process.EnvMap,
     fs: hshfs,
     pid: std.os.pid_t,
+    pgrp: std.os.pid_t = -1,
     sig_stack: Stack(Signals.Signal),
     jobs: ArrayList(Job),
     rc: ?std.fs.File = null,
@@ -215,12 +236,45 @@ pub const HSH = struct {
         return Error.JobNotFound;
     }
 
-    pub fn newJob(hsh: *HSH, pid: std.os.pid_t, s: JobStatus) Error!void {
-        hsh.jobs.append(Job{
-            .name = null,
-            .pid = pid,
-            .status = s,
-        }) catch return E.Memory;
+    pub fn newJob(hsh: *HSH, j: Job) Error!void {
+        hsh.jobs.append(j) catch return E.Memory;
+    }
+
+    pub fn getWaitingJob(hsh: *HSH) Error!?*Job {
+        for (hsh.jobs.items) |*j| {
+            switch (j.status) {
+                .Paused,
+                .Waiting,
+                => {
+                    return j;
+                },
+                else => continue,
+            }
+        }
+        return null;
+    }
+
+    pub fn contNextJob(hsh: *HSH, comptime fg: bool) Error!void {
+        const job: ?*Job = try hsh.getWaitingJob();
+        if (job) |j| {
+            if (fg) {
+                hsh.tty.pushTTY(j.termattr) catch return Error.Memory;
+                //hsh.tty.setOwner(j.pid) catch return Error.Unknown;
+                j.status = .Running;
+            } else {
+                j.status = .Background;
+            }
+            std.os.kill(j.pid, std.os.SIG.CONT) catch return Error.Unknown;
+        }
+    }
+
+    fn stopChildren(hsh: *HSH) void {
+        for (hsh.jobs.items) |*j| {
+            if (j.*.status == .Running) {
+                // do something
+            }
+            j.status = .Paused;
+        }
     }
 
     pub fn getFgJob(hsh: *const HSH) ?*const Job {
@@ -232,16 +286,25 @@ pub const HSH = struct {
         return null;
     }
 
+    fn sleep(_: *HSH) void {
+        // TODO make this adaptive and smrt
+        std.time.sleep(10 * 1000 * 1000);
+    }
+
     pub fn spin(hsh: *HSH) void {
+        hsh.doSignals();
         while (hsh.getFgJob()) |_| {
             hsh.doSignals();
-            std.time.sleep(10 * 1000 * 1000);
+            hsh.sleep();
         }
     }
 
-    pub fn doSignals(hsh: *HSH) void {
+    const SI_CODE = enum(u6) { EXITED = 1, KILLED, DUMPED, TRAPPED, STOPPED, CONTINUED };
+
+    fn doSignals(hsh: *HSH) void {
         while (hsh.sig_stack.pop()) |node| {
             var sig = node.data;
+            const pid = sig.info.fields.common.first.piduid.pid;
             switch (sig.signal) {
                 std.os.SIG.INT => {
                     std.debug.print("^C\n\r", .{});
@@ -249,26 +312,65 @@ pub const HSH = struct {
                     //std.debug.print("\n\rSIGNAL INT(oopsies)\n", .{});
                 },
                 std.os.SIG.CHLD => {
-                    const child = hsh.getJob(sig.info.fields.common.first.piduid.pid) catch {
+                    const child = hsh.getJob(pid) catch {
                         // TODO we should never not know about a job, but it's not a
                         // reason to die just yet.
+                        std.debug.print("Unknown child on {} {}\n", .{ sig.info.code, pid });
                         return;
                     };
-                    child.*.status = .Ded;
+                    switch (@intToEnum(SI_CODE, sig.info.code)) {
+                        SI_CODE.STOPPED => {
+                            if (child.*.status == .Running) {
+                                child.*.termattr = hsh.tty.popTTY() catch unreachable;
+                            }
+                            child.*.status = .Paused;
+                        },
+                        SI_CODE.EXITED,
+                        SI_CODE.KILLED,
+                        => {
+                            if (child.*.status == .Running) {
+                                //hsh.tty.setOwner(hsh.pid) catch {};
+                                child.*.termattr = hsh.tty.popTTY() catch |e| {
+                                    std.debug.print("Unable to pop for (reasons) {}\n", .{e});
+                                    unreachable;
+                                };
+                            }
+                            const status = sig.info.fields.common.second.sigchld.status;
+                            child.*.exit_code = @bitCast(u8, @truncate(i8, status));
+                            child.*.status = .Ded;
+                        },
+                        SI_CODE.CONTINUED => {
+                            child.*.status = .Running;
+                        },
+                        else => {
+                            std.debug.print("Unknown child event for {} {}\n", .{ sig.info.code, pid });
+                        },
+                    }
                 },
                 std.os.SIG.TSTP => {
                     const child = hsh.getJob(sig.info.fields.common.first.piduid.pid) catch {
                         // TODO we should never not know about a job, but it's not a
                         // reason to die just yet.
+                        std.debug.print("Unknown child on {} {}\n", .{ pid, sig.info.code });
                         return;
                     };
+                    if (child.*.status == .Running) {
+                        child.*.termattr = hsh.tty.popTTY() catch unreachable;
+                    }
                     child.*.status = .Waiting;
-
-                    //std.debug.print("\n\rSIGNAL TSTP => ({})\n", .{sig.info});
+                    std.debug.print("\n\rSIGNAL TSTP => ({})", .{sig.info});
+                    std.debug.print("\n{}\n", .{child});
                 },
-                std.os.SIG.CONT => std.debug.print("\n\rSIGNAL CONT => ({})\n", .{sig.info}),
+                std.os.SIG.CONT => {
+                    std.debug.print("\nUnexpected cont from pid({})\n", .{pid});
+                },
                 std.os.SIG.WINCH => {
                     hsh.draw.term_size = hsh.tty.geom() catch unreachable;
+                },
+                std.os.SIG.USR1 => {
+                    hsh.stopChildren();
+                    hsh.tty.pushRaw() catch unreachable;
+                    std.debug.print("\r\nAssuming control of TTY!\n", .{});
                 },
                 else => {
                     std.debug.print("\n\rUnknown signal {} => ({})\n", .{ sig.signal, sig.info });

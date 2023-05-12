@@ -47,8 +47,8 @@ pub const TTY = struct {
         };
 
         const current = self.getAttr();
-        const raw = makeRaw(current);
-        try self.pushTTY(raw);
+        try self.pushTTY(current);
+        try self.pushRaw();
         current_tty = self;
 
         return self;
@@ -60,9 +60,10 @@ pub const TTY = struct {
 
     fn makeRaw(orig: os.termios) os.termios {
         var next = orig;
-        next.iflag &= ~(os.linux.IXON | os.linux.ICRNL | os.linux.BRKINT | os.linux.INPCK | os.linux.ISTRIP);
+        next.iflag &= ~(os.linux.IXON | os.linux.ICRNL |
+            os.linux.BRKINT | os.linux.INPCK | os.linux.ISTRIP);
         //next.lflag &= ~(os.linux.ECHO | os.linux.ICANON | os.linux.ISIG | os.linux.IEXTEN);
-        next.lflag &= ~(os.linux.ECHO | os.linux.ICANON | os.linux.IEXTEN);
+        next.lflag &= ~(os.linux.ECHO | os.linux.ECHONL | os.linux.ICANON | os.linux.IEXTEN);
         next.cc[os.system.V.TIME] = 1; // 0.1 sec resolution
         next.cc[os.system.V.MIN] = 0;
         return next;
@@ -72,26 +73,35 @@ pub const TTY = struct {
         try self.pushTTY(self.attrs.items[0]);
     }
 
+    pub fn pushRaw(self: *TTY) !void {
+        try self.pushTTY(makeRaw(self.attrs.items[0]));
+    }
+
     pub fn pushTTY(self: *TTY, tios: os.termios) !void {
         try self.attrs.append(self.getAttr());
         try os.tcsetattr(self.tty, .DRAIN, tios);
     }
 
-    pub fn popTTY(self: *TTY) !void {
+    pub fn popTTY(self: *TTY) !os.termios {
         // Not using assert, because this is *always* an dangerously invalid state!
         if (self.attrs.items.len <= 1) unreachable;
-
+        const old = try os.tcgetattr(self.tty);
         const tail = self.attrs.pop();
-        os.tcsetattr(self.tty, .FLUSH, tail) catch |err| {
+        os.tcsetattr(self.tty, .DRAIN, tail) catch |err| {
             std.debug.print("\r\n\nTTY ERROR encountered, {} when popping.\r\n\n", .{err});
             unreachable;
         };
+        return old;
+    }
+
+    pub fn setOwner(self: *TTY, pgrp: std.os.pid_t) !void {
+        _ = try std.os.tcsetpgrp(self.tty, pgrp);
     }
 
     pub fn pwnTTY(self: *TTY) void {
         const pid = std.os.linux.getpid();
         const ssid = custom_syscalls.getsid(0);
-        std.debug.print("pwning {} and {} \n", .{ pid, ssid });
+        // std.debug.print("pwning {} and {} \n", .{ pid, ssid });
         if (ssid != pid) {
             _ = custom_syscalls.setpgid(pid, pid);
         }
@@ -156,7 +166,7 @@ pub const TTY = struct {
 
     pub fn raze(self: *TTY) void {
         while (self.attrs.items.len > 1) {
-            try self.popTTY();
+            _ = self.popTTY() catch continue;
         }
         const last = self.attrs.pop();
         os.tcsetattr(self.tty, .NOW, last) catch |err| {

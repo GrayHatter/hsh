@@ -1,5 +1,7 @@
 const std = @import("std");
-const HSH = @import("hsh.zig").HSH;
+const HSH_ = @import("hsh.zig");
+const HSH = HSH_.HSH;
+const Job = HSH_.Job;
 const Tokens = @import("tokenizer.zig");
 const Allocator = mem.Allocator;
 const Tokenizer = Tokens.Tokenizer;
@@ -132,13 +134,13 @@ fn makeExecStack(hsh: *const HSH, tkns: []const Tokens.Token) Error![]ExecStack 
     return stack.toOwnedSlice() catch return Error.Memory;
 }
 
-pub fn exec(hsh: *const HSH, tkn: *const Tokenizer) Error!ArrayList(std.os.pid_t) {
+pub fn exec(hsh: *const HSH, tkn: *const Tokenizer) Error!ArrayList(Job) {
     const stack = makeExecStack(hsh, tkn.tokens.items) catch |e| return e;
 
     var previo: ?StdIo = null;
     var rootout = std.os.dup(std.os.STDOUT_FILENO) catch return Error.OSErr;
 
-    var forks = ArrayList(std.os.pid_t).init(hsh.alloc);
+    var jobs = ArrayList(Job).init(hsh.alloc);
 
     for (stack) |s| {
         const fpid: std.os.pid_t = std.os.fork() catch return Error.OSErr;
@@ -175,14 +177,18 @@ pub fn exec(hsh: *const HSH, tkn: *const Tokenizer) Error!ArrayList(std.os.pid_t
         // Child must noreturn
         // Parent
         //std.debug.print("chld pid {}\n", .{fpid});
-        forks.append(fpid) catch return Error.Memory;
+        jobs.append(Job{
+            .status = if (s.stdio) |_| .Piped else .Running,
+            .pid = fpid,
+            .name = hsh.alloc.dupe(u8, std.mem.sliceTo(s.arg, 0)) catch return Error.Memory,
+        }) catch return Error.Memory;
         if (previo) |pio| {
             std.os.close(pio.left);
             std.os.close(pio.right);
         }
         previo = s.stdio;
     }
-    return forks;
+    return jobs;
 }
 
 test "c memory" {
