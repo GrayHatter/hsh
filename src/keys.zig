@@ -6,6 +6,7 @@ const KeyEvent = enum {
     Unknown,
     Key,
     ModKey,
+    Mouse,
     // Data,
 };
 
@@ -41,10 +42,16 @@ const ModKey = struct {
     key: Key,
 };
 
+const MouseEvent = enum {
+    In,
+    Out,
+};
+
 const KeyPress = union(KeyEvent) {
     Unknown: void,
     Key: Key,
     ModKey: ModKey,
+    Mouse: MouseEvent,
     // Data,
 };
 
@@ -63,8 +70,9 @@ pub fn esc(hsh: *HSH) !KeyPress {
                         else => return KeyPress{ .Key = a },
                     }
                 },
-                .Unknown => unreachable,
                 .ModKey => |mk| return KeyPress{ .ModKey = mk },
+                .Mouse => |m| return KeyPress{ .Mouse = m },
+                .Unknown => unreachable,
             }
         },
         'O' => return sst(hsh),
@@ -115,6 +123,8 @@ fn csi_xterm(buffer: []const u8) KeyPress {
         'D' => return KeyPress{ .Key = .Left },
         'H' => return KeyPress{ .Key = .Home },
         'F' => return KeyPress{ .Key = .End },
+        'I' => return KeyPress{ .Mouse = .In },
+        'O' => return KeyPress{ .Mouse = .Out },
         '0'...'9' => {
             const key = csi_xterm(buffer[buffer.len - 1 .. buffer.len]);
             std.debug.print("\n\n{s} [{any}] key {}\n\n", .{ buffer, buffer, key });

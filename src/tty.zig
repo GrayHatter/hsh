@@ -51,6 +51,9 @@ pub const TTY = struct {
         try self.pushRaw();
         current_tty = self;
 
+        // Cursor focus
+        _ = try self.out.write("\x1B[?1004h");
+
         return self;
     }
 

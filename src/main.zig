@@ -95,6 +95,7 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
                             else => {},
                         }
                     },
+                    .Mouse => {},
                 }
             },
             '\x07' => try hsh.tty.print("^bel\r\n", .{}),
