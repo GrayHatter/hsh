@@ -13,9 +13,10 @@ pub const Cord = struct {
     y: isize = 0,
 };
 
-pub const DrawErr = error{
+pub const Err = error{
     Unknown,
     Memory,
+    WriterIO,
 };
 
 const Layer = enum {
@@ -75,7 +76,7 @@ pub const Drawable = struct {
     after: DrawBuf = undefined,
     term_size: Cord = .{},
 
-    pub fn init(hsh: *HSH) DrawErr!Drawable {
+    pub fn init(hsh: *HSH) Err!Drawable {
         colorize = hsh.enabled(Features.Colorize);
         return .{
             .alloc = hsh.alloc,
@@ -88,6 +89,10 @@ pub const Drawable = struct {
         };
     }
 
+    pub fn write(d: *Drawable, out: []const u8) Err!usize {
+        return d.tty.out.write(out) catch Err.WriterIO;
+    }
+
     pub fn reset(d: *Drawable) void {
         d.before.clearAndFree();
         d.after.clearAndFree();
@@ -98,33 +103,33 @@ pub const Drawable = struct {
     pub fn raze(_: *Drawable) void {}
 };
 
-fn setAttr(buf: *DrawBuf, attr: Attr) DrawErr!void {
+fn setAttr(buf: *DrawBuf, attr: Attr) Err!void {
     switch (attr) {
-        .Bold => buf.appendSlice("\x1B[1m") catch return DrawErr.Memory,
-        else => buf.appendSlice("\x1B[0m") catch return DrawErr.Memory,
+        .Bold => buf.appendSlice("\x1B[1m") catch return Err.Memory,
+        else => buf.appendSlice("\x1B[0m") catch return Err.Memory,
     }
 }
 
-fn bgColor(buf: *DrawBuf, c: ?Color) DrawErr!void {
+fn bgColor(buf: *DrawBuf, c: ?Color) Err!void {
     if (c) |bg| {
         switch (bg) {
-            .Red => buf.appendSlice("\x1B[41m") catch return DrawErr.Memory,
-            .Blue => buf.appendSlice("\x1B[34m") catch return DrawErr.Memory,
-            else => buf.appendSlice("\x1B[39m") catch return DrawErr.Memory,
+            .Red => buf.appendSlice("\x1B[41m") catch return Err.Memory,
+            .Blue => buf.appendSlice("\x1B[34m") catch return Err.Memory,
+            else => buf.appendSlice("\x1B[39m") catch return Err.Memory,
         }
     }
 }
 
-fn fgColor(buf: *DrawBuf, c: ?Color) DrawErr!void {
+fn fgColor(buf: *DrawBuf, c: ?Color) Err!void {
     if (c) |fg| {
         switch (fg) {
-            .Blue => buf.appendSlice("\x1B[34m") catch return DrawErr.Memory,
-            else => buf.appendSlice("\x1B[39m") catch return DrawErr.Memory,
+            .Blue => buf.appendSlice("\x1B[34m") catch return Err.Memory,
+            else => buf.appendSlice("\x1B[39m") catch return Err.Memory,
         }
     }
 }
 
-fn drawLexeme(buf: *DrawBuf, x: usize, y: usize, l: Lexeme) DrawErr!void {
+fn drawLexeme(buf: *DrawBuf, x: usize, y: usize, l: Lexeme) Err!void {
     if (l.char.len == 0) return;
     _ = x;
     _ = y;
@@ -133,7 +138,7 @@ fn drawLexeme(buf: *DrawBuf, x: usize, y: usize, l: Lexeme) DrawErr!void {
         try fgColor(buf, l.fg);
         try bgColor(buf, l.bg);
     }
-    buf.appendSlice(l.char) catch return DrawErr.Memory;
+    buf.appendSlice(l.char) catch return Err.Memory;
     if (colorize) {
         try bgColor(buf, .None);
         try fgColor(buf, .None);
@@ -141,13 +146,13 @@ fn drawLexeme(buf: *DrawBuf, x: usize, y: usize, l: Lexeme) DrawErr!void {
     }
 }
 
-fn drawSibling(buf: *DrawBuf, x: usize, y: usize, s: []Lexeme) DrawErr!void {
+fn drawSibling(buf: *DrawBuf, x: usize, y: usize, s: []Lexeme) Err!void {
     for (s) |sib| {
-        drawLexeme(buf, x, y, sib) catch return DrawErr.Memory;
+        drawLexeme(buf, x, y, sib) catch return Err.Memory;
     }
 }
 
-fn drawTree(buf: *DrawBuf, x: usize, y: usize, t: LexTree) DrawErr!void {
+fn drawTree(buf: *DrawBuf, x: usize, y: usize, t: LexTree) Err!void {
     return switch (t) {
         LexTree.lex => |lex| drawLexeme(buf, x, y, lex),
         LexTree.sibling => |sib| drawSibling(buf, x, y, sib),
@@ -155,12 +160,13 @@ fn drawTree(buf: *DrawBuf, x: usize, y: usize, t: LexTree) DrawErr!void {
     };
 }
 
-fn drawTrees(buf: *DrawBuf, x: usize, y: usize, tree: []LexTree) DrawErr!void {
+fn drawTrees(buf: *DrawBuf, x: usize, y: usize, tree: []LexTree) Err!void {
     for (tree) |t| {
-        drawTree(buf, x, y, t) catch return DrawErr.Memory;
+        drawTree(buf, x, y, t) catch return Err.Memory;
     }
 }
 
+/// TODO unicode support when?
 fn countPrintable(buf: []const u8) usize {
     var total: usize = 0;
     var csi = false;
@@ -209,43 +215,44 @@ pub fn draw(d: *Drawable, tree: LexTree) !void {
 /// hsh is based around the idea of user keyboard-driven input, so plugin should
 /// provide the context, expecting not to know about, or touch the final user
 /// input line
-pub fn render(d: *Drawable) !void {
+pub fn render(d: *Drawable) Err!void {
     var cntx: usize = 0;
-    const w = d.tty.out;
+    // TODO vert position
     if (d.cursor_reposition) {
         var move = d.cursor;
         while (move > 0) : (move -= 1) {
-            try d.b.appendSlice("\x1B[D");
+            d.b.appendSlice("\x1B[D") catch return Err.Memory;
         }
     }
 
-    if (d.before.items.len > 0) cntx += try w.write(d.before.items);
-    if (d.after.items.len > 0) cntx += try w.write(d.after.items);
+    if (d.before.items.len > 0) cntx += try d.write(d.before.items);
+    if (d.after.items.len > 0) cntx += try d.write(d.after.items);
     // TODO seek back up
     if (d.right.items.len > 0) {
-        cntx += try w.write("\r\x1B[K");
+        cntx += try d.write("\r\x1B[K");
         var moving = [_:0]u8{0} ** 16;
         // Depending on movement being a nop once at term width
-        const right = try std.fmt.bufPrint(&moving, "\x1B[{}G", .{d.term_size.x});
-        cntx += try w.write(right);
-        const printable = countPrintable(d.right.items) - 1;
-        const left = try std.fmt.bufPrint(&moving, "\x1B[{}D", .{printable});
-        cntx += try w.write(left);
-        cntx += try w.write(d.right.items);
+        const right = std.fmt.bufPrint(&moving, "\x1B[{}G", .{d.term_size.x}) catch return Err.Memory;
+        cntx += try d.write(right);
+        // printable [...] - 2 to give a blank buffer (I hate line wrapping)
+        const printable = countPrintable(d.right.items);
+        const left = std.fmt.bufPrint(&moving, "\x1B[{}D", .{printable}) catch return Err.Memory;
+        cntx += try d.write(left);
+        cntx += try d.write(d.right.items);
     }
 
-    if (cntx == 0) _ = try w.write("\r\x1B[K");
-    _ = try w.write(d.b.items);
+    if (cntx == 0) _ = try d.write("\r\x1B[K");
+    _ = try d.write(d.b.items);
     // TODO save backtrack line count?
     const prompt_lines = std.mem.count(u8, d.b.items, "\n");
 
     d.reset();
     if (prompt_lines > 0) {
         var moving = [_:0]u8{0} ** 16;
-        const up = try std.fmt.bufPrint(&moving, "\x1B[{}A", .{prompt_lines});
-        try d.b.appendSlice(up);
+        const up = std.fmt.bufPrint(&moving, "\x1B[{}A", .{prompt_lines}) catch return Err.Memory;
+        d.b.appendSlice(up) catch return Err.Memory;
     }
-    d.b.append('\r') catch {};
+    d.b.append('\r') catch return Err.Memory;
 }
 
 /// Any context before the prompt line should be cleared and replaced with the
