@@ -3,6 +3,7 @@ const ArrayList = std.ArrayList;
 const TTY = TTY_.TTY;
 const TTY_ = @import("tty.zig");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
+const TokenErr = @import("tokenizer.zig").Error;
 const TokenType = @import("tokenizer.zig").TokenType;
 const mem = std.mem;
 const os = std.os;
@@ -27,6 +28,8 @@ test "main" {
 pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
     var buffer: [1]u8 = undefined;
     var prev: [1]u8 = undefined;
+    hsh.draw.reset();
+    try hsh.draw.b.append('\r');
     while (true) {
         hsh.draw.cursor = @truncate(u32, tkn.cadj());
         hsh.spin();
@@ -152,13 +155,19 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
             },
             '\n', '\r' => |b| {
                 hsh.draw.cursor = 0;
-                try hsh.tty.print("\r\n", .{});
                 const run = tkn.parse() catch |e| {
-                    std.debug.print("Parse Error {}\n", .{e});
-                    try tkn.dump_parsed(true);
-                    try tkn.consumec(b);
+                    switch (e) {
+                        TokenErr.OpenGroup => try tkn.consumec(b),
+                        TokenErr.ParseErr => {
+                            std.debug.print("Parse Error {}\n", .{e});
+                            try tkn.dump_parsed(true);
+                            try tkn.consumec(b);
+                        },
+                        else => continue,
+                    }
                     continue;
                 };
+                try hsh.tty.print("\r\n", .{});
                 if (run) {
                     //try tkn.dump_parsed(false);
                     if (tkn.tokens.items.len > 0) {

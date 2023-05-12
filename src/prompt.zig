@@ -5,11 +5,10 @@ const Draw = @import("draw.zig");
 const HSH = @import("hsh.zig").HSH;
 const Feature = @import("hsh.zig").Features;
 const Lexeme = Draw.Lexeme;
+const LexTree = Draw.LexTree;
 const Drawable = Draw.Drawable;
 const draw = Draw.draw;
 const drawRight = Draw.drawRight;
-
-fn user_text() void {}
 
 var si: usize = 0;
 
@@ -34,6 +33,28 @@ fn spinner(s: Spinners) Lexeme {
     return .{ .char = s.spin(si) };
 }
 
+fn userTextMultiline(hsh: *HSH, tkn: *Tokenizer) !void {
+    const err = if (tkn.err_idx > 0) tkn.err_idx else tkn.raw.items.len;
+    const good = tkn.raw.items[0..err];
+    const bad = tkn.raw.items[err..];
+    try draw(&hsh.draw, LexTree{ .sibling = &[_]Lexeme{
+        .{ .char = good },
+        .{ .char = bad, .bg = .Red },
+    } });
+}
+
+fn userText(hsh: *HSH, tkn: *Tokenizer) !void {
+    if (std.mem.indexOf(u8, tkn.raw.items, "\n")) |_| return userTextMultiline(hsh, tkn);
+
+    const err = if (tkn.err_idx > 0) tkn.err_idx else tkn.raw.items.len;
+    const good = tkn.raw.items[0..err];
+    const bad = tkn.raw.items[err..];
+    try draw(&hsh.draw, LexTree{ .sibling = &[_]Lexeme{
+        .{ .char = good },
+        .{ .char = bad, .bg = .Red },
+    } });
+}
+
 pub fn prompt(hsh: *HSH, tkn: *Tokenizer) !void {
     try draw(&hsh.draw, .{
         .sibling = &[_]Lexeme{
@@ -46,13 +67,9 @@ pub fn prompt(hsh: *HSH, tkn: *Tokenizer) !void {
             .{ .char = "host " },
             .{ .char = hsh.fs.cwd_short },
             .{ .char = " $ " },
-            .{ .char = if (tkn.err_idx > 0) tkn.raw.items[0..tkn.err_idx] else tkn.raw.items },
-            .{
-                .char = if (tkn.err_idx > 0) tkn.raw.items[tkn.err_idx..] else "",
-                .bg = .Red,
-            },
         },
     });
+    try userText(hsh, tkn);
     var tokens: [16]u8 = undefined;
     if (!hsh.enabled(Feature.Debugging)) return;
 

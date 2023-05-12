@@ -88,6 +88,13 @@ pub const Drawable = struct {
         };
     }
 
+    pub fn reset(d: *Drawable) void {
+        d.before.clearAndFree();
+        d.after.clearAndFree();
+        d.right.clearAndFree();
+        d.b.clearAndFree();
+    }
+
     pub fn raze(_: *Drawable) void {}
 };
 
@@ -118,6 +125,7 @@ fn fgColor(buf: *DrawBuf, c: ?Color) DrawErr!void {
 }
 
 fn drawLexeme(buf: *DrawBuf, x: usize, y: usize, l: Lexeme) DrawErr!void {
+    if (l.char.len == 0) return;
     _ = x;
     _ = y;
     if (colorize) {
@@ -194,7 +202,6 @@ pub fn drawRight(d: *Drawable, tree: LexTree) !void {
 }
 
 pub fn draw(d: *Drawable, tree: LexTree) !void {
-    try d.b.append('\r');
     try drawTree(&d.b, 0, 0, tree);
 }
 
@@ -230,10 +237,15 @@ pub fn render(d: *Drawable) !void {
     if (cntx == 0) _ = try w.write("\r\x1B[K");
     _ = try w.write(d.b.items);
     // TODO save backtrack line count?
-    d.before.clearAndFree();
-    d.after.clearAndFree();
-    d.right.clearAndFree();
-    d.b.clearAndFree();
+    const prompt_lines = std.mem.count(u8, d.b.items, "\n");
+
+    d.reset();
+    if (prompt_lines > 0) {
+        var moving = [_:0]u8{0} ** 16;
+        const up = try std.fmt.bufPrint(&moving, "\x1B[{}A", .{prompt_lines});
+        try d.b.appendSlice(up);
+    }
+    d.b.append('\r') catch {};
 }
 
 /// Any context before the prompt line should be cleared and replaced with the

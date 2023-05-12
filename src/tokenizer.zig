@@ -25,8 +25,9 @@ pub const Error = error{
     Unknown,
     Memory,
     LineTooLong,
-    ParseError,
+    ParseErr,
     InvalidSrc,
+    OpenGroup,
 };
 
 pub const Token = struct {
@@ -176,22 +177,26 @@ pub const Tokenizer = struct {
     pub fn tokenize(self: *Tokenizer) Error!bool {
         self.tokens.clearAndFree();
         var start: usize = 0;
-        while (start < self.raw.items.len) {
-            const token = switch (self.raw.items[start]) {
-                '\'', '"' => Tokenizer.quote(self.raw.items[start..]),
-                '`' => Tokenizer.quote(self.raw.items[start..]), // TODO magic
-                ' ' => Tokenizer.space(self.raw.items[start..]),
-                '~', '/' => Tokenizer.path(self.raw.items[start..]),
-                '|' => Tokenizer.ioredir(self.raw.items[start..]),
+        const src = self.raw.items;
+        while (start < src.len) {
+            const token = switch (src[start]) {
+                '\'', '"' => Tokenizer.quote(src[start..]),
+                '`' => Tokenizer.quote(src[start..]), // TODO magic
+                ' ' => Tokenizer.space(src[start..]),
+                '~', '/' => Tokenizer.path(src[start..]),
+                '|' => Tokenizer.ioredir(src[start..]),
                 '$' => unreachable,
-                else => Tokenizer.string(self.raw.items[start..]),
-            } catch {
-                self.err_idx = start;
-                return Error.ParseError;
+                else => Tokenizer.string(src[start..]),
+            } catch |err| {
+                if (err == Error.InvalidSrc) {
+                    if (std.mem.indexOfAny(u8, src[start..], "\"'q(")) |_| return Error.OpenGroup;
+                    self.err_idx = start;
+                }
+                return err;
             };
             if (token.raw.len == 0) {
                 self.err_idx = start;
-                return Error.ParseError;
+                return Error.ParseErr;
             }
             self.tokens.append(token) catch return Error.Memory;
             start += token.raw.len;
@@ -511,7 +516,7 @@ test "quotes parse complex" {
     try expectEql(t.raw.items.len, 32);
 
     const err = t.parse();
-    try expectError(Error.ParseError, err);
+    try expectError(Error.ParseErr, err);
     try expectEql(t.err_idx, t.raw.items.len - 1);
 
     t.reset();

@@ -60,8 +60,9 @@ pub const TTY = struct {
 
     fn makeRaw(orig: os.termios) os.termios {
         var next = orig;
-        next.iflag &= ~(os.linux.IXON | os.linux.ICRNL |
+        next.iflag &= ~(os.linux.IXON |
             os.linux.BRKINT | os.linux.INPCK | os.linux.ISTRIP);
+        next.iflag |= os.linux.ICRNL;
         //next.lflag &= ~(os.linux.ECHO | os.linux.ICANON | os.linux.ISIG | os.linux.IEXTEN);
         next.lflag &= ~(os.linux.ECHO | os.linux.ECHONL | os.linux.ICANON | os.linux.IEXTEN);
         next.cc[os.system.V.TIME] = 1; // 0.1 sec resolution
