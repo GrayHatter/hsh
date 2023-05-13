@@ -69,6 +69,11 @@ clone [hsh]<br>
     - [ ] wait
     - [ ] which
     - [ ] the rest?
+  - [ ] HSH builtins
+    - [ ] help
+    - [ ] show
+    - [ ] state
+    - [ ] status
   - [ ] globs
   - [ ] script support?
     - [ ] logic (if, else, elif, case)
