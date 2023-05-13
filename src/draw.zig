@@ -64,6 +64,15 @@ pub const LexTree = union(enum) {
 
 var colorize: bool = true;
 
+var movebuf = [_:0]u8{0} ** 32;
+const Direction = enum {
+    Up,
+    Down,
+    Left,
+    Right,
+    Absolute,
+};
+
 pub const Drawable = struct {
     alloc: Allocator,
     tty: *TTY,
@@ -75,6 +84,7 @@ pub const Drawable = struct {
     right: DrawBuf = undefined,
     after: DrawBuf = undefined,
     term_size: Cord = .{},
+    rel_offset: u16 = 0,
 
     pub fn init(hsh: *HSH) Err!Drawable {
         colorize = hsh.enabled(Features.Colorize);
@@ -91,6 +101,19 @@ pub const Drawable = struct {
 
     pub fn write(d: *Drawable, out: []const u8) Err!usize {
         return d.tty.out.write(out) catch Err.WriterIO;
+    }
+
+    pub fn move(_: *Drawable, comptime dir: Direction, count: u16) []const u8 {
+        if (count == 0) return "";
+        const fmt = comptime switch (dir) {
+            .Up => "\x1B[{}A",
+            .Down => "\x1B[{}B",
+            .Left => "\x1B[{}D",
+            .Right => "\x1B[{}C",
+            .Absolute => "\x1B[{}G",
+        };
+
+        return std.fmt.bufPrint(&movebuf, fmt, .{count}) catch return &movebuf; // #YOLO
     }
 
     pub fn reset(d: *Drawable) void {
@@ -189,18 +212,19 @@ fn countPrintable(buf: []const u8) usize {
     return total;
 }
 
-fn countLines(buf: []const u8) usize {
-    return std.mem.count(u8, buf, '\n');
+fn countLines(buf: []const u8) u16 {
+    return @truncate(u16, std.mem.count(u8, buf, "\n"));
 }
 
-fn drawBefore(d: *Drawable, t: LexTree) !void {
-    try d.before.append('\n');
+pub fn drawBefore(d: *Drawable, t: LexTree) !void {
+    try d.before.append('\r');
     try drawTree(&d.before, 0, 0, t);
+    try d.before.appendSlice("\x1B[K");
 }
 
 fn drawAfter(d: *Drawable, t: LexTree) !void {
-    try drawTree(&d.after, 0, 0, t);
     try d.after.append('\n');
+    try drawTree(&d.after, 0, 0, t);
 }
 
 pub fn drawRight(d: *Drawable, tree: LexTree) !void {
@@ -216,6 +240,10 @@ pub fn draw(d: *Drawable, tree: LexTree) !void {
 /// provide the context, expecting not to know about, or touch the final user
 /// input line
 pub fn render(d: *Drawable) Err!void {
+    _ = try d.write("\r");
+    if (d.rel_offset > 0)
+        _ = try d.write(d.move(.Up, @truncate(u16, d.rel_offset)));
+    //d.b.appendSlice(d.move(.Up, d.rel_offset)) catch return Err.Memory;
     var cntx: usize = 0;
     // TODO vert position
     if (d.cursor_reposition) {
@@ -225,34 +253,42 @@ pub fn render(d: *Drawable) Err!void {
         }
     }
 
-    if (d.before.items.len > 0) cntx += try d.write(d.before.items);
+    var before_lines: u16 = 0;
+    if (d.before.items.len > 0) {
+        d.before.append('\n') catch return Err.Memory;
+        cntx += try d.write(d.before.items);
+        before_lines += countLines(d.before.items);
+    }
+    //defer d.before.appendSlice(d.move(.Up, before_lines)) catch {};
+
     if (d.after.items.len > 0) cntx += try d.write(d.after.items);
     // TODO seek back up
     if (d.right.items.len > 0) {
         cntx += try d.write("\r\x1B[K");
-        var moving = [_:0]u8{0} ** 16;
-        // Depending on movement being a nop once at term width
-        const right = std.fmt.bufPrint(&moving, "\x1B[{}G", .{d.term_size.x}) catch return Err.Memory;
-        cntx += try d.write(right);
-        // printable [...] - 2 to give a blank buffer (I hate line wrapping)
+        // Assumes that movement becomes a nop once at term width
+        cntx += try d.write(d.move(.Absolute, @intCast(u16, d.term_size.x)));
+        // printable [...] to give a blank buffer (I hate line wrapping)
         const printable = countPrintable(d.right.items);
-        const left = std.fmt.bufPrint(&moving, "\x1B[{}D", .{printable}) catch return Err.Memory;
-        cntx += try d.write(left);
+        cntx += try d.write(d.move(.Left, @intCast(u16, printable)));
         cntx += try d.write(d.right.items);
     }
 
     if (cntx == 0) _ = try d.write("\r\x1B[K");
+    _ = try d.write("\r");
     _ = try d.write(d.b.items);
     // TODO save backtrack line count?
-    const prompt_lines = std.mem.count(u8, d.b.items, "\n");
+    const prompt_lines = countLines(d.b.items);
 
-    d.reset();
-    if (prompt_lines > 0) {
-        var moving = [_:0]u8{0} ** 16;
-        const up = std.fmt.bufPrint(&moving, "\x1B[{}A", .{prompt_lines}) catch return Err.Memory;
-        d.b.appendSlice(up) catch return Err.Memory;
-    }
-    d.b.append('\r') catch return Err.Memory;
+    d.rel_offset = before_lines + prompt_lines;
+}
+
+pub fn blank(d: *Drawable) void {
+    if (d.rel_offset == 0) return;
+    _ = d.write(d.move(.Up, d.rel_offset)) catch {};
+    _ = d.write("\r\x1B[J") catch {};
+    _ = d.write(d.move(.Up, d.rel_offset)) catch {};
+    _ = d.write(d.b.items) catch {};
+    _ = d.write("\n") catch {};
 }
 
 /// Any context before the prompt line should be cleared and replaced with the

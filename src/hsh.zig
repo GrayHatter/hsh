@@ -245,11 +245,7 @@ pub const HSH = struct {
         if (job) |j| {
             if (fg) {
                 hsh.tty.pushTTY(j.termattr) catch return Error.Memory;
-                //hsh.tty.setOwner(j.pid) catch return Error.Unknown;
-                j.status = .Running;
-            } else {
-                j.status = .Background;
-            }
+            } else {}
             std.os.kill(j.pid, std.os.SIG.CONT) catch return Error.Unknown;
         }
     }
@@ -257,10 +253,26 @@ pub const HSH = struct {
     fn stopChildren(hsh: *HSH) void {
         for (hsh.jobs.items) |*j| {
             if (j.*.status == .Running) {
+                j.status = .Paused;
                 // do something
             }
-            j.status = .Paused;
         }
+    }
+
+    pub fn getBgJobs(hsh: *const HSH) Error!ArrayList(Job) {
+        var jobs = ArrayList(Job).init(hsh.alloc);
+        for (hsh.jobs.items) |j| {
+            switch (j.status) {
+                .Background,
+                .Waiting,
+                .Paused,
+                => {
+                    jobs.append(j) catch return Error.Memory;
+                },
+                else => continue,
+            }
+        }
+        return jobs;
     }
 
     pub fn getFgJob(hsh: *const HSH) ?*const Job {
@@ -333,18 +345,20 @@ pub const HSH = struct {
                     }
                 },
                 std.os.SIG.TSTP => {
-                    const child = hsh.getJob(sig.info.fields.common.first.piduid.pid) catch {
-                        // TODO we should never not know about a job, but it's not a
-                        // reason to die just yet.
-                        std.debug.print("Unknown child on {} {}\n", .{ pid, sig.info.code });
-                        return;
-                    };
-                    if (child.*.status == .Running) {
-                        child.*.termattr = hsh.tty.popTTY() catch unreachable;
+                    if (pid != 0) {
+                        const child = hsh.getJob(pid) catch {
+                            // TODO we should never not know about a job, but it's not a
+                            // reason to die just yet.
+                            std.debug.print("Unknown child on {} {}\n", .{ pid, sig.info.code });
+                            return;
+                        };
+                        if (child.*.status == .Running) {
+                            child.*.termattr = hsh.tty.popTTY() catch unreachable;
+                        }
+                        child.*.status = .Waiting;
                     }
-                    child.*.status = .Waiting;
-                    std.debug.print("\n\rSIGNAL TSTP => ({})", .{sig.info});
-                    std.debug.print("\n{}\n", .{child});
+                    std.debug.print("\n\rSIGNAL TSTP {} => ({any})", .{ pid, sig.info });
+                    //std.debug.print("\n{}\n", .{child});
                 },
                 std.os.SIG.CONT => {
                     std.debug.print("\nUnexpected cont from pid({})\n", .{pid});

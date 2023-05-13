@@ -65,7 +65,9 @@ pub fn exists(str: []const u8) bool {
 
 fn alias(_: *HSH, _: []const Token) Err!void {}
 
-fn bg(_: *HSH, _: []const Token) Err!void {}
+fn bg(hsh: *HSH, _: []const Token) Err!void {
+    hsh.tty.print("bg not yet implemented\n", .{}) catch return Err.Unknown;
+}
 
 /// Someone should add some sane input sanitzation to this
 fn cd(hsh: *HSH, tkns: []const Token) Err!void {

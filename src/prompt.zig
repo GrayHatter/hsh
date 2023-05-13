@@ -3,12 +3,14 @@ const Writer = std.fs.File.Writer;
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const Draw = @import("draw.zig");
 const HSH = @import("hsh.zig").HSH;
+const Job = @import("hsh.zig").Job;
 const Feature = @import("hsh.zig").Features;
 const Lexeme = Draw.Lexeme;
 const LexTree = Draw.LexTree;
 const Drawable = Draw.Drawable;
 const draw = Draw.draw;
 const drawRight = Draw.drawRight;
+const drawBefore = Draw.drawBefore;
 
 var si: usize = 0;
 
@@ -80,4 +82,18 @@ pub fn prompt(hsh: *HSH, tkn: *Tokenizer) !void {
             tkn.c_tkn,
         }) },
     } });
+}
+
+pub fn jobsContext(hsh: *HSH, jobs: []Job) !void {
+    for (jobs) |j| {
+        try drawBefore(&hsh.draw, LexTree{
+            .sibling = &[_]Lexeme{
+                .{ .char = "[ " },
+                if (j.status == .Background) spinner(.dots2t3) else .{ .char = "Z" },
+                .{ .char = " " },
+                .{ .char = j.name orelse "Unknown Job" },
+                .{ .char = " ]" },
+            },
+        });
+    }
 }

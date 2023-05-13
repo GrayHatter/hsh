@@ -13,6 +13,8 @@ const Draw = @import("draw.zig");
 const Drawable = Draw.Drawable;
 const printAfter = Draw.printAfter;
 const prompt = @import("prompt.zig").prompt;
+const jobsContext = @import("prompt.zig").jobsContext;
+
 const HSH = @import("hsh.zig").HSH;
 const complete = @import("completion.zig");
 const Builtins = @import("builtins.zig");
@@ -28,12 +30,16 @@ test "main" {
 pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
     var buffer: [1]u8 = undefined;
     var prev: [1]u8 = undefined;
-    hsh.draw.reset();
-    try hsh.draw.b.append('\r');
+    defer hsh.draw.rel_offset = 0;
+    defer hsh.draw.reset();
+    defer Draw.blank(&hsh.draw);
     while (true) {
         hsh.draw.cursor = @truncate(u32, tkn.cadj());
         hsh.spin();
-
+        hsh.draw.reset();
+        var jobs = hsh.getBgJobs() catch unreachable;
+        defer jobs.clearAndFree();
+        try jobsContext(hsh, jobs.items);
         try prompt(hsh, tkn);
         try Draw.render(&hsh.draw);
 
