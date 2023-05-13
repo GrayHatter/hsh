@@ -217,7 +217,7 @@ pub fn main() !void {
 
     _ = try complete.init(&hsh);
 
-    try Signals.init(hsh.alloc, &hsh.sig_stack);
+    try Signals.init(hsh.alloc, &hsh.sig_queue);
 
     hsh.tty = try TTY.init(a);
     defer hsh.tty.raze();

@@ -7,7 +7,7 @@ const TTY = @import("tty.zig").TTY;
 const builtin = @import("builtin");
 const ArrayList = std.ArrayList;
 const Signals = @import("signals.zig");
-const Stack = std.atomic.Stack;
+const Queue = std.atomic.Queue;
 
 pub const Error = error{
     Unknown,
@@ -103,7 +103,7 @@ pub const HSH = struct {
     fs: hshfs = undefined,
     pid: std.os.pid_t,
     pgrp: std.os.pid_t = -1,
-    sig_stack: Stack(Signals.Signal),
+    sig_queue: Queue(Signals.Signal),
     jobs: ArrayList(Job),
     rc: ?std.fs.File = null,
     history: ?std.fs.File = null,
@@ -139,7 +139,7 @@ pub const HSH = struct {
             .features = .{},
             .env = env,
             .pid = std.os.linux.getpid(),
-            .sig_stack = Stack(Signals.Signal).init(),
+            .sig_queue = Queue(Signals.Signal).init(),
             .jobs = ArrayList(Job).init(a),
             .rc = rc,
             .history = history,
@@ -288,7 +288,7 @@ pub const HSH = struct {
     const SI_CODE = enum(u6) { EXITED = 1, KILLED, DUMPED, TRAPPED, STOPPED, CONTINUED };
 
     fn doSignals(hsh: *HSH) void {
-        while (hsh.sig_stack.pop()) |node| {
+        while (hsh.sig_queue.get()) |node| {
             var sig = node.data;
             const pid = sig.info.fields.common.first.piduid.pid;
             switch (sig.signal) {
@@ -315,7 +315,6 @@ pub const HSH = struct {
                         SI_CODE.KILLED,
                         => {
                             if (child.*.status == .Running) {
-                                //hsh.tty.setOwner(hsh.pid) catch {};
                                 child.*.termattr = hsh.tty.popTTY() catch |e| {
                                     std.debug.print("Unable to pop for (reasons) {}\n", .{e});
                                     unreachable;
@@ -367,7 +366,7 @@ pub const HSH = struct {
                 },
             }
 
-            hsh.alloc.free(@as(*[1]Stack(Signals.Signal).Node, node));
+            hsh.alloc.free(@as(*[1]Queue(Signals.Signal).Node, node));
         }
     }
 };

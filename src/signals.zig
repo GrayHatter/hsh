@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const os = std.os;
-const Stack = std.atomic.Stack;
+const Queue = std.atomic.Queue;
 
 const Self = @This();
 
@@ -17,10 +17,10 @@ pub const Signal = struct {
 };
 
 var alloc: Allocator = undefined;
-var stack: *Stack(Signal) = undefined;
+var queue: *Queue(Signal) = undefined;
 
 export fn sig_cb(sig: c_int, info: *const os.siginfo_t, _: ?*const anyopaque) callconv(.C) void {
-    const sigp = alloc.alloc(Stack(Signal).Node, 1) catch {
+    const sigp = alloc.alloc(Queue(Signal).Node, 1) catch {
         std.debug.print(
             "ERROR: unable to allocate memory for incoming signal {}\n",
             .{sig},
@@ -29,12 +29,12 @@ export fn sig_cb(sig: c_int, info: *const os.siginfo_t, _: ?*const anyopaque) ca
     };
     sigp[0].data.signal = sig;
     sigp[0].data.info = info.*;
-    stack.push(&sigp[0]);
+    queue.put(&sigp[0]);
 }
 
-pub fn init(a: Allocator, s: *Stack(Signal)) !void {
+pub fn init(a: Allocator, q: *Queue(Signal)) !void {
     alloc = a;
-    stack = s;
+    queue = q;
 
     // zsh blocks and unblocks winch signals during most processing, collecting
     // them only when needed. It's likely something we should do as well
