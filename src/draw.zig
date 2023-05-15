@@ -222,7 +222,7 @@ pub fn drawBefore(d: *Drawable, t: LexTree) !void {
     try d.before.appendSlice("\x1B[K");
 }
 
-fn drawAfter(d: *Drawable, t: LexTree) !void {
+pub fn drawAfter(d: *Drawable, t: LexTree) !void {
     try d.after.append('\n');
     try drawTree(&d.after, 0, 0, t);
 }
@@ -261,8 +261,13 @@ pub fn render(d: *Drawable) Err!void {
     }
     //defer d.before.appendSlice(d.move(.Up, before_lines)) catch {};
 
-    if (d.after.items.len > 0) cntx += try d.write(d.after.items);
-    // TODO seek back up
+    if (d.after.items.len > 0) {
+        cntx += try d.write(d.after.items);
+        const after_lines = countLines(d.after.items);
+        _ = try d.write("\x1B[K");
+        _ = try d.write(d.move(.Up, after_lines));
+    }
+
     if (d.right.items.len > 0) {
         cntx += try d.write("\r\x1B[K");
         // Assumes that movement becomes a nop once at term width
