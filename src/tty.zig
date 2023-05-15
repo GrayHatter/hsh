@@ -52,7 +52,6 @@ pub const TTY = struct {
         current_tty = self;
 
         // Cursor focus
-        _ = try self.out.write("\x1B[?1004h");
 
         return self;
     }
@@ -75,10 +74,12 @@ pub const TTY = struct {
 
     pub fn pushOrig(self: *TTY) !void {
         try self.pushTTY(self.attrs.items[0]);
+        _ = try self.out.write("\x1B[?1004l");
     }
 
     pub fn pushRaw(self: *TTY) !void {
         try self.pushTTY(makeRaw(self.attrs.items[0]));
+        _ = try self.out.write("\x1B[?1004h");
     }
 
     pub fn pushTTY(self: *TTY, tios: os.termios) !void {
