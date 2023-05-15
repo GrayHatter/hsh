@@ -22,6 +22,7 @@ const Keys = @import("keys.zig");
 const Exec = @import("exec.zig");
 const exec = Exec.exec;
 const Signals = @import("signals.zig");
+const History = @import("history.zig");
 
 test "main" {
     std.testing.refAllDecls(@This());
@@ -64,7 +65,7 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
                             .Up => {
                                 if (tkn.hist_pos == 0) tkn.push_line();
                                 tkn.clear();
-                                const top = read_history(
+                                const top = History.readAt(
                                     tkn.hist_pos + 1,
                                     hsh.history.?,
                                     &tkn.raw,
@@ -76,7 +77,7 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
                                 if (tkn.hist_pos > 1) {
                                     tkn.hist_pos -= 1;
                                     tkn.clear();
-                                    _ = read_history(
+                                    _ = History.readAt(
                                         tkn.hist_pos,
                                         hsh.history.?,
                                         &tkn.raw,
@@ -188,26 +189,6 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
             },
         }
     }
-}
-
-fn read_history(cnt: usize, hist: std.fs.File, buffer: *ArrayList(u8)) !bool {
-    var row = cnt;
-    var len: usize = try hist.getEndPos();
-    try hist.seekFromEnd(-1);
-    var pos = len;
-    var buf: [1]u8 = undefined;
-    while (row > 0 and pos > 0) {
-        hist.seekBy(-2) catch {
-            hist.seekBy(-1) catch break;
-            break;
-        };
-        _ = try hist.read(&buf);
-        if (buf[0] == '\n') row -= 1;
-        pos = try hist.getPos();
-    }
-    pos = try hist.getPos();
-    try hist.reader().readUntilDelimiterArrayList(buffer, '\n', 1 << 16);
-    return pos == 0;
 }
 
 pub fn main() !void {
