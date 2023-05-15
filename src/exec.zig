@@ -44,6 +44,8 @@ pub fn executable(hsh: *HSH, str: []const u8) bool {
 }
 
 /// Caller must cleanAndFree() memory
+/// TODO BUG arg should be absolute but argv[0] should only be absolute IFF
+/// there was a / is the original token.
 pub fn makeAbsExecutable(a: Allocator, paths: [][]const u8, str: []const u8) Error!ArrayList(u8) {
     var exe = ArrayList(u8).init(a);
     if (str[0] == '/') {
