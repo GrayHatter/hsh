@@ -120,7 +120,6 @@ fn completeDirBase(cwdi: *IterableDir, base: []const u8) !void {
     }
 }
 
-/// Caller promises t: Token contains at least 1 /
 fn completePath(h: *HSH, target: []const u8) !void {
     if (target.len < 1) return;
 
