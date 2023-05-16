@@ -20,11 +20,13 @@ pub const CompKind = enum {
 };
 
 pub const CompOption = struct {
-    str: []u8,
+    full: []const u8,
+    /// name is normally a simple subslice of full.
+    name: []const u8,
     kind: CompKind,
     pub fn format(self: CompOption, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
         if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
-        try std.fmt.format(out, "CompOption{{{s}, {s}}}", .{ self.str, @tagName(self.kind) });
+        try std.fmt.format(out, "CompOption{{{s}, {s}}}", .{ self.full, @tagName(self.kind) });
     }
 };
 
@@ -34,7 +36,8 @@ pub const CompSet = struct {
     index: usize = 0,
     // actually using most of orig_token is much danger, such UB
     // the pointers contained within are likely already invalid!
-    orig_token: ?*const Token = null,
+    //orig_token: ?*const Token = null,
+    kind: TokenType = undefined,
 
     /// true when there's a known completion [or the original]
     pub fn known(self: *CompSet) bool {
@@ -66,14 +69,14 @@ pub const CompSet = struct {
     pub fn optList(self: *const CompSet) ArrayList([]const u8) {
         var list = ArrayList([]const u8).init(self.alloc);
         for (self.list.items) |i| {
-            list.append(i.str) catch break;
+            list.append(i.name) catch break;
         }
         return list;
     }
 
     pub fn raze(self: *CompSet) void {
         for (self.list.items) |opt| {
-            self.alloc.free(opt.str);
+            self.alloc.free(opt.full);
         }
         self.list.clearAndFree();
     }
@@ -84,8 +87,10 @@ fn completeDir(cwdi: *IterableDir) !void {
     while (try itr.next()) |each| {
         switch (each.kind) {
             .File, .Directory, .SymLink => {
+                const full = try compset.alloc.dupe(u8, each.name);
                 try compset.list.append(CompOption{
-                    .str = try compset.alloc.dupe(u8, each.name),
+                    .full = full,
+                    .name = full,
                     .kind = .FileSystem,
                 });
             },
@@ -100,8 +105,10 @@ fn completeDirBase(cwdi: *IterableDir, base: []const u8) !void {
         switch (each.kind) {
             .File, .Directory => {
                 if (!std.mem.startsWith(u8, each.name, base)) continue;
+                var full = try compset.alloc.dupe(u8, each.name);
                 try compset.list.append(CompOption{
-                    .str = try compset.alloc.dupe(u8, each.name),
+                    .full = full,
+                    .name = full,
                     .kind = .FileSystem,
                 });
             },
@@ -124,20 +131,41 @@ fn completePath(h: *HSH, target: []const u8) !void {
     var path = whole.rest();
     var dir = h.fs.cwdi.dir.openIterableDir(path, .{}) catch return;
 
-    if (base.len > 0) return completeDirBase(&dir, base);
-
-    return completeDir(&dir);
+    var itr = dir.iterate();
+    while (try itr.next()) |each| {
+        switch (each.kind) {
+            .File, .Directory => {
+                if (!std.mem.startsWith(u8, each.name, base)) continue;
+                var full = try compset.alloc.alloc(u8, path.len + each.name.len + 1);
+                var name = full[path.len + 1 ..];
+                @memcpy(full[0..path.len], path);
+                full[path.len] = '/';
+                @memcpy(name, each.name);
+                try compset.list.append(CompOption{
+                    .full = full,
+                    .name = name,
+                    .kind = .FileSystem,
+                });
+            },
+            else => |typ| {
+                std.debug.print("completion error! {}\n", .{typ});
+                unreachable;
+            },
+        }
+    }
 }
 
 /// Caller owns nothing, memory is only guaranteed until `complete` is
 /// called again.
 pub fn complete(hsh: *HSH, t: *const Token) !*CompSet {
     compset.raze();
-    compset.orig_token = t;
+    compset.kind = t.type;
     compset.index = 0;
 
+    const full = try compset.alloc.dupe(u8, t.cannon());
     try compset.list.append(CompOption{
-        .str = try compset.alloc.dupe(u8, t.cannon()),
+        .full = full,
+        .name = full,
         .kind = .Original,
     });
     switch (t.type) {

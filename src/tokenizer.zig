@@ -308,25 +308,10 @@ pub const Tokenizer = struct {
             sum += t.raw.len;
         }
         self.c_idx = sum + old.raw.len;
-        switch (old.type) {
-            .WhiteSpace => {
-                // White space is a bit strange, this is probably the wrong hack for it
-                return;
-            },
-            .Path => {
-                if (new.kind == .Original) {
-                    for (0..old.raw.len) |_| try self.pop();
-                } else {
-                    const eslash = mem.lastIndexOf(u8, old.raw, "/") orelse 0;
-                    //if (eslash == old.raw.len)
-                    for (eslash + 1..old.raw.len) |_| try self.pop();
-                }
-            },
-            else => {
-                for (0..old.raw.len) |_| try self.pop();
-            },
-        }
-        for (new.str) |c| try self.consumec(c);
+        if (old.type != .WhiteSpace) try self.popRange(old.raw.len);
+        if (new.kind == .Original and mem.eql(u8, new.full, " ")) return;
+
+        for (new.full) |c| try self.consumec(c);
     }
 
     // this clearly needs a bit more love
@@ -352,7 +337,7 @@ pub const Tokenizer = struct {
     }
 
     pub fn pop(self: *Tokenizer) Error!void {
-        if (self.raw.items.len == 0 or self.c_idx == 0) return;
+        if (self.raw.items.len == 0 or self.c_idx == 0) return Error.Unknown;
         self.c_idx -|= 1;
         _ = self.raw.orderedRemove(@bitCast(usize, self.c_idx));
         self.err_idx = @min(self.c_idx, self.err_idx);
@@ -360,6 +345,16 @@ pub const Tokenizer = struct {
 
     pub fn rpop(self: *Tokenizer) Error!void {
         _ = self;
+    }
+
+    pub fn popRange(self: *Tokenizer, count: usize) Error!void {
+        if (count > self.raw.items.len) return Error.Unknown;
+        if (self.raw.items.len == 0 or self.c_idx == 0) return;
+        if (count == 0) return;
+        self.c_idx -|= count;
+        _ = self.raw.replaceRange(@as(usize, self.c_idx), count, "") catch unreachable;
+        // replaceRange is able to expand, but we don't here, thus unreachable
+        self.err_idx = @min(self.c_idx, self.err_idx);
     }
 
     pub fn consumec(self: *Tokenizer, c: u8) Error!void {
