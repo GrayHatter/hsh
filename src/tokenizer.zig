@@ -7,6 +7,7 @@ const io = std.io;
 const mem = std.mem;
 const std = @import("std");
 const Builtins = @import("builtins.zig");
+const CompOption = @import("completion.zig").CompOption;
 
 const breaking_tokens = " \t\"'`${|><#;:!";
 pub const TokenType = enum(u8) {
@@ -159,6 +160,12 @@ pub const Tokenizer = struct {
                 }
                 return token;
             },
+            .String => {
+                if (mem.indexOf(u8, token.raw, "/")) |_| {
+                    token.type = .Path;
+                    return token;
+                } else return token;
+            },
             else => {
                 switch (token.raw[0]) {
                     '$' => return token,
@@ -294,16 +301,32 @@ pub const Tokenizer = struct {
 
     /// This function edits user text, so extra care must be taken to ensure
     /// it's something the user asked for!
-    pub fn replaceToken(self: *Tokenizer, old: *const Token, new: []u8) !void {
+    pub fn replaceToken(self: *Tokenizer, old: *const Token, new: *const CompOption) !void {
         var sum: usize = 0;
         for (self.tokens.items) |*t| {
             if (t == old) break;
             sum += t.raw.len;
         }
         self.c_idx = sum + old.raw.len;
-        // White space is a bit strange, this is probably the wrong hack for it
-        if (old.type != .WhiteSpace) for (0..old.raw.len) |_| try self.pop();
-        if (!std.mem.eql(u8, new, " ")) for (new) |c| try self.consumec(c);
+        switch (old.type) {
+            .WhiteSpace => {
+                // White space is a bit strange, this is probably the wrong hack for it
+                return;
+            },
+            .Path => {
+                if (new.kind == .Original) {
+                    for (0..old.raw.len) |_| try self.pop();
+                } else {
+                    const eslash = mem.lastIndexOf(u8, old.raw, "/") orelse 0;
+                    //if (eslash == old.raw.len)
+                    for (eslash + 1..old.raw.len) |_| try self.pop();
+                }
+            },
+            else => {
+                for (0..old.raw.len) |_| try self.pop();
+            },
+        }
+        for (new.str) |c| try self.consumec(c);
     }
 
     // this clearly needs a bit more love

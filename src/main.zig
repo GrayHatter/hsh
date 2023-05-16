@@ -14,7 +14,7 @@ const Drawable = Draw.Drawable;
 const printAfter = Draw.printAfter;
 const prompt = @import("prompt.zig").prompt;
 const jobsContext = @import("prompt.zig").jobsContext;
-
+const Context = @import("context.zig");
 const HSH = @import("hsh.zig").HSH;
 const complete = @import("completion.zig");
 const Builtins = @import("builtins.zig");
@@ -34,15 +34,16 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
     defer hsh.draw.rel_offset = 0;
     defer hsh.draw.reset();
     defer Draw.blank(&hsh.draw);
+    var comp: *complete.CompSet = undefined;
     while (true) {
         hsh.draw.cursor = @truncate(u32, tkn.cadj());
         hsh.spin();
-        hsh.draw.reset();
         var jobs = hsh.getBgJobs() catch unreachable;
         defer jobs.clearAndFree();
         try jobsContext(hsh, jobs.items);
         try prompt(hsh, tkn);
         try Draw.render(&hsh.draw);
+        hsh.draw.reset();
 
         // REALLY WISH I COULD BUILD ZIG, ARCH LINUX!!!
         @memcpy(&prev, &buffer);
@@ -115,30 +116,41 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
                     continue;
                 }
                 const ctkn = tkn.cursor_token() catch continue;
-                var comp = &complete.compset;
+                var target: *const complete.CompOption = undefined;
                 if (b != prev[0]) {
-                    _ = try complete.complete(hsh, ctkn);
-                    if (comp.list.items.len == 2) {
+                    comp = try complete.complete(hsh, ctkn);
+                    if (comp.known()) {
                         // original and single, complete now
-                        comp.index = 1;
-                    } else {
-                        // multiple options, complete original first
-                        comp.index = 0;
+                        target = comp.first();
+                        try tkn.replaceToken(ctkn, target);
+                        continue;
                     }
-                    // for (comp.list.items) |c| std.debug.print("comp {}\n", .{c});
+                    //for (comp.list.items) |c| std.debug.print("comp {}\n", .{c});
                 } else {
-                    comp.index = (comp.index + 1) % comp.list.items.len;
+                    var l = comp.optList();
+                    defer l.clearAndFree();
+                    var siblings = ArrayList(Draw.Lexeme).init(hsh.alloc);
+                    defer siblings.clearAndFree();
+                    for (l.items, 0..) |e, i| {
+                        siblings.append(Draw.Lexeme{
+                            .char = e,
+                            .attr = if (i == comp.index) .Bold else .Reset,
+                        }) catch break;
+                        siblings.append(Draw.Lexeme{ .char = " " }) catch break;
+                    }
+                    // TODO draw warning after if unable to tab complete
+                    Draw.drawAfter(&hsh.draw, Draw.LexTree{
+                        .sibling = siblings.items,
+                    }) catch unreachable;
                 }
-                if (comp.list.items.len > 0) {
-                    const new = comp.list.items[comp.index].str;
-                    try tkn.replaceToken(ctkn, new);
-                }
-                // TODO free memory
+
+                target = comp.next();
+                try tkn.replaceToken(ctkn, target);
             },
             '\x0E' => try hsh.tty.print("shift in\r\n", .{}),
             '\x0F' => try hsh.tty.print("^shift out\r\n", .{}),
             '\x12' => try hsh.tty.print("^R\r\n", .{}), // DC2
-            '\x13' => try hsh.tty.print("^R\r\n", .{}), // DC3
+            '\x13' => try hsh.tty.print("^S\r\n", .{}), // DC3
             '\x14' => try hsh.tty.print("^T\r\n", .{}), // DC4
             '\x1A' => try hsh.tty.print("^Z\r\n", .{}),
             '\x17' => try tkn.popUntil(),
@@ -176,6 +188,7 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
                     continue;
                 };
                 try hsh.tty.print("\r\n", .{});
+                Draw.blank(&hsh.draw);
                 if (run) {
                     //try tkn.dump_parsed(false);
                     if (tkn.tokens.items.len > 0) {
