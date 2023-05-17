@@ -147,7 +147,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
         '\x13' => try hsh.tty.print("^S\r\n", .{}), // DC3
         '\x14' => try hsh.tty.print("^T\r\n", .{}), // DC4
         '\x1A' => try hsh.tty.print("^Z\r\n", .{}),
-        '\x17' => try tkn.popUntil(),
+        '\x17' => try tkn.popUntil(), // ^w
         '\x20'...'\x7E' => |b| { // Normal printable ascii
             try tkn.consumec(b);
             return .Prompt;
@@ -169,10 +169,15 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
             //     try tty.print("\r\nExit caught... Bye ()\r\n", .{});
             // }
         },
-        '\x04' => |b| {
+        '\x04' => {
+            if (tkn.raw.items.len == 0) {
+                try hsh.tty.print("^D\r\n", .{});
+                try hsh.tty.print("\r\nExit caught... Bye\r\n", .{});
+                return .ExitHSH;
+            }
+
             try hsh.tty.print("^D\r\n", .{});
-            try hsh.tty.print("\r\nExit caught... Bye ({})\r\n", .{b});
-            return .ExitHSH;
+            return .None;
         },
         '\n', '\r' => |b| {
             hsh.draw.cursor = 0;
