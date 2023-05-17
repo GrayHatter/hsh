@@ -29,6 +29,7 @@ pub const Error = error{
     ParseErr,
     InvalidSrc,
     OpenGroup,
+    Empty,
 };
 
 pub const Token = struct {
@@ -337,7 +338,7 @@ pub const Tokenizer = struct {
     }
 
     pub fn pop(self: *Tokenizer) Error!void {
-        if (self.raw.items.len == 0 or self.c_idx == 0) return Error.Unknown;
+        if (self.raw.items.len == 0 or self.c_idx == 0) return Error.Empty;
         self.c_idx -|= 1;
         _ = self.raw.orderedRemove(@bitCast(usize, self.c_idx));
         self.err_idx = @min(self.c_idx, self.err_idx);
@@ -348,7 +349,7 @@ pub const Tokenizer = struct {
     }
 
     pub fn popRange(self: *Tokenizer, count: usize) Error!void {
-        if (count > self.raw.items.len) return Error.Unknown;
+        if (count > self.raw.items.len) return Error.Empty;
         if (self.raw.items.len == 0 or self.c_idx == 0) return;
         if (count == 0) return;
         self.c_idx -|= count;

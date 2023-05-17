@@ -28,13 +28,190 @@ test "main" {
     std.testing.refAllDecls(@This());
 }
 
-pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
+const Event = enum(u8) {
+    None = 0,
+    Update = 1,
+    EnvState = 2,
+    Prompt = 4,
+    Advice = 8,
+    Redraw = 14,
+    Exec = 16,
+    // ...
+    ExitHSH = 254,
+    ExpectedError = 255,
+};
+
+fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.CompSet) !Event {
+    var comp = comp_;
+    // I no longer like this way of tokenization. I'd like to generate
+    // Tokens as an n=2 state machine at time of keypress. It might actually
+    // be required to unbreak a bug in history.
+    switch (buffer) {
+        '\x1B' => {
+            const to_reset = tkn.err_idx != 0;
+            tkn.err_idx = 0;
+            switch (try Keys.esc(hsh)) {
+                .Unknown => if (!to_reset) try printAfter(&hsh.draw, "Unknown esc --", .{}),
+                .Key => |a| {
+                    switch (a) {
+                        .Up => {
+                            if (tkn.hist_pos == 0) tkn.push_line();
+                            tkn.clear();
+                            const top = History.readAt(
+                                tkn.hist_pos + 1,
+                                hsh.history.?,
+                                &tkn.raw,
+                            ) catch unreachable;
+                            if (!top) tkn.hist_pos += 1;
+                            tkn.push_hist();
+                        },
+                        .Down => {
+                            if (tkn.hist_pos > 1) {
+                                tkn.hist_pos -= 1;
+                                tkn.clear();
+                                _ = History.readAt(
+                                    tkn.hist_pos,
+                                    hsh.history.?,
+                                    &tkn.raw,
+                                ) catch unreachable;
+                                tkn.push_hist();
+                            } else if (tkn.hist_pos == 1) {
+                                tkn.hist_pos -= 1;
+                                tkn.pop_line();
+                            } else {}
+                        },
+                        .Left => tkn.cinc(-1),
+                        .Right => tkn.cinc(1),
+                        .Home => tkn.cinc(-@intCast(isize, tkn.raw.items.len)),
+                        .End => tkn.cinc(@intCast(isize, tkn.raw.items.len)),
+                        else => {}, // unable to use range on Key :<
+                    }
+                },
+                .ModKey => |mk| {
+                    switch (mk.key) {
+                        .Left => {},
+                        .Right => {},
+                        else => {},
+                    }
+                },
+                .Mouse => {},
+            }
+            return .Redraw;
+        },
+        '\x07' => try hsh.tty.print("^bel\r\n", .{}),
+        '\x08' => try hsh.tty.print("\r\ninput: backspace\r\n", .{}),
+        '\x09' => |b| { // \t
+            // Tab is best effort, it shouldn't be able to crash hsh
+            _ = tkn.parse() catch {};
+            if (!tkn.tab()) {
+                try tkn.consumec(b);
+                return .Prompt;
+            }
+            const ctkn = tkn.cursor_token() catch unreachable;
+            // Should be unreachable given parse() above
+            var target: *const complete.CompOption = undefined;
+            if (b != prev) {
+                comp = try complete.complete(hsh, ctkn);
+                if (comp.known()) {
+                    // original and single, complete now
+                    target = comp.first();
+                    try tkn.replaceToken(ctkn, target);
+                    return .Prompt;
+                }
+                //for (comp.list.items) |c| std.debug.print("comp {}\n", .{c});
+            } else {
+                var l = comp.optList();
+                defer l.clearAndFree();
+                var siblings = ArrayList(Draw.Lexeme).init(hsh.alloc);
+                defer siblings.clearAndFree();
+                for (l.items, 0..) |e, i| {
+                    siblings.append(Draw.Lexeme{
+                        .char = e,
+                        .attr = if (i == comp.index) .Bold else .Reset,
+                    }) catch break;
+                    siblings.append(Draw.Lexeme{ .char = " " }) catch break;
+                }
+                // TODO draw warning after if unable to tab complete
+                Draw.drawAfter(&hsh.draw, Draw.LexTree{
+                    .sibling = siblings.items,
+                }) catch unreachable;
+            }
+
+            target = comp.next();
+            try tkn.replaceToken(ctkn, target);
+            return .Prompt;
+        },
+        '\x0E' => try hsh.tty.print("shift in\r\n", .{}),
+        '\x0F' => try hsh.tty.print("^shift out\r\n", .{}),
+        '\x12' => try hsh.tty.print("^R\r\n", .{}), // DC2
+        '\x13' => try hsh.tty.print("^S\r\n", .{}), // DC3
+        '\x14' => try hsh.tty.print("^T\r\n", .{}), // DC4
+        '\x1A' => try hsh.tty.print("^Z\r\n", .{}),
+        '\x17' => try tkn.popUntil(),
+        '\x20'...'\x7E' => |b| { // Normal printable ascii
+            try tkn.consumec(b);
+            return .Prompt;
+        },
+        '\x7F' => { // backspace
+            tkn.pop() catch |err| {
+                if (err == TokenErr.Empty) return .None;
+                return err;
+            };
+            return .Prompt;
+        },
+        '\x03' => {
+            try hsh.tty.print("^C\r\n", .{});
+            tkn.reset();
+            return .Prompt;
+            // if (tn.raw.items.len > 0) {
+            // } else {
+            //     return false;
+            //     try tty.print("\r\nExit caught... Bye ()\r\n", .{});
+            // }
+        },
+        '\x04' => |b| {
+            try hsh.tty.print("^D\r\n", .{});
+            try hsh.tty.print("\r\nExit caught... Bye ({})\r\n", .{b});
+            return .ExitHSH;
+        },
+        '\n', '\r' => |b| {
+            hsh.draw.cursor = 0;
+            const run = tkn.parse() catch |e| {
+                switch (e) {
+                    TokenErr.OpenGroup => try tkn.consumec(b),
+                    TokenErr.ParseErr => {
+                        std.debug.print("Parse Error {}\n", .{e});
+                        try tkn.dump_parsed(true);
+                        try tkn.consumec(b);
+                    },
+                    else => return .ExpectedError,
+                }
+                return .Prompt;
+            };
+            try hsh.tty.print("\r\n", .{});
+            Draw.blank(&hsh.draw);
+            if (run) {
+                //try tkn.dump_parsed(false);
+                if (tkn.tokens.items.len > 0) {
+                    return .Exec;
+                }
+                return .Redraw;
+            }
+        },
+        else => |b| {
+            try hsh.tty.print("\n\n\runknown char    {} {}\n", .{ b, buffer });
+            return .None;
+        },
+    }
+    return .None;
+}
+
+fn core(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !bool {
     var buffer: [1]u8 = undefined;
     var prev: [1]u8 = undefined;
     defer hsh.draw.rel_offset = 0;
     defer hsh.draw.reset();
     defer Draw.blank(&hsh.draw);
-    var comp: *complete.CompSet = undefined;
     while (true) {
         hsh.draw.cursor = @truncate(u32, tkn.cadj());
         hsh.spin();
@@ -51,155 +228,11 @@ pub fn loop(hsh: *HSH, tkn: *Tokenizer) !bool {
         if (nbyte == 0) {
             continue;
         }
-
-        // I no longer like this way of tokenization. I'd like to generate
-        // Tokens as an n=2 state machine at time of keypress. It might actually
-        // be required to unbreak a bug in history.
-        switch (buffer[0]) {
-            '\x1B' => {
-                const to_reset = tkn.err_idx != 0;
-                tkn.err_idx = 0;
-                switch (try Keys.esc(hsh)) {
-                    .Unknown => if (!to_reset) try printAfter(&hsh.draw, "Unknown esc --", .{}),
-                    .Key => |a| {
-                        switch (a) {
-                            .Up => {
-                                if (tkn.hist_pos == 0) tkn.push_line();
-                                tkn.clear();
-                                const top = History.readAt(
-                                    tkn.hist_pos + 1,
-                                    hsh.history.?,
-                                    &tkn.raw,
-                                ) catch unreachable;
-                                if (!top) tkn.hist_pos += 1;
-                                tkn.push_hist();
-                            },
-                            .Down => {
-                                if (tkn.hist_pos > 1) {
-                                    tkn.hist_pos -= 1;
-                                    tkn.clear();
-                                    _ = History.readAt(
-                                        tkn.hist_pos,
-                                        hsh.history.?,
-                                        &tkn.raw,
-                                    ) catch unreachable;
-                                    tkn.push_hist();
-                                } else if (tkn.hist_pos == 1) {
-                                    tkn.hist_pos -= 1;
-                                    tkn.pop_line();
-                                } else {}
-                            },
-                            .Left => tkn.cinc(-1),
-                            .Right => tkn.cinc(1),
-                            .Home => tkn.cinc(-@intCast(isize, tkn.raw.items.len)),
-                            .End => tkn.cinc(@intCast(isize, tkn.raw.items.len)),
-                            else => {}, // unable to use range on Key :<
-                        }
-                    },
-                    .ModKey => |mk| {
-                        switch (mk.key) {
-                            .Left => {},
-                            .Right => {},
-                            else => {},
-                        }
-                    },
-                    .Mouse => {},
-                }
-            },
-            '\x07' => try hsh.tty.print("^bel\r\n", .{}),
-            '\x08' => try hsh.tty.print("\r\ninput: backspace\r\n", .{}),
-            '\x09' => |b| {
-                // Tab is best effort, it shouldn't be able to crash hsh
-                _ = tkn.parse() catch continue;
-                if (!tkn.tab()) {
-                    try tkn.consumec(b);
-                    continue;
-                }
-                const ctkn = tkn.cursor_token() catch continue;
-                var target: *const complete.CompOption = undefined;
-                if (b != prev[0]) {
-                    comp = try complete.complete(hsh, ctkn);
-                    if (comp.known()) {
-                        // original and single, complete now
-                        target = comp.first();
-                        try tkn.replaceToken(ctkn, target);
-                        continue;
-                    }
-                    //for (comp.list.items) |c| std.debug.print("comp {}\n", .{c});
-                } else {
-                    var l = comp.optList();
-                    defer l.clearAndFree();
-                    var siblings = ArrayList(Draw.Lexeme).init(hsh.alloc);
-                    defer siblings.clearAndFree();
-                    for (l.items, 0..) |e, i| {
-                        siblings.append(Draw.Lexeme{
-                            .char = e,
-                            .attr = if (i == comp.index) .Bold else .Reset,
-                        }) catch break;
-                        siblings.append(Draw.Lexeme{ .char = " " }) catch break;
-                    }
-                    // TODO draw warning after if unable to tab complete
-                    Draw.drawAfter(&hsh.draw, Draw.LexTree{
-                        .sibling = siblings.items,
-                    }) catch unreachable;
-                }
-
-                target = comp.next();
-                try tkn.replaceToken(ctkn, target);
-            },
-            '\x0E' => try hsh.tty.print("shift in\r\n", .{}),
-            '\x0F' => try hsh.tty.print("^shift out\r\n", .{}),
-            '\x12' => try hsh.tty.print("^R\r\n", .{}), // DC2
-            '\x13' => try hsh.tty.print("^S\r\n", .{}), // DC3
-            '\x14' => try hsh.tty.print("^T\r\n", .{}), // DC4
-            '\x1A' => try hsh.tty.print("^Z\r\n", .{}),
-            '\x17' => try tkn.popUntil(),
-            '\x20'...'\x7E' => |b| {
-                // Normal printable ascii
-                try tkn.consumec(b);
-            },
-            '\x7F' => try tkn.pop(), // backspace
-            '\x03' => {
-                try hsh.tty.print("^C\r\n", .{});
-                tkn.reset();
-                // if (tn.raw.items.len > 0) {
-                // } else {
-                //     return false;
-                //     try tty.print("\r\nExit caught... Bye ()\r\n", .{});
-                // }
-            },
-            '\x04' => |b| {
-                try hsh.tty.print("^D\r\n", .{});
-                try hsh.tty.print("\r\nExit caught... Bye ({})\r\n", .{b});
-                return false;
-            },
-            '\n', '\r' => |b| {
-                hsh.draw.cursor = 0;
-                const run = tkn.parse() catch |e| {
-                    switch (e) {
-                        TokenErr.OpenGroup => try tkn.consumec(b),
-                        TokenErr.ParseErr => {
-                            std.debug.print("Parse Error {}\n", .{e});
-                            try tkn.dump_parsed(true);
-                            try tkn.consumec(b);
-                        },
-                        else => continue,
-                    }
-                    continue;
-                };
-                try hsh.tty.print("\r\n", .{});
-                Draw.blank(&hsh.draw);
-                if (run) {
-                    //try tkn.dump_parsed(false);
-                    if (tkn.tokens.items.len > 0) {
-                        return true;
-                    }
-                    return false;
-                }
-            },
-            else => |b| {
-                try hsh.tty.print("\n\n\runknown char    {} {s}\n", .{ b, buffer });
-            },
+        const event = try input(hsh, tkn, buffer[0], prev[0], comp);
+        switch (event) {
+            .ExitHSH => return false,
+            .Exec => return true,
+            else => continue,
         }
     }
 }
@@ -215,7 +248,7 @@ pub fn main() !void {
     hsh.tkn = Tokenizer.init(a);
     defer hsh.tkn.raze();
 
-    _ = try complete.init(&hsh);
+    var comp: *complete.CompSet = try complete.init(&hsh);
 
     try Signals.init(hsh.alloc, &hsh.sig_queue);
 
@@ -234,7 +267,7 @@ pub fn main() !void {
     hsh.input = hsh.tty.tty;
 
     while (true) {
-        if (loop(&hsh, &hsh.tkn)) |l| {
+        if (core(&hsh, &hsh.tkn, comp)) |l| {
             if (l) {
                 _ = try hsh.history.?.seekFromEnd(0);
                 _ = try hsh.history.?.write(hsh.tkn.raw.items);
