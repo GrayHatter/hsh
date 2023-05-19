@@ -135,6 +135,8 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                                 if (fs == .Dir) {
                                     lex.*.fg = .Blue;
                                     lex.*.attr = if (i == comp.index) .ReverseBold else .Bold;
+                                } else {
+                                    lex.*.attr = if (i == comp.index) .Reverse else .Reset;
                                 }
                             },
                             else => lex.*.attr = if (i == comp.index) .Reverse else .Reset,
