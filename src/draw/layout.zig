@@ -4,9 +4,15 @@ const draw = @import("../draw.zig");
 const LexTree = draw.LexTree;
 const Lexeme = draw.Lexeme;
 
+const Error = error{
+    SizeTooLarge,
+    LayoutUnable,
+    Memory,
+};
+
 /// TODO unicode support when?
-pub fn countPrintable(buf: []const u8) usize {
-    var total: usize = 0;
+pub fn countPrintable(buf: []const u8) u16 {
+    var total: u16 = 0;
     var csi = false;
     for (buf) |b| {
         if (csi) {
@@ -27,51 +33,115 @@ pub fn countPrintable(buf: []const u8) usize {
     return total;
 }
 
+/// Adds a minimum of 1 whitespace
+fn countPrintableMany(bufs: []const []const u8) u32 {
+    var total: u32 = 0;
+    for (bufs) |buf| {
+        total += countPrintable(buf) + 1;
+    }
+    return total;
+}
+
 /// Returns the longest width + 1 to account for whitespace during layout
 fn maxWidth(items: []const []const u8) u32 {
     var max: u32 = 0;
     for (items) |item| {
-        var len = @truncate(u32, countPrintable(item));
+        var len: u32 = countPrintable(item);
         max = @max(max, len);
     }
     return max + 1;
 }
 
 /// Caller owns memory, strings **are** duplicated
-/// LexTree,
-/// LexTree.children.LexTree,
-/// LexTree.children.LexTree.sibling.Lexem,
-/// LexTree.children.LexTree.sibling.Lexem[..].char must all be free'd
-pub fn layoutGrid(a: Allocator, items: []const []const u8, w: u32) ![]LexTree {
-    var root = try a.alloc(LexTree, 1);
+/// *LexTree
+/// LexTree.sibling.Lexem,
+/// LexTree.sibling.Lexem[..].char must all be free'd
+pub fn layoutGrid(a: Allocator, items: []const []const u8, w: u32) Error![]LexTree {
     // errdefer
     const largest = maxWidth(items);
-    const cols: u32 = @max(w / largest, 1);
-    const rows: u32 = @truncate(u32, items.len) / cols + @as(u32, if (items.len % cols > 0) 1 else 0);
+    if (largest > w) return Error.SizeTooLarge;
 
-    var trees = try a.alloc(LexTree, rows);
-    var lexes = try a.alloc(Lexeme, items.len);
+    const cols: u32 = @max(w / largest, 1);
+    const remainder: u32 = if (items.len % cols > 0) 1 else 0;
+    const rows: u32 = @truncate(u32, items.len) / cols + remainder;
+
+    var trees = a.alloc(LexTree, rows) catch return Error.Memory;
+    var lexes = a.alloc(Lexeme, items.len) catch return Error.Memory;
     // errdefer
 
-    root[0] = LexTree{ .children = trees };
-
     for (0..rows) |row| {
-        root[0].children[row] = LexTree{
+        trees[row] = LexTree{
             .sibling = lexes[row * cols .. @min((row + 1) * cols, items.len)],
         };
         for (0..cols) |col| {
-            root[0].children[row].sibling[col] = Lexeme{
-                .char = try a.dupe(u8, items[row * cols + col]),
+            if (items.len <= cols * row + col) break;
+            trees[row].sibling[col] = Lexeme{
+                .char = a.dupe(u8, items[row * cols + col]) catch return Error.Memory,
             };
         }
     }
 
-    return root;
+    return trees;
 }
 
-/// caller owns the memory
-pub fn layoutTable(a: Allocator) !*LexTree {
-    return layoutGrid(a);
+fn sum(cs: []u16) u32 {
+    var total: u32 = 0;
+    for (cs) |c| total += c;
+    return total;
+}
+
+/// Caller owns memory, strings **are** duplicated
+/// *LexTree
+/// LexTree.sibling.Lexem,
+/// LexTree.sibling.Lexem[..].char must all be free'd
+/// items are not reordered
+pub fn layoutTable(a: Allocator, items: []const []const u8, w: u32) Error![]LexTree {
+    const largest = maxWidth(items);
+    if (largest > w) return Error.SizeTooLarge;
+    var cols_w: []u16 = a.alloc(u16, w / largest) catch return Error.Memory;
+    // not ideal but it's a reasonable start
+    defer a.free(cols_w);
+
+    var cols = items.len;
+    var rows: u32 = 0;
+
+    first: while (true) : (cols -= 1) {
+        if (countPrintableMany(items[0..cols]) > w) continue;
+        if (cols == 0) return Error.LayoutUnable;
+
+        cols_w = a.realloc(cols_w, cols) catch return Error.Memory;
+        @memset(cols_w, 0);
+        const remainder: u32 = if (items.len % cols > 0) 1 else 0;
+        rows = @truncate(u32, items.len / cols) + remainder;
+        for (0..rows) |row| {
+            const curr_len = @min(items.len, (row + 1) * cols);
+            const current = items[row * cols .. curr_len];
+            if (countPrintableMany(current) > w) continue :first;
+            for (0..cols) |c| {
+                if (c + row * cols > items.len) break;
+                cols_w[c] = @max(cols_w[c], countPrintable(current[c]) + 1);
+            }
+            if (sum(cols_w) > w) continue :first;
+        }
+        break;
+    }
+
+    var trees = a.alloc(LexTree, rows) catch return Error.Memory;
+    var lexes = a.alloc(Lexeme, items.len) catch return Error.Memory;
+    // errdefer
+
+    for (0..rows) |row| {
+        trees[row] = LexTree{
+            .sibling = lexes[row * cols .. @min((row + 1) * cols, items.len)],
+        };
+        for (0..cols) |col| {
+            trees[row].sibling[col] = Lexeme{
+                .char = a.dupe(u8, items[row * cols + col]) catch return Error.Memory,
+            };
+        }
+    }
+
+    return trees;
 }
 
 test "count printable" {
@@ -80,38 +150,82 @@ test "count printable" {
     ) == 7);
 }
 
-test "grid" {
-    var a = std.testing.allocator;
-    const strs = [_][]const u8{
-        "string",
-        "otherstring",
-        "blerg",
-        "bah",
-        "wut",
-        "wat",
-        "catastrophic ",
-        "backtracking",
-        "other",
-        "some short",
-        "some lng",
-        "\x1B[1m\x1B[0m\x1B[1mBLERG\x1B[0m\x1B[1m\x1B[0m",
-    };
+const strs12 = [_][]const u8{
+    "string",
+    "otherstring",
+    "blerg",
+    "bah",
+    "wut",
+    "wat",
+    "catastrophic ",
+    "backtracking",
+    "other",
+    "some short",
+    "some lng",
+    "\x1B[1m\x1B[0m\x1B[1mBLERG\x1B[0m\x1B[1m\x1B[0m",
+};
 
-    const rows = try layoutGrid(a, &strs, 60);
+const strs13 = strs12 ++ [_][]const u8{"extra4luck"};
+
+test "table" {
+    var a = std.testing.allocator;
+    const rows = try layoutTable(a, &strs12, 50);
     //std.debug.print("rows {any}\n", .{rows});
-    for (rows[0].children) |child| {
-        //std.debug.print("  row {any}\n", .{child});
-        for (child.sibling) |sib| {
+    for (rows) |row| {
+        //std.debug.print("  row {any}\n", .{row});
+        for (row.sibling) |sib| {
             //std.debug.print("    sib {s}\n", .{sib.char});
             a.free(sib.char);
         }
     }
 
-    try std.testing.expect(rows[0].children.len == 3);
-    try std.testing.expect(rows[0].children[0].sibling.len == 4);
+    try std.testing.expect(rows.len == 3);
+    try std.testing.expect(rows[0].sibling.len == 4);
 
     // I have my good ol' C pointers back... this is so nice :)
-    a.free(@ptrCast(*[strs.len]Lexeme, rows[0].children[0].sibling));
-    a.free(rows[0].children);
+    a.free(@ptrCast(*[strs12.len]Lexeme, rows[0].sibling));
+    a.free(rows);
+}
+
+test "grid 3*4" {
+    var a = std.testing.allocator;
+
+    const rows = try layoutGrid(a, &strs12, 50);
+    //std.debug.print("rows {any}\n", .{rows});
+    for (rows) |row| {
+        //std.debug.print("  row {any}\n", .{row});
+        for (row.sibling) |sib| {
+            //std.debug.print("    sib {s}\n", .{sib.char});
+            a.free(sib.char);
+        }
+    }
+
+    try std.testing.expect(rows.len == 4);
+    try std.testing.expect(rows[0].sibling.len == 3);
+    try std.testing.expect(rows[3].sibling.len == 3);
+
+    // I have my good ol' C pointers back... this is so nice :)
+    a.free(@ptrCast(*[strs12.len]Lexeme, rows[0].sibling));
+    a.free(rows);
+}
+
+test "grid 3*4 + 1" {
+    var a = std.testing.allocator;
+    const rows = try layoutGrid(a, &strs13, 50);
+    //std.debug.print("rows {any}\n", .{rows});
+    for (rows) |row| {
+        //std.debug.print("  row {any}\n", .{row});
+        for (row.sibling) |sib| {
+            //std.debug.print("    sib {s}\n", .{sib.char});
+            a.free(sib.char);
+        }
+    }
+
+    try std.testing.expectEqual(rows.len, 5);
+    try std.testing.expect(rows[0].sibling.len == 3);
+    try std.testing.expect(rows[4].sibling.len == 1);
+
+    // I have my good ol' C pointers back... this is so nice :)
+    a.free(@ptrCast(*[strs13.len]Lexeme, rows[0].sibling));
     a.free(rows);
 }
