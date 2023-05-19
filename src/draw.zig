@@ -5,6 +5,7 @@ const ArrayList = std.ArrayList;
 const hsh_ = @import("hsh.zig");
 const HSH = hsh_.HSH;
 const Features = hsh_.Features;
+const countPrintable = @import("draw/layout.zig").countPrintable;
 
 const DrawBuf = ArrayList(u8);
 
@@ -187,29 +188,6 @@ fn drawTrees(buf: *DrawBuf, x: usize, y: usize, tree: []LexTree) Err!void {
     for (tree) |t| {
         drawTree(buf, x, y, t) catch return Err.Memory;
     }
-}
-
-/// TODO unicode support when?
-fn countPrintable(buf: []const u8) usize {
-    var total: usize = 0;
-    var csi = false;
-    for (buf) |b| {
-        if (csi) {
-            switch (b) {
-                0x41...0x5A,
-                0x61...0x7A,
-                => csi = false,
-                else => continue,
-            }
-            continue;
-        }
-        switch (b) {
-            0x1B => csi = true,
-            0x20...0x7E => total += 1,
-            else => {}, // not implemented
-        }
-    }
-    return total;
 }
 
 fn countLines(buf: []const u8) u16 {
