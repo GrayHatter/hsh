@@ -74,7 +74,13 @@ pub fn layoutTable(a: Allocator) !*LexTree {
     return layoutGrid(a);
 }
 
-test {
+test "count printable" {
+    try std.testing.expect(countPrintable(
+        "\x1B[1m\x1B[0m\x1B[1m BLERG \x1B[0m\x1B[1m\x1B[0m\n",
+    ) == 7);
+}
+
+test "grid" {
     var a = std.testing.allocator;
     const strs = [_][]const u8{
         "string",
@@ -83,8 +89,12 @@ test {
         "bah",
         "wut",
         "wat",
-        "catastrophic backtracking",
+        "catastrophic ",
+        "backtracking",
         "other",
+        "some short",
+        "some lng",
+        "\x1B[1m\x1B[0m\x1B[1mBLERG\x1B[0m\x1B[1m\x1B[0m",
     };
 
     const rows = try layoutGrid(a, &strs, 60);
@@ -97,8 +107,8 @@ test {
         }
     }
 
-    try std.testing.expect(rows[0].children.len == 4);
-    try std.testing.expect(rows[0].children[0].sibling.len == 2);
+    try std.testing.expect(rows[0].children.len == 3);
+    try std.testing.expect(rows[0].children[0].sibling.len == 4);
 
     // I have my good ol' C pointers back... this is so nice :)
     a.free(@ptrCast(*[strs.len]Lexeme, rows[0].children[0].sibling));
