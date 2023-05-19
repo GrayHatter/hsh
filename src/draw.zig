@@ -35,6 +35,7 @@ pub const Attr = enum {
     Italic,
     Underline,
     Reverse,
+    ReverseBold, // Not in standard
     Strikeout,
 };
 
@@ -130,6 +131,8 @@ pub const Drawable = struct {
 fn setAttr(buf: *DrawBuf, attr: Attr) Err!void {
     switch (attr) {
         .Bold => buf.appendSlice("\x1B[1m") catch return Err.Memory,
+        .Reverse => buf.appendSlice("\x1B[7m") catch return Err.Memory,
+        .ReverseBold => buf.appendSlice("\x1B[1m\x1B[7m") catch return Err.Memory,
         else => buf.appendSlice("\x1B[0m") catch return Err.Memory,
     }
 }

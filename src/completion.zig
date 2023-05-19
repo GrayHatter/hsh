@@ -19,11 +19,39 @@ pub const CompKind = enum {
     FileSystem,
 };
 
+pub const FSKind = enum {
+    File,
+    Dir,
+    Link,
+    Pipe,
+    Device,
+    Socket,
+    Other,
+
+    pub fn fromFsKind(k: std.fs.IterableDir.Entry.Kind) FSKind {
+        return switch (k) {
+            .File => .File,
+            .Directory => .Dir,
+            .SymLink => .Link,
+            .NamedPipe => .Pipe,
+            .UnixDomainSocket => .Socket,
+            .BlockDevice, .CharacterDevice => .Device,
+            else => unreachable,
+        };
+    }
+};
+
+pub const CompKindE = union(CompKind) {
+    Unknown: u8,
+    Original: u8,
+    FileSystem: FSKind,
+};
+
 pub const CompOption = struct {
     full: []const u8,
     /// name is normally a simple subslice of full.
     name: []const u8,
-    kind: CompKind,
+    kind: CompKindE = CompKindE{ .Unknown = 0 },
     pub fn format(self: CompOption, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
         if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
         try std.fmt.format(out, "CompOption{{{s}, {s}}}", .{ self.full, @tagName(self.kind) });
@@ -85,38 +113,29 @@ pub const CompSet = struct {
 fn completeDir(cwdi: *IterableDir) !void {
     var itr = cwdi.iterate();
     while (try itr.next()) |each| {
-        switch (each.kind) {
-            .File, .Directory, .SymLink => {
-                const full = try compset.alloc.dupe(u8, each.name);
-                try compset.list.append(CompOption{
-                    .full = full,
-                    .name = full,
-                    .kind = .FileSystem,
-                });
+        const full = try compset.alloc.dupe(u8, each.name);
+        try compset.list.append(CompOption{
+            .full = full,
+            .name = full,
+            .kind = CompKindE{
+                .FileSystem = FSKind.fromFsKind(each.kind),
             },
-            else => unreachable,
-        }
+        });
     }
 }
 
 fn completeDirBase(cwdi: *IterableDir, base: []const u8) !void {
     var itr = cwdi.iterate();
     while (try itr.next()) |each| {
-        switch (each.kind) {
-            .File, .Directory => {
-                if (!std.mem.startsWith(u8, each.name, base)) continue;
-                var full = try compset.alloc.dupe(u8, each.name);
-                try compset.list.append(CompOption{
-                    .full = full,
-                    .name = full,
-                    .kind = .FileSystem,
-                });
+        if (!std.mem.startsWith(u8, each.name, base)) continue;
+        var full = try compset.alloc.dupe(u8, each.name);
+        try compset.list.append(CompOption{
+            .full = full,
+            .name = full,
+            .kind = CompKindE{
+                .FileSystem = FSKind.fromFsKind(each.kind),
             },
-            else => |typ| {
-                std.debug.print("completion error! {}\n", .{typ});
-                unreachable;
-            },
-        }
+        });
     }
 }
 
@@ -132,25 +151,19 @@ fn completePath(h: *HSH, target: []const u8) !void {
 
     var itr = dir.iterate();
     while (try itr.next()) |each| {
-        switch (each.kind) {
-            .File, .Directory => {
-                if (!std.mem.startsWith(u8, each.name, base)) continue;
-                var full = try compset.alloc.alloc(u8, path.len + each.name.len + 1);
-                var name = full[path.len + 1 ..];
-                @memcpy(full[0..path.len], path);
-                full[path.len] = '/';
-                @memcpy(name, each.name);
-                try compset.list.append(CompOption{
-                    .full = full,
-                    .name = name,
-                    .kind = .FileSystem,
-                });
+        if (!std.mem.startsWith(u8, each.name, base)) continue;
+        var full = try compset.alloc.alloc(u8, path.len + each.name.len + 1);
+        var name = full[path.len + 1 ..];
+        @memcpy(full[0..path.len], path);
+        full[path.len] = '/';
+        @memcpy(name, each.name);
+        try compset.list.append(CompOption{
+            .full = full,
+            .name = name,
+            .kind = CompKindE{
+                .FileSystem = FSKind.fromFsKind(each.kind),
             },
-            else => |typ| {
-                std.debug.print("completion error! {}\n", .{typ});
-                unreachable;
-            },
-        }
+        });
     }
 }
 
@@ -165,7 +178,7 @@ pub fn complete(hsh: *HSH, t: *const Token) !*CompSet {
     try compset.list.append(CompOption{
         .full = full,
         .name = full,
-        .kind = .Original,
+        .kind = CompKindE{ .Original = 0 },
     });
     switch (t.type) {
         .WhiteSpace => try completeDir(&hsh.fs.cwdi),

@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const draw = @import("../draw.zig");
 const LexTree = draw.LexTree;
 const Lexeme = draw.Lexeme;
+const dupePadded = @import("../mem.zig").dupePadded;
 
 const Error = error{
     SizeTooLarge,
@@ -76,7 +77,7 @@ pub fn layoutGrid(a: Allocator, items: []const []const u8, w: u32) Error![]LexTr
         for (0..cols) |col| {
             if (items.len <= cols * row + col) break;
             trees[row].sibling[col] = Lexeme{
-                .char = a.dupe(u8, items[row * cols + col]) catch return Error.Memory,
+                .char = dupePadded(a, items[row * cols + col], largest) catch return Error.Memory,
             };
         }
     }
@@ -118,7 +119,7 @@ pub fn layoutTable(a: Allocator, items: []const []const u8, w: u32) Error![]LexT
             const current = items[row * cols .. curr_len];
             if (countPrintableMany(current) > w) continue :first;
             for (0..cols) |c| {
-                if (c + row * cols > items.len) break;
+                if (c + row * cols >= items.len) break;
                 cols_w[c] = @max(cols_w[c], countPrintable(current[c]) + 1);
             }
             if (sum(cols_w) > w) continue :first;
@@ -126,6 +127,7 @@ pub fn layoutTable(a: Allocator, items: []const []const u8, w: u32) Error![]LexT
         break;
     }
 
+    if (rows == 1) @memset(cols_w, @truncate(u16, largest));
     var trees = a.alloc(LexTree, rows) catch return Error.Memory;
     var lexes = a.alloc(Lexeme, items.len) catch return Error.Memory;
     // errdefer
@@ -135,8 +137,9 @@ pub fn layoutTable(a: Allocator, items: []const []const u8, w: u32) Error![]LexT
             .sibling = lexes[row * cols .. @min((row + 1) * cols, items.len)],
         };
         for (0..cols) |col| {
+            if (col + row * cols >= items.len) break;
             trees[row].sibling[col] = Lexeme{
-                .char = a.dupe(u8, items[row * cols + col]) catch return Error.Memory,
+                .char = dupePadded(a, items[row * cols + col], cols_w[col]) catch return Error.Memory,
             };
         }
     }

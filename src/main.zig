@@ -23,6 +23,7 @@ const Exec = @import("exec.zig");
 const exec = Exec.exec;
 const Signals = @import("signals.zig");
 const History = @import("history.zig");
+const layoutTable = @import("draw/layout.zig").layoutTable;
 
 test "main" {
     std.testing.refAllDecls(@This());
@@ -122,25 +123,35 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
             } else {
                 var l = comp.optList();
                 defer l.clearAndFree();
-                var siblings = ArrayList(Draw.Lexeme).init(hsh.alloc);
-                defer siblings.clearAndFree();
-                for (l.items, 0..) |e, i| {
-                    siblings.append(Draw.Lexeme{
-                        .char = e,
-                        .attr = if (i == comp.index) .Bold else .Reset,
-                    }) catch break;
-                    siblings.append(Draw.Lexeme{ .char = " " }) catch break;
-                }
+                var table = try layoutTable(hsh.alloc, l.items, @intCast(u32, hsh.draw.term_size.x));
                 // TODO draw warning after if unable to tab complete
-                Draw.drawAfter(&hsh.draw, Draw.LexTree{
-                    .sibling = siblings.items,
-                }) catch unreachable;
+                defer hsh.alloc.free(table);
+                defer hsh.alloc.free(@ptrCast([]Draw.Lexeme, table[0].sibling));
+                for (table, 0..) |r, ri| {
+                    for (r.sibling, 0..) |*lex, li| {
+                        const i = ri * table[0].sibling.len + li;
+                        switch (comp.list.items[i].kind) {
+                            .FileSystem => |fs| {
+                                if (fs == .Dir) {
+                                    lex.*.fg = .Blue;
+                                    lex.*.attr = if (i == comp.index) .ReverseBold else .Bold;
+                                }
+                            },
+                            else => lex.*.attr = if (i == comp.index) .Reverse else .Reset,
+                        }
+                    }
+                    Draw.drawAfter(&hsh.draw, r) catch unreachable;
+                    for (r.sibling) |s| {
+                        hsh.alloc.free(s.char);
+                    }
+                }
             }
 
             target = comp.next();
             try tkn.replaceToken(ctkn, target);
             return .Prompt;
         },
+        '\x0C' => try hsh.tty.print("^L (reset term)\x1B[J\n", .{}),
         '\x0E' => try hsh.tty.print("shift in\r\n", .{}),
         '\x0F' => try hsh.tty.print("^shift out\r\n", .{}),
         '\x12' => try hsh.tty.print("^R\r\n", .{}), // DC2
