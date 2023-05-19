@@ -152,6 +152,8 @@ fn completePath(h: *HSH, target: []const u8) !void {
     var itr = dir.iterate();
     while (try itr.next()) |each| {
         if (!std.mem.startsWith(u8, each.name, base)) continue;
+        if (each.name[0] == '.' and (base.len == 0 or base[0] != '.')) continue;
+
         var full = try compset.alloc.alloc(u8, path.len + each.name.len + 1);
         var name = full[path.len + 1 ..];
         @memcpy(full[0..path.len], path);

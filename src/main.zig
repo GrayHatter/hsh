@@ -52,7 +52,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
             const to_reset = tkn.err_idx != 0;
             tkn.err_idx = 0;
             switch (try Keys.esc(hsh)) {
-                .Unknown => if (!to_reset) try printAfter(&hsh.draw, "Unknown esc --", .{}),
+                .Unknown => if (!to_reset) try printAfter(&hsh.draw, "Unknown esc --\x1B[J", .{}),
                 .Key => |a| {
                     switch (a) {
                         .Up => {

@@ -10,6 +10,7 @@ const Builtins = @import("builtins.zig");
 const CompOption = @import("completion.zig").CompOption;
 
 const breaking_tokens = " \t\"'`${|><#;:!";
+
 pub const TokenType = enum(u8) {
     WhiteSpace,
     String,
@@ -176,9 +177,8 @@ pub const Tokenizer = struct {
         }
     }
 
-    fn parseAction(self: *Tokenizer, token: *Token) Error!*Token {
+    fn parseAction(_: *Tokenizer, token: *Token) Error!*Token {
         if (Builtins.exists(token.raw)) return parseBuiltin(token);
-        _ = try token.upgrade(self.alloc);
         return token;
     }
 
@@ -197,7 +197,7 @@ pub const Tokenizer = struct {
                 else => Tokenizer.string(src[start..]),
             } catch |err| {
                 if (err == Error.InvalidSrc) {
-                    if (std.mem.indexOfAny(u8, src[start..], "\"'q(")) |_| return Error.OpenGroup;
+                    if (std.mem.indexOfAny(u8, src[start..], "\"'(")) |_| return Error.OpenGroup;
                     self.err_idx = start;
                 }
                 return err;
@@ -312,7 +312,17 @@ pub const Tokenizer = struct {
         if (old.type != .WhiteSpace) try self.popRange(old.raw.len);
         if (new.kind == .Original and mem.eql(u8, new.full, " ")) return;
 
-        for (new.full) |c| try self.consumec(c);
+        if (mem.indexOfAny(u8, new.full, breaking_tokens)) |_| {} else {
+            for (new.full) |s| try self.consumec(s);
+            return;
+        }
+        if (mem.indexOf(u8, new.full, "'")) |_| {} else {
+            try self.consumec('\'');
+            for (new.full) |c| try self.consumec(c);
+            try self.consumec('\'');
+            return;
+        }
+        return Error.InvalidSrc;
     }
 
     // this clearly needs a bit more love
@@ -613,4 +623,41 @@ test "tokenize path" {
     try expectEql(t.tokens.items.len, 3);
     try expect(t.tokens.items[2].type == TokenType.Path);
     try expect(eql(u8, t.tokens.items[2].raw, "/home/user/something"));
+}
+
+test "replace token" {
+    var t = Tokenizer.init(std.testing.allocator);
+    defer t.reset();
+    try expect(std.mem.eql(u8, t.raw.items, ""));
+
+    try t.consumes("one two three");
+    _ = try t.parse();
+    try expect(t.tokens.items.len == 5);
+
+    try expect(eql(u8, t.tokens.items[2].cannon(), "two"));
+
+    try t.replaceToken(&t.tokens.items[2], &CompOption{
+        .full = "TWO",
+        .name = "TWO",
+    });
+    _ = try t.parse();
+
+    try expect(t.tokens.items.len == 5);
+    try expect(eql(u8, t.tokens.items[2].cannon(), "TWO"));
+    try expect(eql(u8, t.raw.items, "one TWO three"));
+
+    try t.replaceToken(&t.tokens.items[2], &CompOption{
+        .full = "TWO THREE",
+        .name = "TWO THREE",
+    });
+    _ = try t.parse();
+
+    for (t.tokens.items) |tkn| {
+        _ = tkn;
+        //std.debug.print("--- {}\n", .{tkn});
+    }
+
+    try expect(t.tokens.items.len == 5);
+    try expect(eql(u8, t.tokens.items[2].cannon(), "TWO THREE"));
+    try expect(eql(u8, t.raw.items, "one 'TWO THREE' three"));
 }
