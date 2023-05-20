@@ -1,8 +1,7 @@
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
-const File = fs.File;
+const File = std.fs.File;
 const Reader = io.Reader(File, File.ReadError, File.read);
-const fs = std.fs;
 const io = std.io;
 const mem = std.mem;
 const std = @import("std");
@@ -256,16 +255,33 @@ pub const Tokenizer = struct {
         if (old.type != .WhiteSpace) try self.popRange(old.raw.len);
         if (new.kind == .Original and mem.eql(u8, new.full, " ")) return;
 
-        if (mem.indexOfAny(u8, new.full, breaking_tokens)) |_| {} else {
-            for (new.full) |s| try self.consumec(s);
+        try self.consumeSafeish(new.full);
+
+        switch (new.kind) {
+            .Original => {
+                if (mem.eql(u8, new.full, " ")) return;
+            },
+            .FileSystem => |fs| {
+                if (fs == .Dir) {
+                    try self.consumec('/');
+                }
+            },
+            else => {},
+        }
+    }
+
+    fn consumeSafeish(self: *Tokenizer, str: []const u8) Error!void {
+        if (mem.indexOfAny(u8, str, breaking_tokens)) |_| {} else {
+            for (str) |s| try self.consumec(s);
             return;
         }
-        if (mem.indexOf(u8, new.full, "'")) |_| {} else {
+        if (mem.indexOf(u8, str, "'")) |_| {} else {
             try self.consumec('\'');
-            for (new.full) |c| try self.consumec(c);
+            for (str) |c| try self.consumec(c);
             try self.consumec('\'');
             return;
         }
+
         return Error.InvalidSrc;
     }
 
