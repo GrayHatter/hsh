@@ -6,7 +6,7 @@ const Tokens = @import("tokenizer.zig");
 const Allocator = mem.Allocator;
 const Tokenizer = Tokens.Tokenizer;
 const ArrayList = std.ArrayList;
-const TokenType = @import("tokenizer.zig").TokenType;
+const TokenKind = @import("tokenizer.zig").TokenKind;
 const mem = std.mem;
 const fd_t = std.os.fd_t;
 
@@ -202,7 +202,7 @@ test "c memory" {
     for ("ls -la") |c| {
         try tkn.consumec(c);
     }
-    _ = try tkn.parse();
+    _ = try tkn.tokenize();
 
     var argv: [:null]?[*:0]u8 = undefined;
     var list = ArrayList(?[*:0]u8).init(a);

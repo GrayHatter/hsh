@@ -81,6 +81,7 @@ pub const Drawable = struct {
     hsh: *HSH,
     cursor: u32 = 0,
     cursor_reposition: bool = true,
+    dirty: bool = false,
     before: DrawBuf = undefined,
     b: DrawBuf = undefined,
     right: DrawBuf = undefined,
@@ -221,6 +222,7 @@ pub fn draw(d: *Drawable, tree: LexTree) !void {
 /// provide the context, expecting not to know about, or touch the final user
 /// input line
 pub fn render(d: *Drawable) Err!void {
+    defer d.dirty = false;
     _ = try d.write("\r");
     if (d.rel_offset > 0)
         _ = try d.write(d.move(.Up, @truncate(u16, d.rel_offset)));

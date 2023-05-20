@@ -4,7 +4,7 @@ const TTY = TTY_.TTY;
 const TTY_ = @import("tty.zig");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const TokenErr = @import("tokenizer.zig").Error;
-const TokenType = @import("tokenizer.zig").TokenType;
+const TokenKind = @import("tokenizer.zig").TokenKind;
 const mem = std.mem;
 const os = std.os;
 const std = @import("std");
@@ -103,13 +103,13 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
         '\x08' => try hsh.tty.print("\r\ninput: backspace\r\n", .{}),
         '\x09' => |b| { // \t
             // Tab is best effort, it shouldn't be able to crash hsh
-            _ = tkn.parse() catch {};
+            _ = tkn.tokenize() catch {};
             if (!tkn.tab()) {
                 try tkn.consumec(b);
                 return .Prompt;
             }
             const ctkn = tkn.cursor_token() catch unreachable;
-            // Should be unreachable given parse() above
+            // Should be unreachable given tokenize() above
             var target: *const complete.CompOption = undefined;
             if (b != prev) {
                 comp = try complete.complete(hsh, ctkn);
@@ -194,12 +194,12 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
         },
         '\n', '\r' => |b| {
             hsh.draw.cursor = 0;
-            const run = tkn.parse() catch |e| {
+            const run = tkn.tokenize() catch |e| {
                 switch (e) {
                     TokenErr.OpenGroup => try tkn.consumec(b),
-                    TokenErr.ParseErr => {
-                        std.debug.print("Parse Error {}\n", .{e});
-                        try tkn.dump_parsed(true);
+                    TokenErr.TokenizeFailed => {
+                        std.debug.print("tokenize Error {}\n", .{e});
+                        try tkn.dump_tokens(true);
                         try tkn.consumec(b);
                     },
                     else => return .ExpectedError,
@@ -209,7 +209,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
             try hsh.tty.print("\r\n", .{});
             Draw.blank(&hsh.draw);
             if (run) {
-                //try tkn.dump_parsed(false);
+                //try tkn.dump_tokens(false);
                 if (tkn.tokens.items.len > 0) {
                     return .Exec;
                 }
@@ -291,7 +291,7 @@ pub fn main() !void {
                 _ = try hsh.history.?.write(hsh.tkn.raw.items);
                 _ = try hsh.history.?.write("\n");
                 try hsh.history.?.sync();
-                if (!(hsh.tkn.parse() catch continue)) continue;
+                if (!(hsh.tkn.tokenize() catch continue)) continue;
 
                 switch (hsh.tkn.tokens.items[0].type) {
                     .String => {
