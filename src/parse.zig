@@ -18,31 +18,19 @@ pub const Error = error{
 pub const Parser = struct {
     alloc: Allocator,
 
-    pub fn init(a: Allocator) Parser {
-        return Parser{
-            .alloc = a,
-            .raw = ArrayList(u8).init(a),
-            .tokens = ArrayList(Token).init(a),
-        };
-    }
+    pub fn parse(a: *Allocator, tokens: []Token) Error!bool {
+        if (tokens.len == 0) return false;
 
-    pub fn raze(_: *Parser) void {
-        //p.reset();
-    }
-
-    pub fn parse(p: *Parser) Error!bool {
-        if (p.tokens.items.len == 0) return false;
-
-        for (p.tokens.items) |*t| {
-            _ = p.parseToken(t) catch unreachable;
+        for (tokens) |*tk| {
+            _ = parseToken(a, tk) catch unreachable;
         }
 
-        _ = try p.parseAction(&p.tokens.items[0]);
+        _ = try parseAction(&tokens[0]);
 
         return true;
     }
 
-    fn parseToken(p: *Parser, token: *Token) Error!*Token {
+    fn parseToken(a: *Allocator, token: *Token) Error!*Token {
         if (token.raw.len == 0) return token;
 
         switch (token.type) {
@@ -50,7 +38,7 @@ pub const Parser = struct {
                 var needle = [2]u8{ '\\', token.subtoken };
                 if (mem.indexOfScalar(u8, token.raw, '\\')) |_| {} else return token;
 
-                _ = try token.upgrade(p.alloc);
+                _ = token.upgrade(a) catch return Error.Unknown;
                 var i: usize = 0;
                 const backing = &token.backing.?;
                 while (i + 1 < backing.items.len) : (i += 1) {
@@ -77,7 +65,9 @@ pub const Parser = struct {
         }
     }
 
-    fn parseAction(_: *Tokenizer, token: *Token) Error!*Token {
+    fn resolve() void {}
+
+    fn parseAction(token: *Token) Error!*Token {
         if (Builtins.exists(token.raw)) return parseBuiltin(token);
         return token;
     }

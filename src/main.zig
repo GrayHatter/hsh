@@ -5,6 +5,8 @@ const TTY_ = @import("tty.zig");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const TokenErr = @import("tokenizer.zig").Error;
 const TokenKind = @import("tokenizer.zig").TokenKind;
+const parser = @import("parse.zig");
+const Parser = parser.Parser;
 const mem = std.mem;
 const os = std.os;
 const std = @import("std");
@@ -30,16 +32,16 @@ test "main" {
 }
 
 const Event = enum(u8) {
-    None = 0,
-    Update = 1,
-    EnvState = 2,
-    Prompt = 4,
-    Advice = 8,
-    Redraw = 14,
-    Exec = 16,
+    None,
+    Update,
+    EnvState,
+    Prompt,
+    Advice,
+    Redraw,
+    Exec,
     // ...
-    ExitHSH = 254,
-    ExpectedError = 255,
+    ExitHSH,
+    ExpectedError,
 };
 
 fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.CompSet) !Event {
@@ -103,7 +105,9 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
         '\x08' => try hsh.tty.print("\r\ninput: backspace\r\n", .{}),
         '\x09' => |b| { // \t
             // Tab is best effort, it shouldn't be able to crash hsh
-            _ = tkn.tokenize() catch {};
+            var tkns = tkn.tokenize() catch return .Prompt;
+            if (!(Parser.parse(&tkn.alloc, tkns) catch unreachable)) return .Prompt;
+
             if (!tkn.tab()) {
                 try tkn.consumec(b);
                 return .Prompt;
@@ -151,19 +155,26 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
 
             target = comp.next();
             try tkn.replaceToken(ctkn, target);
-            return .Prompt;
+            return .Redraw;
         },
-        '\x0C' => try hsh.tty.print("^L (reset term)\x1B[J\n", .{}),
+        '\x0C' => {
+            try hsh.tty.print("^L (reset term)\x1B[J\n", .{});
+            return .Redraw;
+        },
         '\x0E' => try hsh.tty.print("shift in\r\n", .{}),
         '\x0F' => try hsh.tty.print("^shift out\r\n", .{}),
         '\x12' => try hsh.tty.print("^R\r\n", .{}), // DC2
         '\x13' => try hsh.tty.print("^S\r\n", .{}), // DC3
         '\x14' => try hsh.tty.print("^T\r\n", .{}), // DC4
         '\x1A' => try hsh.tty.print("^Z\r\n", .{}),
-        '\x17' => try tkn.popUntil(), // ^w
+        '\x17' => { // ^w
+            try tkn.popUntil();
+            return .Redraw;
+        },
         '\x20'...'\x7E' => |b| { // Normal printable ascii
             try tkn.consumec(b);
-            return .Prompt;
+            try hsh.tty.print("{c}", .{b});
+            return .None;
         },
         '\x7F' => { // backspace
             tkn.pop() catch |err| {
@@ -194,7 +205,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
         },
         '\n', '\r' => |b| {
             hsh.draw.cursor = 0;
-            const run = tkn.tokenize() catch |e| {
+            const tkns = tkn.tokenize() catch |e| {
                 switch (e) {
                     TokenErr.OpenGroup => try tkn.consumec(b),
                     TokenErr.TokenizeFailed => {
@@ -206,6 +217,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                 }
                 return .Prompt;
             };
+            var run = try Parser.parse(&tkn.alloc, tkns);
             try hsh.tty.print("\r\n", .{});
             Draw.blank(&hsh.draw);
             if (run) {
@@ -215,6 +227,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                 }
                 return .Redraw;
             }
+            return .Redraw;
         },
         else => |b| {
             try hsh.tty.print("\n\n\runknown char    {} {}\n", .{ b, buffer });
@@ -230,15 +243,21 @@ fn core(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !bool {
     defer hsh.draw.rel_offset = 0;
     defer hsh.draw.reset();
     defer Draw.blank(&hsh.draw);
+
+    var redraw = true;
     while (true) {
         hsh.draw.cursor = @truncate(u32, tkn.cadj());
         hsh.spin();
         var jobs = hsh.getBgJobs() catch unreachable;
         defer jobs.clearAndFree();
-        try jobsContext(hsh, jobs.items);
-        try prompt(hsh, tkn);
-        try Draw.render(&hsh.draw);
-        hsh.draw.reset();
+        if (redraw) {
+            Draw.blank(&hsh.draw);
+            try jobsContext(hsh, jobs.items);
+            try prompt(hsh, tkn);
+            try Draw.render(&hsh.draw);
+            hsh.draw.reset();
+            redraw = false;
+        }
 
         // REALLY WISH I COULD BUILD ZIG, ARCH LINUX!!!
         @memcpy(&prev, &buffer);
@@ -248,9 +267,13 @@ fn core(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !bool {
         }
         const event = try input(hsh, tkn, buffer[0], prev[0], comp);
         switch (event) {
+            .None => continue,
             .ExitHSH => return false,
             .Exec => return true,
-            else => continue,
+            else => {
+                redraw = true;
+                continue;
+            },
         }
     }
 }
@@ -291,7 +314,7 @@ pub fn main() !void {
                 _ = try hsh.history.?.write(hsh.tkn.raw.items);
                 _ = try hsh.history.?.write("\n");
                 try hsh.history.?.sync();
-                if (!(hsh.tkn.tokenize() catch continue)) continue;
+                if ((hsh.tkn.tokenize() catch continue).len == 0) continue;
 
                 switch (hsh.tkn.tokens.items[0].type) {
                     .String => {

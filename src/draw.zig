@@ -271,7 +271,10 @@ pub fn render(d: *Drawable) Err!void {
 }
 
 pub fn blank(d: *Drawable) void {
-    if (d.rel_offset == 0) return;
+    if (d.rel_offset == 0) {
+        _ = d.write("\x1B[J") catch {};
+        return;
+    }
     _ = d.write(d.move(.Up, d.rel_offset)) catch {};
     _ = d.write("\r\x1B[J") catch {};
     _ = d.write(d.move(.Up, d.rel_offset)) catch {};

@@ -57,10 +57,10 @@ pub const Token = struct {
 
     // Don't upgrade raw, it must "always" point to the user prompt
     // string[citation needed]
-    pub fn upgrade(self: *Token, a: Allocator) ![]u8 {
+    pub fn upgrade(self: *Token, a: *Allocator) Error![]u8 {
         if (self.*.backing) |_| return self.*.backing.?.items;
 
-        var backing = ArrayList(u8).init(a);
+        var backing = ArrayList(u8).init(a.*);
         backing.appendSlice(self.*.cannon()) catch return Error.Memory;
         self.*.backing = backing;
         return self.*.backing.?.items;
@@ -128,7 +128,10 @@ pub const Tokenizer = struct {
         return self.raw.items.len - self.c_idx;
     }
 
-    pub fn tokenize(self: *Tokenizer) Error!bool {
+    /// Return a slice of the current tokens;
+    /// Tokenizer owns memory, and makes no guarantee it'll be valid by the time
+    /// it's used.
+    pub fn tokenize(self: *Tokenizer) Error![]Token {
         self.tokens.clearAndFree();
         var start: usize = 0;
         const src = self.raw.items;
@@ -156,7 +159,8 @@ pub const Tokenizer = struct {
             start += token.raw.len;
         }
         self.err_idx = 0;
-        return self.err_idx == 0;
+        if (self.err_idx != 0) return Error.TokenizeFailed;
+        return self.tokens.items;
     }
 
     fn string(src: []const u8) Error!Token {
@@ -233,8 +237,7 @@ pub const Tokenizer = struct {
         }
     }
 
-    pub fn tab(self: *Tokenizer) bool {
-        _ = self.tokenize() catch {};
+    pub fn tab(self: *const Tokenizer) bool {
         if (self.tokens.items.len > 0) {
             return true;
         }
