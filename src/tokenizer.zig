@@ -17,6 +17,7 @@ pub const TokenKind = enum(u8) {
     IoRedir,
     Path,
     Var,
+    Aliased,
     Command, // custom string that alters hsh in some way
     Tree, // Should this token be a separate type?
 };

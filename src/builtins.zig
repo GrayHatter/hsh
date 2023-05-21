@@ -1,6 +1,7 @@
 const std = @import("std");
 const Token = @import("tokenizer.zig").Token;
 const HSH = @import("hsh.zig").HSH;
+const alias = @import("builtins/alias.zig").alias;
 
 var Self = @This();
 
@@ -62,8 +63,6 @@ pub fn exists(str: []const u8) bool {
     }
     return false;
 }
-
-fn alias(_: *HSH, _: []const Token) Err!void {}
 
 fn bg(hsh: *HSH, _: []const Token) Err!void {
     hsh.tty.print("bg not yet implemented\n", .{}) catch return Err.Unknown;

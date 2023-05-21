@@ -314,8 +314,13 @@ pub fn main() !void {
                 _ = try hsh.history.?.write(hsh.tkn.raw.items);
                 _ = try hsh.history.?.write("\n");
                 try hsh.history.?.sync();
-                if ((hsh.tkn.tokenize() catch continue).len == 0) continue;
-
+                var tokens = hsh.tkn.tokenize() catch continue;
+                if (tokens.len == 0) continue;
+                if (Parser.parse(&hsh.tkn.alloc, tokens)) |s| {
+                    if (!s) continue;
+                } else |_| {
+                    continue;
+                }
                 switch (hsh.tkn.tokens.items[0].type) {
                     .String => {
                         if (!Exec.executable(&hsh, hsh.tkn.tokens.items[0].cannon())) {
@@ -344,6 +349,7 @@ pub fn main() !void {
                         jobs.clearAndFree();
                     },
                     .Builtin => {
+                        hsh.draw.reset();
                         const bi_func = Builtins.strExec(hsh.tkn.tokens.items[0].cannon());
                         bi_func(&hsh, hsh.tkn.tokens.items) catch |err| {
                             std.debug.print("builtin error {}\n", .{err});
