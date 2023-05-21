@@ -1,6 +1,7 @@
 const std = @import("std");
 const Token = @import("tokenizer.zig").Token;
 const HSH = @import("hsh.zig").HSH;
+const jobs_ = @import("jobs.zig");
 const alias = @import("builtins/alias.zig").alias;
 
 var Self = @This();
@@ -130,7 +131,7 @@ fn fg(hsh: *HSH, _: []const Token) Err!void {
     }
     if (paused == 1) {
         hsh.tty.print("Restarting job\n", .{}) catch {};
-        hsh.contNextJob(true) catch unreachable;
+        jobs_.contNext(hsh, true) catch unreachable;
         return;
     }
 

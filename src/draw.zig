@@ -81,13 +81,12 @@ pub const Drawable = struct {
     hsh: *HSH,
     cursor: u32 = 0,
     cursor_reposition: bool = true,
-    dirty: bool = false,
     before: DrawBuf = undefined,
     b: DrawBuf = undefined,
     right: DrawBuf = undefined,
     after: DrawBuf = undefined,
     term_size: Cord = .{},
-    rel_offset: u16 = 0,
+    lines: u16 = 0,
 
     pub fn init(hsh: *HSH) Err!Drawable {
         colorize = hsh.enabled(Features.Colorize);
@@ -119,11 +118,16 @@ pub const Drawable = struct {
         return std.fmt.bufPrint(&movebuf, fmt, .{count}) catch return &movebuf; // #YOLO
     }
 
-    pub fn reset(d: *Drawable) void {
+    pub fn clear(d: *Drawable) void {
         d.before.clearAndFree();
         d.after.clearAndFree();
         d.right.clearAndFree();
         d.b.clearAndFree();
+    }
+
+    pub fn reset(d: *Drawable) void {
+        d.clear();
+        d.lines = 0;
     }
 
     pub fn raze(_: *Drawable) void {}
@@ -199,7 +203,6 @@ fn countLines(buf: []const u8) u16 {
 }
 
 pub fn drawBefore(d: *Drawable, t: LexTree) !void {
-    try d.before.append('\r');
     try drawTree(&d.before, 0, 0, t);
     try d.before.appendSlice("\x1B[K");
 }
@@ -222,11 +225,9 @@ pub fn draw(d: *Drawable, tree: LexTree) !void {
 /// provide the context, expecting not to know about, or touch the final user
 /// input line
 pub fn render(d: *Drawable) Err!void {
-    defer d.dirty = false;
     _ = try d.write("\r");
-    if (d.rel_offset > 0)
-        _ = try d.write(d.move(.Up, @truncate(u16, d.rel_offset)));
-    //d.b.appendSlice(d.move(.Up, d.rel_offset)) catch return Err.Memory;
+    _ = try d.write(d.move(.Up, d.lines));
+    d.lines = 0;
     var cntx: usize = 0;
     // TODO vert position
     if (d.cursor_reposition) {
@@ -236,13 +237,11 @@ pub fn render(d: *Drawable) Err!void {
         }
     }
 
-    var before_lines: u16 = 0;
     if (d.before.items.len > 0) {
-        d.before.append('\n') catch return Err.Memory;
         cntx += try d.write(d.before.items);
-        before_lines += countLines(d.before.items);
+        _ = try d.write("\n");
+        d.lines += 1 + countLines(d.before.items);
     }
-    //defer d.before.appendSlice(d.move(.Up, before_lines)) catch {};
 
     if (d.after.items.len > 0) {
         cntx += try d.write(d.after.items);
@@ -265,21 +264,14 @@ pub fn render(d: *Drawable) Err!void {
     _ = try d.write("\r");
     _ = try d.write(d.b.items);
     // TODO save backtrack line count?
-    const prompt_lines = countLines(d.b.items);
-
-    d.rel_offset = before_lines + prompt_lines;
+    d.lines += countLines(d.b.items);
 }
 
-pub fn blank(d: *Drawable) void {
-    if (d.rel_offset == 0) {
-        _ = d.write("\x1B[J") catch {};
-        return;
-    }
-    _ = d.write(d.move(.Up, d.rel_offset)) catch {};
+pub fn clearCtx(d: *Drawable) void {
+    _ = d.write(d.move(.Up, d.lines)) catch {};
     _ = d.write("\r\x1B[J") catch {};
-    _ = d.write(d.move(.Up, d.rel_offset)) catch {};
     _ = d.write(d.b.items) catch {};
-    _ = d.write("\n") catch {};
+    d.lines = countLines(d.b.items);
 }
 
 /// Any context before the prompt line should be cleared and replaced with the

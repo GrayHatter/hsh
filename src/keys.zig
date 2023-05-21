@@ -144,7 +144,10 @@ fn csi_xterm(buffer: []const u8) KeyPress {
             } else unreachable;
             return KeyPress.Unknown;
         },
-        else => unreachable,
+        else => |unk| {
+            std.debug.print("\n\n{c}\n\n", .{unk});
+            unreachable;
+        },
     }
 }
 

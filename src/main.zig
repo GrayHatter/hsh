@@ -26,6 +26,7 @@ const exec = Exec.exec;
 const Signals = @import("signals.zig");
 const History = @import("history.zig");
 const layoutTable = @import("draw/layout.zig").layoutTable;
+const jobs = @import("jobs.zig");
 
 test "main" {
     std.testing.refAllDecls(@This());
@@ -97,7 +98,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                         else => {},
                     }
                 },
-                .Mouse => {},
+                .Mouse => return .None,
             }
             return .Redraw;
         },
@@ -184,7 +185,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
             return .Prompt;
         },
         '\x03' => {
-            try hsh.tty.print("^C\r\n", .{});
+            try hsh.tty.print("^C\n\n", .{});
             tkn.reset();
             return .Prompt;
             // if (tn.raw.items.len > 0) {
@@ -207,6 +208,10 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
             hsh.draw.cursor = 0;
             const tkns = tkn.tokenize() catch |e| {
                 switch (e) {
+                    TokenErr.Empty => {
+                        try hsh.tty.print("\n", .{});
+                        return .None;
+                    },
                     TokenErr.OpenGroup => try tkn.consumec(b),
                     TokenErr.TokenizeFailed => {
                         std.debug.print("tokenize Error {}\n", .{e});
@@ -218,13 +223,10 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                 return .Prompt;
             };
             var run = try Parser.parse(&tkn.alloc, tkns);
-            try hsh.tty.print("\r\n", .{});
-            Draw.blank(&hsh.draw);
+            //Draw.clearCtx(&hsh.draw);
             if (run) {
                 //try tkn.dump_tokens(false);
-                if (tkn.tokens.items.len > 0) {
-                    return .Exec;
-                }
+                if (tkn.tokens.items.len > 0) return .Exec;
                 return .Redraw;
             }
             return .Redraw;
@@ -238,26 +240,23 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
 }
 
 fn core(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !bool {
+    defer hsh.tty.print("\n", .{}) catch {};
+    defer hsh.draw.reset();
     var buffer: [1]u8 = undefined;
     var prev: [1]u8 = undefined;
-    defer hsh.draw.rel_offset = 0;
-    defer hsh.draw.reset();
-    defer Draw.blank(&hsh.draw);
 
-    var redraw = true;
     while (true) {
         hsh.draw.cursor = @truncate(u32, tkn.cadj());
         hsh.spin();
-        var jobs = hsh.getBgJobs() catch unreachable;
-        defer jobs.clearAndFree();
-        if (redraw) {
-            Draw.blank(&hsh.draw);
-            try jobsContext(hsh, jobs.items);
-            try prompt(hsh, tkn);
-            try Draw.render(&hsh.draw);
-            hsh.draw.reset();
-            redraw = false;
-        }
+
+        //Draw.clearCtx(&hsh.draw);
+
+        hsh.draw.clear();
+        var bgjobs = jobs.getBg(hsh.alloc) catch unreachable;
+        try jobsContext(hsh, bgjobs.items);
+        bgjobs.clearAndFree();
+        try prompt(hsh, tkn);
+        try Draw.render(&hsh.draw);
 
         // REALLY WISH I COULD BUILD ZIG, ARCH LINUX!!!
         @memcpy(&prev, &buffer);
@@ -270,10 +269,15 @@ fn core(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !bool {
             .None => continue,
             .ExitHSH => return false,
             .Exec => return true,
-            else => {
-                redraw = true;
+            .Redraw, .Prompt => {
+                Draw.clearCtx(&hsh.draw);
+                try Draw.render(&hsh.draw);
+
+                //try prompt(hsh, tkn);
                 continue;
             },
+
+            else => {},
         }
     }
 }
@@ -285,6 +289,11 @@ pub fn main() !void {
 
     var hsh = try HSH.init(a);
     defer hsh.raze();
+
+    var args = std.process.args();
+    while (args.next()) |arg| {
+        std.debug.print("arg: {s}\n", .{arg});
+    }
 
     hsh.tkn = Tokenizer.init(a);
     defer hsh.tkn.raze();
@@ -334,19 +343,19 @@ pub fn main() !void {
                         //     std.debug.print("fork res ({}){}\n", .{ res.pid, status });
                         // }
                         try hsh.tty.pushOrig();
-                        var jobs = exec(&hsh, &hsh.tkn) catch |err| {
+                        var exec_jobs = exec(&hsh, &hsh.tkn) catch |err| {
                             if (err == Exec.Error.ExeNotFound) {
                                 std.debug.print("exe pipe error {}\n", .{err});
                             }
                             std.debug.print("Exec error {}\n", .{err});
                             unreachable;
                         };
+                        defer exec_jobs.clearAndFree();
                         hsh.tkn.reset();
-                        _ = try hsh.newJob(jobs.pop());
-                        while (jobs.popOrNull()) |j| {
-                            _ = try hsh.newJob(j);
+                        _ = try jobs.add(exec_jobs.pop());
+                        while (exec_jobs.popOrNull()) |j| {
+                            _ = try jobs.add(j);
                         }
-                        jobs.clearAndFree();
                     },
                     .Builtin => {
                         hsh.draw.reset();

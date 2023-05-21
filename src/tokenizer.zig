@@ -135,6 +135,7 @@ pub const Tokenizer = struct {
         self.tokens.clearAndFree();
         var start: usize = 0;
         const src = self.raw.items;
+        if (self.raw.items.len == 0) return Error.Empty;
         while (start < src.len) {
             const token = switch (src[start]) {
                 '\'', '"' => Tokenizer.quote(src[start..]),
@@ -153,7 +154,7 @@ pub const Tokenizer = struct {
             };
             if (token.raw.len == 0) {
                 self.err_idx = start;
-                return Error.TokenizeFailed;
+                return Error.Unknown;
             }
             self.tokens.append(token) catch return Error.Memory;
             start += token.raw.len;

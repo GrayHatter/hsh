@@ -8,11 +8,11 @@ const builtin = @import("builtin");
 const ArrayList = std.ArrayList;
 const Signals = @import("signals.zig");
 const Queue = std.atomic.Queue;
+const jobs = @import("jobs.zig");
 
 pub const Error = error{
     Unknown,
     Memory,
-    JobNotFound,
     FSysGeneric,
     Other,
 };
@@ -58,44 +58,6 @@ const hshfs = struct {
 //     }
 //     return true;
 // }
-
-pub const JobStatus = enum {
-    RIP, // reaped (user notified)
-    Ded, // zombie
-    Paused, // SIGSTOP
-    Waiting, // Stopped needs to output
-    Piped,
-    Background, // in background
-    Running, // foreground
-    Unknown, // :<
-};
-
-pub const Job = struct {
-    name: ?[]const u8,
-    pid: std.os.pid_t = -1,
-    pgid: std.os.pid_t = -1,
-    exit_code: u8 = 0,
-    status: JobStatus = .Unknown,
-    termattr: std.os.termios = undefined,
-
-    pub fn format(self: Job, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
-        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
-        try std.fmt.format(out,
-            \\Job({s}){{
-            \\    name = {s},
-            \\    pid = {},
-            \\    exit = {},
-            \\}}
-            \\
-        , .{
-            @tagName(self.status),
-            self.name orelse "none",
-            self.pid,
-            self.exit_code,
-        });
-    }
-};
-
 pub const HSH = struct {
     alloc: Allocator,
     features: hshFeature,
@@ -104,7 +66,7 @@ pub const HSH = struct {
     pid: std.os.pid_t,
     pgrp: std.os.pid_t = -1,
     sig_queue: Queue(Signals.Signal),
-    jobs: ArrayList(Job),
+    jobs: *jobs.Jobs,
     rc: ?std.fs.File = null,
     history: ?std.fs.File = null,
     tty: TTY = undefined,
@@ -140,7 +102,7 @@ pub const HSH = struct {
             .env = env,
             .pid = std.os.linux.getpid(),
             .sig_queue = Queue(Signals.Signal).init(),
-            .jobs = ArrayList(Job).init(a),
+            .jobs = jobs.init(a),
             .rc = rc,
             .history = history,
         };
@@ -213,43 +175,6 @@ pub const HSH = struct {
     pub fn find_confdir(_: HSH) []const u8 {}
     pub fn cd(_: HSH, _: []u8) ![]u8 {}
 
-    pub fn getJob(hsh: *HSH, jid: std.os.pid_t) Error!*Job {
-        for (hsh.jobs.items) |*j| {
-            if (j.*.pid == jid) {
-                return j;
-            }
-        }
-        return Error.JobNotFound;
-    }
-
-    pub fn newJob(hsh: *HSH, j: Job) Error!void {
-        hsh.jobs.append(j) catch return E.Memory;
-    }
-
-    pub fn getWaitingJob(hsh: *HSH) Error!?*Job {
-        for (hsh.jobs.items) |*j| {
-            switch (j.status) {
-                .Paused,
-                .Waiting,
-                => {
-                    return j;
-                },
-                else => continue,
-            }
-        }
-        return null;
-    }
-
-    pub fn contNextJob(hsh: *HSH, comptime fg: bool) Error!void {
-        const job: ?*Job = try hsh.getWaitingJob();
-        if (job) |j| {
-            if (fg) {
-                hsh.tty.pushTTY(j.termattr) catch return Error.Memory;
-            } else {}
-            std.os.kill(j.pid, std.os.SIG.CONT) catch return Error.Unknown;
-        }
-    }
-
     fn stopChildren(hsh: *HSH) void {
         for (hsh.jobs.items) |*j| {
             if (j.*.status == .Running) {
@@ -258,32 +183,6 @@ pub const HSH = struct {
             }
         }
     }
-
-    pub fn getBgJobs(hsh: *const HSH) Error!ArrayList(Job) {
-        var jobs = ArrayList(Job).init(hsh.alloc);
-        for (hsh.jobs.items) |j| {
-            switch (j.status) {
-                .Background,
-                .Waiting,
-                .Paused,
-                => {
-                    jobs.append(j) catch return Error.Memory;
-                },
-                else => continue,
-            }
-        }
-        return jobs;
-    }
-
-    pub fn getFgJob(hsh: *const HSH) ?*const Job {
-        for (hsh.jobs.items) |j| {
-            if (j.status == .Running) {
-                return &j;
-            }
-        }
-        return null;
-    }
-
     fn sleep(_: *HSH) void {
         // TODO make this adaptive and smrt
         std.time.sleep(10 * 1000 * 1000);
@@ -291,7 +190,7 @@ pub const HSH = struct {
 
     pub fn spin(hsh: *HSH) void {
         hsh.doSignals();
-        while (hsh.getFgJob()) |_| {
+        while (jobs.getFg()) |_| {
             hsh.doSignals();
             hsh.sleep();
         }
@@ -310,7 +209,7 @@ pub const HSH = struct {
                     //std.debug.print("\n\rSIGNAL INT(oopsies)\n", .{});
                 },
                 std.os.SIG.CHLD => {
-                    const child = hsh.getJob(pid) catch {
+                    const child = jobs.get(pid) catch {
                         // TODO we should never not know about a job, but it's not a
                         // reason to die just yet.
                         std.debug.print("Unknown child on {} {}\n", .{ sig.info.code, pid });
@@ -346,7 +245,7 @@ pub const HSH = struct {
                 },
                 std.os.SIG.TSTP => {
                     if (pid != 0) {
-                        const child = hsh.getJob(pid) catch {
+                        const child = jobs.get(pid) catch {
                             // TODO we should never not know about a job, but it's not a
                             // reason to die just yet.
                             std.debug.print("Unknown child on {} {}\n", .{ pid, sig.info.code });
