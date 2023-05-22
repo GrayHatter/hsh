@@ -9,12 +9,18 @@ const ArrayList = std.ArrayList;
 const Signals = @import("signals.zig");
 const Queue = std.atomic.Queue;
 const jobs = @import("jobs.zig");
+const parser = @import("parse.zig");
+const Parser = parser.Parser;
+const builtins = @import("builtins.zig");
+const alias = builtins.aliases;
 
 pub const Error = error{
     Unknown,
-    FSysMissing,
     Memory,
+    EOF,
+    FSysMissing,
     FSysGeneric,
+    CorruptFile,
     Other,
 };
 const E = Error;
@@ -110,11 +116,58 @@ fn openHistFile(a: Allocator, env: *std.process.EnvMap) !?std.fs.File {
     return try findPath(a, env, ".hsh_history", false);
 }
 
-fn setupConfig(a: Allocator, env: *std.process.EnvMap) !struct { ?std.fs.File, ?std.fs.File } {
+/// caller owns memory
+fn readLine(a: *Allocator, r: std.fs.File.Reader) ![]u8 {
+    var buf = a.alloc(u8, 1024) catch return Error.Memory;
+    errdefer a.free(buf);
+    if (r.readUntilDelimiterOrEof(buf, '\n')) |line| {
+        if (line) |l| {
+            return l;
+        } else {
+            return Error.EOF;
+        }
+    } else |err| return err;
+}
+
+fn getConfigs(A: Allocator, env: *std.process.EnvMap) !struct { ?std.fs.File, ?std.fs.File } {
+    var a = A;
     var rc = openRcFile(a, env) catch null;
     var hs = openHistFile(a, env) catch null;
 
     return .{ rc, hs };
+}
+
+fn initHSH(hsh: *HSH) !void {
+    if (hsh.rc) |rc_| {
+        var r = rc_.reader();
+        var a = hsh.alloc;
+
+        var tokenizer = Tokenizer.init(a);
+        while (readLine(&a, r)) |line| {
+            defer a.free(line);
+            if (line[0] == '#') {
+                continue;
+            }
+            defer tokenizer.reset();
+            tokenizer.consumes(line) catch continue;
+            _ = tokenizer.tokenize() catch continue;
+            if (Parser.parse(&a, tokenizer.tokens.items)) |parsed| {
+                if (!parsed) continue;
+            } else |_| continue;
+            if (tokenizer.tokens.items[0].type != .Builtin) continue;
+
+            const bi_func = builtins.strExec(tokenizer.tokens.items[0].cannon());
+            bi_func(hsh, tokenizer.tokens.items) catch |err| {
+                std.debug.print("rc parse error {}\n", .{err});
+            };
+            //std.debug.print("tokens {any}\n", .{tokenizer.tokens.items});
+        } else |err| {
+            if (err != Error.EOF) {
+                std.debug.print("error {}\n", .{err});
+                unreachable;
+            }
+        }
+    }
 }
 
 // var __hsh: ?*HSH = null;
@@ -146,9 +199,10 @@ pub const HSH = struct {
         // decide we care enough to fix this, or not. The internet seems to think
         // it's a mistake to alter the env for a running process.
         var env = std.process.getEnvMap(a) catch return E.Unknown; // TODO err handling
-        //var rc = null; //findPath(a, &env) catch unreachable; //try createRcPath(&env);
-        //var history = try createHistPath(&env);
-        var conf = try setupConfig(a, &env);
+
+        alias.init(a);
+
+        var conf = try getConfigs(a, &env);
         var hsh = HSH{
             .alloc = a,
             .features = .{},
@@ -160,6 +214,8 @@ pub const HSH = struct {
             .history = conf[1],
         };
         hsh.initFs() catch return E.FSysGeneric;
+
+        try initHSH(&hsh);
         return hsh;
         //__hsh = hsh;
         //return hsh;
