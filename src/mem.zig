@@ -27,7 +27,9 @@ pub fn concat(a: Allocator, base: []u8, ends: []const []const u8) ![]u8 {
 }
 
 pub fn concatPath(a: Allocator, base: []u8, end: []const u8) ![]u8 {
-    return concat(a, base, &[2][]const u8{ "/", end });
+    var sep = if (base[base.len - 1] == '/') "" else "/";
+    var end_clean = if (end[0] == '/') end[1..] else end;
+    return concat(a, base, &[2][]const u8{ sep, end_clean });
 }
 
 test "concat" {
@@ -41,6 +43,14 @@ test "concat" {
 test "concatPath" {
     var a = std.testing.allocator;
     var thing = try a.dupe(u8, "thing");
+    var out = try concatPath(a, thing, "null");
+    try std.testing.expect(std.mem.eql(u8, out, "thing/null"));
+    defer a.free(out);
+}
+
+test "concatPath 2" {
+    var a = std.testing.allocator;
+    var thing = try a.dupe(u8, "thing/");
     var out = try concatPath(a, thing, "null");
     try std.testing.expect(std.mem.eql(u8, out, "thing/null"));
     defer a.free(out);
