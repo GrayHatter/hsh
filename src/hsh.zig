@@ -1,5 +1,5 @@
 const std = @import("std");
-const mem = std.mem;
+const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 const Drawable = @import("draw.zig").Drawable;
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
@@ -12,6 +12,7 @@ const jobs = @import("jobs.zig");
 
 pub const Error = error{
     Unknown,
+    FSysMissing,
     Memory,
     FSysGeneric,
     Other,
@@ -51,6 +52,71 @@ const hshfs = struct {
     paths: ArrayList([]const u8),
 };
 
+test "fs" {
+    const a = std.testing.allocator;
+    var env = std.process.getEnvMap(a) catch return E.Unknown; // TODO err handling
+    //var p = try findPath(a, &env) orelse unreachable;
+    //var buf: [200]u8 = undefined;
+    //std.debug.print("path {s}\n", .{try p.realpath(".", &buf)});
+    _ = try openRcFile(a, &env);
+    defer env.deinit();
+}
+
+fn openishFile(dir: std.fs.Dir, name: []const u8, comptime create: bool) ?std.fs.File {
+    if (create) {
+        return dir.createFile(name, .{ .read = true, .truncate = false }) catch null;
+    } else {
+        return dir.openFile(name, .{ .mode = .read_write }) catch return null;
+    }
+}
+
+/// Caller will own memory if returned
+fn findPath(a: Allocator, env: *std.process.EnvMap, name: []const u8, comptime create: bool) !?std.fs.File {
+    if (env.get("XDG_CONFIG_HOME")) |xdg| {
+        var out = try a.dupe(u8, xdg);
+        out = try mem.concatPath(a, out, "hsh");
+        defer a.free(out);
+        if (std.fs.openDirAbsolute(out, .{})) |d| {
+            return openishFile(d, name, create);
+        } else |_| {
+            std.debug.print("unable to open {s}\n", .{out});
+        }
+    } else if (env.get("HOME")) |home| {
+        var main = try a.dupe(u8, home);
+        defer a.free(main);
+        if (std.fs.openDirAbsolute(home, .{})) |h| {
+            if (h.openDir(".config", .{})) |hc| {
+                if (hc.openDir("hsh", .{})) |hch| {
+                    if (openishFile(hch, name[1..], create)) |file| {
+                        return file;
+                    }
+                } else |e| std.debug.print("unable to open {s} {}\n", .{ "hsh", e });
+                //return hc;
+            } else |e| std.debug.print("unable to open {s} {}\n", .{ "conf", e });
+            if (openishFile(h, name, create)) |file| {
+                return file;
+            }
+        } else |e| std.debug.print("unable to open {s} {}\n", .{ "home", e });
+    }
+
+    return null;
+}
+
+fn openRcFile(a: Allocator, env: *std.process.EnvMap) !?std.fs.File {
+    return try findPath(a, env, ".hshrc", false);
+}
+
+fn openHistFile(a: Allocator, env: *std.process.EnvMap) !?std.fs.File {
+    return try findPath(a, env, ".hsh_history", false);
+}
+
+fn setupConfig(a: Allocator, env: *std.process.EnvMap) !struct { ?std.fs.File, ?std.fs.File } {
+    var rc = openRcFile(a, env) catch null;
+    var hs = openHistFile(a, env) catch null;
+
+    return .{ rc, hs };
+}
+
 // var __hsh: ?*HSH = null;
 // pub fn globalEnabled(comptime f: Features) bool {
 //     if (__hsh) |hsh| {
@@ -80,22 +146,9 @@ pub const HSH = struct {
         // decide we care enough to fix this, or not. The internet seems to think
         // it's a mistake to alter the env for a running process.
         var env = std.process.getEnvMap(a) catch return E.Unknown; // TODO err handling
-        var home = env.get("HOME");
-        var rc: std.fs.File = undefined;
-        var history: std.fs.File = undefined;
-        if (home) |h| {
-            // TODO sanity checks
-            const dir = std.fs.openDirAbsolute(h, .{}) catch return E.FSysGeneric;
-            rc = dir.createFile(
-                ".hshrc",
-                .{ .read = true, .truncate = false },
-            ) catch return E.FSysGeneric;
-            history = dir.createFile(
-                ".hsh_history",
-                .{ .read = true, .truncate = false },
-            ) catch return E.FSysGeneric;
-            history.seekFromEnd(0) catch unreachable;
-        }
+        //var rc = null; //findPath(a, &env) catch unreachable; //try createRcPath(&env);
+        //var history = try createHistPath(&env);
+        var conf = try setupConfig(a, &env);
         var hsh = HSH{
             .alloc = a,
             .features = .{},
@@ -103,8 +156,8 @@ pub const HSH = struct {
             .pid = std.os.linux.getpid(),
             .sig_queue = Queue(Signals.Signal).init(),
             .jobs = jobs.init(a),
-            .rc = rc,
-            .history = history,
+            .rc = conf[0],
+            .history = conf[1],
         };
         hsh.initFs() catch return E.FSysGeneric;
         return hsh;
@@ -206,6 +259,7 @@ pub const HSH = struct {
                 std.os.SIG.INT => {
                     std.debug.print("^C\n\r", .{});
                     hsh.tkn.reset();
+                    hsh.draw.reset();
                     //std.debug.print("\n\rSIGNAL INT(oopsies)\n", .{});
                 },
                 std.os.SIG.CHLD => {
