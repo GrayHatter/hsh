@@ -31,6 +31,29 @@ pub const ParsedIterator = struct {
         return self.next().?;
     }
 
+    fn nextSubtoken(self: *Self, token: *const Token) ?*const Token {
+        if (self.subindex) |si| {
+            if (si >= token.cannon().len) {
+                self.subindex = null;
+                self.index.? += 1;
+                return self.next();
+            }
+            var subi = si;
+            while (token.cannon()[subi] == ' ') : (subi += 1) {
+                self.subindex.? += 1;
+            }
+            self.subtoken = Tokenizer.any(token.cannon()[subi..]) catch |e| {
+                std.debug.print("e {}\n", .{e});
+                unreachable;
+            };
+        } else {
+            self.subindex = 0;
+            return self.next();
+        }
+        self.subindex.? += self.subtoken.?.raw.len;
+        return &self.subtoken.?;
+    }
+
     /// Returns next Token, omitting, or splitting them as needed.
     pub fn next(self: *Self) ?*const Token {
         const i = self.index orelse return null;
@@ -42,26 +65,7 @@ pub const ParsedIterator = struct {
         const token = &self.tokens[i];
         switch (token.type) {
             .Tree => {
-                if (self.subindex) |si| {
-                    if (si >= token.cannon().len) {
-                        self.subindex = null;
-                        self.index.? += 1;
-                        return self.next();
-                    }
-                    var subi = si;
-                    while (token.cannon()[subi] == ' ') : (subi += 1) {
-                        self.subindex.? += 1;
-                    }
-                    self.subtoken = Tokenizer.any(token.cannon()[subi..]) catch |e| {
-                        std.debug.print("e {}\n", .{e});
-                        unreachable;
-                    };
-                } else {
-                    self.subindex = 0;
-                    return self.next();
-                }
-                self.subindex.? += self.subtoken.?.raw.len;
-                return &self.subtoken.?;
+                return self.nextSubtoken(token);
             },
             .WhiteSpace => {
                 self.index.? += 1;

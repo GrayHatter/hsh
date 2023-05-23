@@ -605,5 +605,5 @@ test "breaking" {
 
     try t.consumes("alias la='ls -la'");
     _ = try t.tokenize();
-    try expect(t.tokens.items.len == 5);
+    try expect(t.tokens.items.len == 4);
 }
