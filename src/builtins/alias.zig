@@ -10,6 +10,14 @@ const Err = @import("../builtins.zig").Err;
 const Alias = struct {
     name: []const u8,
     value: []const u8,
+
+    pub fn format(self: Alias, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
+        if (fmt.len == 4) {
+            try std.fmt.format(out, "alias {s}='{s}'", .{ self.name, self.value });
+        } else {
+            try std.fmt.format(out, "{s}='{s}'", .{ self.name, self.value });
+        }
+    }
 };
 
 // TODO this needs to become a map :/
@@ -21,20 +29,48 @@ pub fn init(a: std.mem.Allocator) void {
 
 pub fn alias(h: *HSH, tks: []const Token) Err!void {
     if (!std.mem.eql(u8, "alias", tks[0].cannon())) return Err.InvalidCommand;
-    if (tks.len > 2) {
-        var name = h.alloc.dupe(u8, tks[2].cannon()) catch return Err.Memory;
-        var value = h.alloc.dupe(u8, tks[3].cannon()) catch return Err.Memory;
-        if (find(name)) |*found| {
-            h.alloc.free(found.*.value);
-            found.*.value = value;
-            h.alloc.free(name);
-            return;
+
+    var name: ?[]const u8 = null;
+    var value: ?[]const u8 = null;
+    var mode: ?[]const u8 = null;
+    for (tks[1..]) |t| {
+        switch (t.type) {
+            .WhiteSpace => continue,
+            .Operator => {},
+            else => {
+                if (name) |_| {
+                    value = h.alloc.dupe(u8, t.cannon()) catch return Err.Memory;
+                } else {
+                    if (t.raw[0] == '-') mode = t.raw[1..2];
+                    name = h.alloc.dupe(u8, t.cannon()) catch return Err.Memory;
+                }
+            },
         }
-        return add(name, value);
+    }
+
+    if (mode) |_| unreachable; // not implemented;
+
+    if (name) |n| {
+        if (value) |v| {
+            if (find(n)) |*found| {
+                h.alloc.free(found.*.value);
+                found.*.value = v;
+                h.alloc.free(n);
+                return;
+            }
+            return add(n, v);
+        }
+        if (find(n)) |nn| {
+            h.tty.print("{}\n", .{nn}) catch return Err.Unknown;
+        } else {
+            h.tty.print("no known alias for {s}\n", .{n}) catch return Err.Unknown;
+        }
+        h.alloc.free(n);
+        return;
     }
 
     for (aliases.items) |a| {
-        h.tty.print("{}\n", .{a}) catch {};
+        h.tty.print("{}\n", .{a}) catch return Err.Unknown;
     }
 }
 
