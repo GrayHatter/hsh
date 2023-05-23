@@ -7,7 +7,7 @@ const mem = std.mem;
 const std = @import("std");
 const CompOption = @import("completion.zig").CompOption;
 
-const breaking_tokens = " \t\"'`${|><#;:!";
+const breaking_tokens = " \t\"'`${|><#;:!+=";
 
 pub const TokenKind = enum(u8) {
     WhiteSpace,
@@ -15,6 +15,7 @@ pub const TokenKind = enum(u8) {
     Builtin,
     Quote,
     IoRedir,
+    Operator,
     Path,
     Var,
     Aliased,
@@ -144,6 +145,7 @@ pub const Tokenizer = struct {
                 '~', '/' => Tokenizer.path(src[start..]),
                 '|' => Tokenizer.ioredir(src[start..]),
                 '$' => unreachable,
+                '=' => Tokenizer.oper(src[start..]),
                 else => Tokenizer.string(src[start..]),
             } catch |err| {
                 if (err == Error.InvalidSrc) {
@@ -187,6 +189,16 @@ pub const Tokenizer = struct {
             .raw = src[0..1],
             .type = .IoRedir,
         };
+    }
+
+    pub fn oper(src: []const u8) Error!Token {
+        switch (src[0]) {
+            '=' => return Token{
+                .raw = src[0..1],
+                .type = .Operator,
+            },
+            else => return Error.InvalidSrc,
+        }
     }
 
     /// Callers must ensure that src[0] is in (', ")
@@ -579,4 +591,13 @@ test "replace token" {
     try expect(t.tokens.items.len == 5);
     try expect(eql(u8, t.tokens.items[2].cannon(), "TWO THREE"));
     try expect(eql(u8, t.raw.items, "one 'TWO THREE' three"));
+}
+
+test "breaking" {
+    var t = Tokenizer.init(std.testing.allocator);
+    defer t.reset();
+
+    try t.consumes("alias la='ls -la'");
+    _ = try t.tokenize();
+    try expect(t.tokens.items.len == 5);
 }
