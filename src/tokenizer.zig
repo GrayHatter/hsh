@@ -7,7 +7,7 @@ const mem = std.mem;
 const std = @import("std");
 const CompOption = @import("completion.zig").CompOption;
 
-const breaking_tokens = " \t\"'`${|><#;:!+=";
+const breaking_tokens = " \t\"'`${|><#;:";
 
 pub const TokenKind = enum(u8) {
     WhiteSpace,
@@ -40,6 +40,8 @@ pub const Token = struct {
     type: TokenKind,
     parsed: bool = false,
     subtoken: u8 = 0,
+    // I hate this but I've spent too much time on this already #YOLO
+    resolved: ?[]const u8 = null,
 
     pub fn format(self: Token, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
         // this is what net.zig does, so it's what I do
@@ -49,6 +51,7 @@ pub const Token = struct {
 
     pub fn cannon(self: Token) []const u8 {
         if (self.backing) |b| return b.items;
+        if (self.resolved) |r| return r;
 
         return switch (self.type) {
             .Quote => return self.raw[1 .. self.raw.len - 1],
@@ -138,16 +141,7 @@ pub const Tokenizer = struct {
         const src = self.raw.items;
         if (self.raw.items.len == 0) return Error.Empty;
         while (start < src.len) {
-            const token = switch (src[start]) {
-                '\'', '"' => Tokenizer.quote(src[start..]),
-                '`' => Tokenizer.quote(src[start..]), // TODO magic
-                ' ' => Tokenizer.space(src[start..]),
-                '~', '/' => Tokenizer.path(src[start..]),
-                '|' => Tokenizer.ioredir(src[start..]),
-                '$' => unreachable,
-                '=' => Tokenizer.oper(src[start..]),
-                else => Tokenizer.string(src[start..]),
-            } catch |err| {
+            const token = Tokenizer.any(src[start..]) catch |err| {
                 if (err == Error.InvalidSrc) {
                     if (std.mem.indexOfAny(u8, src[start..], "\"'(")) |_| return Error.OpenGroup;
                     self.err_idx = start;
@@ -166,7 +160,19 @@ pub const Tokenizer = struct {
         return self.tokens.items;
     }
 
-    fn string(src: []const u8) Error!Token {
+    pub fn any(src: []const u8) Error!Token {
+        return switch (src[0]) {
+            '\'', '"' => Tokenizer.quote(src),
+            '`' => Tokenizer.quote(src), // TODO magic
+            ' ' => Tokenizer.space(src),
+            '~', '/' => Tokenizer.path(src),
+            '|' => Tokenizer.ioredir(src),
+            '$' => unreachable,
+            else => Tokenizer.string(src),
+        };
+    }
+
+    pub fn string(src: []const u8) Error!Token {
         if (mem.indexOfAny(u8, src[0..1], breaking_tokens)) |_| return Error.InvalidSrc;
         var end: usize = 0;
         for (src, 0..) |_, i| {

@@ -4,6 +4,7 @@ const HSH = @import("hsh.zig").HSH;
 const jobs_ = @import("jobs.zig");
 pub const aliases = @import("builtins/alias.zig");
 const alias = aliases.alias;
+const ParsedIterator = @import("parse.zig").ParsedIterator;
 
 var Self = @This();
 
@@ -15,7 +16,7 @@ pub const Err = error{
     FileSysErr,
 };
 
-const BuiltinFn = *const fn (a: *HSH, b: []const Token) Err!void;
+const BuiltinFn = *const fn (a: *HSH, b: *ParsedIterator) Err!void;
 
 pub const Builtins = enum {
     alias,
@@ -67,27 +68,28 @@ pub fn exists(str: []const u8) bool {
     return false;
 }
 
-fn bg(hsh: *HSH, _: []const Token) Err!void {
+fn bg(hsh: *HSH, _: *ParsedIterator) Err!void {
     hsh.tty.print("bg not yet implemented\n", .{}) catch return Err.Unknown;
 }
 
 /// Someone should add some sane input sanitzation to this
-fn cd(hsh: *HSH, tkns: []const Token) Err!void {
+fn cd(hsh: *HSH, titr: *ParsedIterator) Err!void {
     // TODO pushd and popd
     var path: [1 << 10]u8 = undefined;
     var path_len: usize = 0;
-    for (tkns[1..]) |t| {
+
+    _ = titr.first();
+    while (titr.next()) |t| {
         switch (t.type) {
             .String, .Quote, .Var => {
                 std.mem.copy(u8, &path, t.cannon());
                 path_len = t.cannon().len;
                 break;
             },
-            .WhiteSpace => continue,
             else => return Err.InvalidToken,
         }
     } else {
-        if (tkns.len < 2 and hsh.fs.home_name != null) {
+        if (hsh.fs.home_name != null) {
             std.mem.copy(u8, &path, hsh.fs.home_name.?);
             path_len = hsh.fs.home_name.?.len;
         } else return Err.InvalidCommand;
@@ -102,7 +104,7 @@ fn cd(hsh: *HSH, tkns: []const Token) Err!void {
     hsh.updateFs();
 }
 
-pub fn die(_: *HSH, _: []const Token) Err!void {
+pub fn die(_: *HSH, _: *ParsedIterator) Err!void {
     unreachable;
 }
 
@@ -114,15 +116,15 @@ test "fs" {
     try ndir.setAsCwd();
 }
 
-fn echo(hsh: *HSH, _: []const Token) Err!void {
+fn echo(hsh: *HSH, _: *ParsedIterator) Err!void {
     hsh.tty.print("echo not yet implemented\n", .{}) catch return Err.Unknown;
 }
 
 /// TODO implement real version of exit
-fn exit(_: *HSH, _: []const Token) Err!void {}
+fn exit(_: *HSH, _: *ParsedIterator) Err!void {}
 
 /// TODO implement job selection support
-fn fg(hsh: *HSH, _: []const Token) Err!void {
+fn fg(hsh: *HSH, _: *ParsedIterator) Err!void {
     var paused: usize = 0;
     for (hsh.jobs.items) |j| {
         paused += if (j.status == .Paused or j.status == .Waiting) 1 else 0;
@@ -140,13 +142,13 @@ fn fg(hsh: *HSH, _: []const Token) Err!void {
     hsh.tty.print("More than one job paused, fg not yet implemented\n", .{}) catch return Err.Unknown;
 }
 
-fn jobs(hsh: *HSH, _: []const Token) Err!void {
+fn jobs(hsh: *HSH, _: *ParsedIterator) Err!void {
     for (hsh.jobs.items) |j| {
         hsh.tty.print("{}", .{j}) catch return Err.Unknown;
     }
 }
 
-fn which(_: *HSH, _: []const Token) Err!void {}
+fn which(_: *HSH, _: *ParsedIterator) Err!void {}
 
 test "builtins" {
     const str = @tagName(Builtins.alias);
@@ -173,7 +175,7 @@ test "builtins alias" {
 }
 
 //DEBUGGING BUILTINS
-fn tty(hsh: *HSH, _: []const Token) Err!void {
+fn tty(hsh: *HSH, _: *ParsedIterator) Err!void {
     for (hsh.tty.attrs.items) |i| {
         std.debug.print("attr {any}\n", .{i});
     }

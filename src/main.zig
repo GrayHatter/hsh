@@ -107,7 +107,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
         '\x09' => |b| { // \t
             // Tab is best effort, it shouldn't be able to crash hsh
             var tkns = tkn.tokenize() catch return .Prompt;
-            if (!(Parser.parse(&tkn.alloc, tkns) catch unreachable)) return .Prompt;
+            _ = Parser.parse(&tkn.alloc, tkns, false) catch return .Prompt;
 
             if (!tkn.tab()) {
                 try tkn.consumec(b);
@@ -222,13 +222,13 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                 }
                 return .Prompt;
             };
-            var run = try Parser.parse(&tkn.alloc, tkns);
+            var run = Parser.parse(&tkn.alloc, tkns, false);
             //Draw.clearCtx(&hsh.draw);
-            if (run) {
+            if (run) |titr| {
                 //try tkn.dump_tokens(false);
-                if (tkn.tokens.items.len > 0) return .Exec;
+                if (titr.tokens.len > 0) return .Exec;
                 return .Redraw;
-            }
+            } else |_| {}
             return .Redraw;
         },
         else => |b| {
@@ -325,48 +325,42 @@ pub fn main() !void {
                 try hsh.history.?.sync();
                 var tokens = hsh.tkn.tokenize() catch continue;
                 if (tokens.len == 0) continue;
-                if (Parser.parse(&hsh.tkn.alloc, tokens)) |s| {
-                    if (!s) continue;
-                } else |_| {
-                    continue;
-                }
-                switch (hsh.tkn.tokens.items[0].type) {
-                    .String => {
-                        if (!Exec.executable(&hsh, hsh.tkn.tokens.items[0].cannon())) {
-                            std.debug.print("Unable to find {s}\n", .{hsh.tkn.tokens.items[0].cannon()});
-                            continue;
-                        }
-
-                        // while (forks.popOrNull()) |_| {
-                        //     const res = std.os.waitpid(-1, 0);
-                        //     const status = res.status >> 8 & 0xff;
-                        //     std.debug.print("fork res ({}){}\n", .{ res.pid, status });
-                        // }
-                        try hsh.tty.pushOrig();
-                        var exec_jobs = exec(&hsh, &hsh.tkn) catch |err| {
-                            if (err == Exec.Error.ExeNotFound) {
-                                std.debug.print("exe pipe error {}\n", .{err});
+                var titr = Parser.parse(&hsh.tkn.alloc, tokens, false) catch continue;
+                titr.restart();
+                if (titr.peek()) |peek| {
+                    switch (peek.type) {
+                        .String => {
+                            if (!Exec.executable(&hsh, peek.cannon())) {
+                                std.debug.print("Unable to find {s}\n", .{peek.cannon()});
+                                continue;
                             }
-                            std.debug.print("Exec error {}\n", .{err});
-                            unreachable;
-                        };
-                        defer exec_jobs.clearAndFree();
-                        hsh.tkn.reset();
-                        _ = try jobs.add(exec_jobs.pop());
-                        while (exec_jobs.popOrNull()) |j| {
-                            _ = try jobs.add(j);
-                        }
-                    },
-                    .Builtin => {
-                        hsh.draw.reset();
-                        const bi_func = Builtins.strExec(hsh.tkn.tokens.items[0].cannon());
-                        bi_func(&hsh, hsh.tkn.tokens.items) catch |err| {
-                            std.debug.print("builtin error {}\n", .{err});
-                        };
-                        hsh.tkn.reset();
-                        continue;
-                    },
-                    else => continue,
+
+                            try hsh.tty.pushOrig();
+                            var exec_jobs = exec(&hsh, &titr) catch |err| {
+                                if (err == Exec.Error.ExeNotFound) {
+                                    std.debug.print("exe pipe error {}\n", .{err});
+                                }
+                                std.debug.print("Exec error {}\n", .{err});
+                                unreachable;
+                            };
+                            defer exec_jobs.clearAndFree();
+                            hsh.tkn.reset();
+                            _ = try jobs.add(exec_jobs.pop());
+                            while (exec_jobs.popOrNull()) |j| {
+                                _ = try jobs.add(j);
+                            }
+                        },
+                        .Builtin => {
+                            hsh.draw.reset();
+                            const bi_func = Builtins.strExec(peek.cannon());
+                            bi_func(&hsh, &titr) catch |err| {
+                                std.debug.print("builtin error {}\n", .{err});
+                            };
+                            hsh.tkn.reset();
+                            continue;
+                        },
+                        else => continue,
+                    }
                 }
             } else {
                 break;

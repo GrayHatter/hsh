@@ -151,13 +151,12 @@ fn initHSH(hsh: *HSH) !void {
             defer tokenizer.reset();
             tokenizer.consumes(line) catch continue;
             _ = tokenizer.tokenize() catch continue;
-            if (Parser.parse(&a, tokenizer.tokens.items)) |parsed| {
-                if (!parsed) continue;
-            } else |_| continue;
-            if (tokenizer.tokens.items[0].type != .Builtin) continue;
+            var titr = Parser.parse(&a, tokenizer.tokens.items, false) catch continue;
+            if (titr.first().type != .Builtin) continue;
 
-            const bi_func = builtins.strExec(tokenizer.tokens.items[0].cannon());
-            bi_func(hsh, tokenizer.tokens.items) catch |err| {
+            const bi_func = builtins.strExec(titr.first().cannon());
+            titr.restart();
+            bi_func(hsh, &titr) catch |err| {
                 std.debug.print("rc parse error {}\n", .{err});
             };
             //std.debug.print("tokens {any}\n", .{tokenizer.tokens.items});

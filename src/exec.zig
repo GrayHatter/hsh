@@ -7,6 +7,7 @@ const Allocator = mem.Allocator;
 const Tokenizer = Tokens.Tokenizer;
 const ArrayList = std.ArrayList;
 const TokenKind = @import("tokenizer.zig").TokenKind;
+const ParsedIterator = @import("parse.zig").ParsedIterator;
 const mem = std.mem;
 const fd_t = std.os.fd_t;
 
@@ -84,16 +85,13 @@ fn makeExeZ(a: Allocator, paths: [][]const u8, str: []const u8) Error!ARG {
 }
 
 /// Caller owns memory of argv, and the open fds
-fn makeExecStack(h: *const HSH, tkns: []const Tokens.Token) Error![]ExecStack {
-    if (tkns.len == 0) return Error.InvalidSrc;
-
+fn makeExecStack(h: *const HSH, titr: *ParsedIterator) Error![]ExecStack {
     var stack = ArrayList(ExecStack).init(h.alloc);
     var exeZ: ?ARG = null;
     var argv = ArrayList(?ARG).init(h.alloc);
 
-    for (tkns) |t| {
+    while (titr.next()) |t| {
         switch (t.type) {
-            .WhiteSpace => continue,
             .IoRedir => {
                 if (!std.mem.eql(u8, "|", t.cannon())) unreachable;
                 const pipe = std.os.pipe2(0) catch return Error.OSErr;
@@ -136,8 +134,8 @@ fn makeExecStack(h: *const HSH, tkns: []const Tokens.Token) Error![]ExecStack {
     return stack.toOwnedSlice() catch return Error.Memory;
 }
 
-pub fn exec(h: *const HSH, tkn: *const Tokenizer) Error!ArrayList(Job) {
-    const stack = makeExecStack(h, tkn.tokens.items) catch |e| return e;
+pub fn exec(h: *const HSH, titr: *ParsedIterator) Error!ArrayList(Job) {
+    const stack = makeExecStack(h, titr) catch |e| return e;
 
     var previo: ?StdIo = null;
     var rootout = std.os.dup(std.os.STDOUT_FILENO) catch return Error.OSErr;

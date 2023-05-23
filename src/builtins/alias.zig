@@ -4,6 +4,7 @@ const HSH = Hsh.HSH;
 const tokenizer = @import("../tokenizer.zig");
 const Token = tokenizer.Token;
 const Err = @import("../builtins.zig").Err;
+const ParsedIterator = @import("../parse.zig").ParsedIterator;
 
 /// name and value are assumed to be owned by alias, and are expected to be
 /// valid between calls to alias.
@@ -27,22 +28,24 @@ pub fn init(a: std.mem.Allocator) void {
     aliases = std.ArrayList(Alias).init(a);
 }
 
-pub fn alias(h: *HSH, tks: []const Token) Err!void {
-    if (!std.mem.eql(u8, "alias", tks[0].cannon())) return Err.InvalidCommand;
+pub fn alias(h: *HSH, titr: *ParsedIterator) Err!void {
+    if (!std.mem.eql(u8, "alias", titr.first().cannon())) return Err.InvalidCommand;
 
     var name: ?[]const u8 = null;
     var value: ?[]const u8 = null;
     var mode: ?[]const u8 = null;
-    for (tks[1..]) |t| {
+    while (titr.next()) |t| {
         switch (t.type) {
-            .WhiteSpace => continue,
             .Operator => {},
             else => {
                 if (name) |_| {
                     value = h.alloc.dupe(u8, t.cannon()) catch return Err.Memory;
                 } else {
-                    if (t.raw[0] == '-') mode = t.raw[1..2];
-                    name = h.alloc.dupe(u8, t.cannon()) catch return Err.Memory;
+                    if (std.mem.indexOf(u8, t.cannon(), "=")) |i| {
+                        name = h.alloc.dupe(u8, t.cannon()[0..i]) catch return Err.Memory;
+                    } else {
+                        name = h.alloc.dupe(u8, t.cannon()) catch return Err.Memory;
+                    }
                 }
             },
         }
@@ -74,7 +77,7 @@ pub fn alias(h: *HSH, tks: []const Token) Err!void {
     }
 }
 
-fn find(src: []const u8) ?*Alias {
+pub fn find(src: []const u8) ?*Alias {
     for (aliases.items) |*a| {
         if (std.mem.eql(u8, src, a.name)) {
             return a;
