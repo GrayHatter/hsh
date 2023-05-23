@@ -46,7 +46,7 @@ clone [hsh]<br>
   - [ ] complex parsing
   - [ ] context aware hints
   - [ ] built ins
-    - [ ] alias
+    - [x] alias
     - [ ] bg
     - [x] cd
     - [ ] colon
