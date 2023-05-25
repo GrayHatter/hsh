@@ -59,28 +59,22 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                 .Key => |a| {
                     switch (a) {
                         .Up => {
-                            if (tkn.hist_pos == 0) tkn.push_line();
+                            var hist = &(hsh.hist orelse return .None);
+                            if (hist.cnt == 0) tkn.push_line();
                             tkn.clear();
-                            const top = History.readAt(
-                                tkn.hist_pos + 1,
-                                hsh.history.?,
-                                &tkn.raw,
-                            ) catch unreachable;
-                            if (!top) tkn.hist_pos += 1;
+                            hist.cnt += 1;
+                            _ = hist.readAt(&tkn.raw) catch unreachable;
                             tkn.push_hist();
                         },
                         .Down => {
-                            if (tkn.hist_pos > 1) {
-                                tkn.hist_pos -= 1;
+                            var hist = &(hsh.hist orelse return .None);
+                            if (hist.cnt > 1) {
+                                hist.cnt -= 1;
                                 tkn.clear();
-                                _ = History.readAt(
-                                    tkn.hist_pos,
-                                    hsh.history.?,
-                                    &tkn.raw,
-                                ) catch unreachable;
+                                _ = hist.readAt(&tkn.raw) catch unreachable;
                                 tkn.push_hist();
-                            } else if (tkn.hist_pos == 1) {
-                                tkn.hist_pos -= 1;
+                            } else if (hist.cnt == 1) {
+                                hist.cnt -= 1;
                                 tkn.pop_line();
                             } else {}
                         },
@@ -319,10 +313,7 @@ pub fn main() !void {
     while (true) {
         if (core(&hsh, &hsh.tkn, comp)) |l| {
             if (l) {
-                _ = try hsh.history.?.seekFromEnd(0);
-                _ = try hsh.history.?.write(hsh.tkn.raw.items);
-                _ = try hsh.history.?.write("\n");
-                try hsh.history.?.sync();
+                if (hsh.hist) |*hist| try hist.push(hsh.tkn.raw.items);
                 var tokens = hsh.tkn.tokenize() catch continue;
                 if (tokens.len == 0) continue;
                 var titr = Parser.parse(&hsh.tkn.alloc, tokens, false) catch continue;

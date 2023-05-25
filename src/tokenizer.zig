@@ -83,7 +83,6 @@ pub const Tokenizer = struct {
     raw: ArrayList(u8),
     tokens: ArrayList(Token),
     hist_z: ?ArrayList(u8) = null,
-    hist_pos: usize = 0,
     c_idx: usize = 0,
     c_tkn: usize = 0, // cursor is over this token
     err_idx: usize = 0,
@@ -376,7 +375,6 @@ pub const Tokenizer = struct {
     pub fn reset(self: *Tokenizer) void {
         self.clear();
         self.hist_z = null;
-        self.hist_pos = 0;
     }
 
     pub fn clear(self: *Tokenizer) void {

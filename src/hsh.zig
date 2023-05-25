@@ -14,6 +14,7 @@ const Parser = parser.Parser;
 const builtins = @import("builtins.zig");
 const alias = builtins.aliases;
 const State = @import("state.zig");
+const History = @import("history.zig");
 
 pub const Error = error{
     Unknown,
@@ -208,7 +209,7 @@ pub const HSH = struct {
     sig_queue: Queue(Signals.Signal),
     jobs: *jobs.Jobs,
     rc: ?std.fs.File = null,
-    history: ?std.fs.File = null,
+    hist: ?History,
     tty: TTY = undefined,
     draw: Drawable = undefined,
     tkn: Tokenizer = undefined,
@@ -234,7 +235,7 @@ pub const HSH = struct {
             .sig_queue = Queue(Signals.Signal).init(),
             .jobs = jobs.init(a),
             .rc = conf[0],
-            .history = conf[1],
+            .hist = if (conf[1]) |cfd| History{ .hist = cfd } else null,
         };
         hsh.initFs() catch return E.FSysGeneric;
 
@@ -297,7 +298,7 @@ pub const HSH = struct {
 
     pub fn raze(hsh: *HSH) void {
         hsh.env.deinit();
-        if (hsh.history) |h| h.close();
+        if (hsh.hist) |hist| hist.raze();
 
         for (savestates.items) |*saver| {
             writeState(hsh, saver) catch continue;
