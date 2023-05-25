@@ -1,10 +1,12 @@
 const std = @import("std");
-const Hsh = @import("../hsh.zig");
-const HSH = Hsh.HSH;
+const hsh = @import("../hsh.zig");
+const HSH = hsh.HSH;
 const tokenizer = @import("../tokenizer.zig");
 const Token = tokenizer.Token;
-const Err = @import("../builtins.zig").Err;
+const bi = @import("../builtins.zig");
+const Err = bi.Err;
 const ParsedIterator = @import("../parse.zig").ParsedIterator;
+const State = bi.State;
 
 /// name and value are assumed to be owned by alias, and are expected to be
 /// valid between calls to alias.
@@ -26,6 +28,19 @@ var aliases: std.ArrayList(Alias) = undefined;
 
 pub fn init(a: std.mem.Allocator) void {
     aliases = std.ArrayList(Alias).init(a);
+    hsh.addState(State{
+        .name = "aliases",
+        .ctx = &aliases,
+        .api = &.{ .save = save },
+    }) catch unreachable;
+}
+
+fn save(h: *HSH, _: *anyopaque) ?[][]const u8 {
+    var list = h.alloc.alloc([]u8, aliases.items.len) catch return null;
+    for (aliases.items, 0..) |a, i| {
+        list[i] = std.fmt.allocPrint(h.alloc, "{save}\n", .{a}) catch continue;
+    }
+    return list;
 }
 
 pub fn alias(h: *HSH, titr: *ParsedIterator) Err!void {

@@ -13,6 +13,7 @@ const parser = @import("parse.zig");
 const Parser = parser.Parser;
 const builtins = @import("builtins.zig");
 const alias = builtins.aliases;
+const State = @import("state.zig");
 
 pub const Error = error{
     Unknown,
@@ -70,20 +71,20 @@ test "fs" {
 
 fn openishFile(dir: std.fs.Dir, name: []const u8, comptime create: bool) ?std.fs.File {
     if (create) {
-        return dir.createFile(name, .{ .read = true, .truncate = false }) catch null;
+        return dir.createFile(name, .{ .read = true, .truncate = false }) catch return null;
     } else {
         return dir.openFile(name, .{ .mode = .read_write }) catch return null;
     }
 }
 
-/// Caller will own memory if returned
-fn findPath(a: Allocator, env: *std.process.EnvMap, name: []const u8, comptime create: bool) !?std.fs.File {
+/// Caller owns returned file
+fn findPath(a: Allocator, env: *std.process.EnvMap, name: []const u8, comptime create: bool) !std.fs.File {
     if (env.get("XDG_CONFIG_HOME")) |xdg| {
         var out = try a.dupe(u8, xdg);
         out = try mem.concatPath(a, out, "hsh");
         defer a.free(out);
         if (std.fs.openDirAbsolute(out, .{})) |d| {
-            return openishFile(d, name, create);
+            if (openishFile(d, name, create)) |file| return file;
         } else |_| {
             std.debug.print("unable to open {s}\n", .{out});
         }
@@ -105,7 +106,7 @@ fn findPath(a: Allocator, env: *std.process.EnvMap, name: []const u8, comptime c
         } else |e| std.debug.print("unable to open {s} {}\n", .{ "home", e });
     }
 
-    return null;
+    return E.FSysMissing;
 }
 
 fn openRcFile(a: Allocator, env: *std.process.EnvMap) !?std.fs.File {
@@ -145,7 +146,7 @@ fn initHSH(hsh: *HSH) !void {
         var tokenizer = Tokenizer.init(a);
         while (readLine(&a, r)) |line| {
             defer a.free(line);
-            if (line[0] == '#') {
+            if (line.len > 0 and line[0] == '#') {
                 continue;
             }
             defer tokenizer.reset();
@@ -169,13 +170,34 @@ fn initHSH(hsh: *HSH) !void {
     }
 }
 
-// var __hsh: ?*HSH = null;
-// pub fn globalEnabled(comptime f: Features) bool {
-//     if (__hsh) |hsh| {
-//         hsh.enabled(f);
-//     }
-//     return true;
-// }
+var savestates: ArrayList(State) = undefined;
+
+pub fn addState(s: State) E!void {
+    savestates.append(s) catch return E.Memory;
+}
+
+fn writeLine(f: std.fs.File, line: []const u8) !usize {
+    const size = try f.write(line);
+    return size;
+}
+
+fn writeState(h: *HSH, s: *State) !void {
+    const outf = h.rc orelse return E.FSysGeneric;
+    try outf.seekTo(0);
+    const data: ?[][]const u8 = s.save(h);
+
+    if (data) |dd| {
+        _ = try writeLine(outf, "# [ ");
+        _ = try writeLine(outf, s.name);
+        _ = try writeLine(outf, " ]\n");
+        for (dd) |line| {
+            _ = try writeLine(outf, line);
+            h.alloc.free(line);
+        }
+        _ = try writeLine(outf, "\n\n");
+    }
+}
+
 pub const HSH = struct {
     alloc: Allocator,
     features: hshFeature,
@@ -191,6 +213,7 @@ pub const HSH = struct {
     draw: Drawable = undefined,
     tkn: Tokenizer = undefined,
     input: i32 = 0,
+    changes: []u8 = undefined,
 
     pub fn init(a: Allocator) Error!HSH {
         // I'm pulling all of env out at startup only because that's the first
@@ -199,6 +222,7 @@ pub const HSH = struct {
         // it's a mistake to alter the env for a running process.
         var env = std.process.getEnvMap(a) catch return E.Unknown; // TODO err handling
 
+        savestates = ArrayList(State).init(a);
         alias.init(a);
 
         var conf = try getConfigs(a, &env);
@@ -267,10 +291,19 @@ pub const HSH = struct {
         };
     }
 
+    fn hshState(_: *HSH, _: *HSH) ?[][]const u8 {
+        return null;
+    }
+
     pub fn raze(hsh: *HSH) void {
         hsh.env.deinit();
-        if (hsh.rc) |rrc| rrc.close();
         if (hsh.history) |h| h.close();
+
+        for (savestates.items) |*saver| {
+            writeState(hsh, saver) catch continue;
+        }
+
+        if (hsh.rc) |rrc| rrc.close();
     }
 
     fn razeFs(hsh: *HSH) void {

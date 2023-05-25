@@ -2,9 +2,10 @@ const std = @import("std");
 const Token = @import("tokenizer.zig").Token;
 const HSH = @import("hsh.zig").HSH;
 const jobs_ = @import("jobs.zig");
-pub const aliases = @import("builtins/alias.zig");
 const alias = aliases.alias;
 const ParsedIterator = @import("parse.zig").ParsedIterator;
+pub const aliases = @import("builtins/alias.zig");
+pub const State = @import("state.zig");
 
 var Self = @This();
 
