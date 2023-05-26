@@ -44,18 +44,24 @@ pub fn executable(h: *HSH, str: []const u8) bool {
     return true;
 }
 
+fn executablePath(path: []const u8) bool {
+    const file = std.fs.openFileAbsolute(path, .{}) catch return false;
+    defer file.close();
+    const perm = (file.metadata() catch return false).permissions().inner;
+    if (perm.unixHas(
+        std.fs.File.PermissionsUnix.Class.other,
+        std.fs.File.PermissionsUnix.Permission.execute,
+    )) return true;
+    return false;
+}
+
 /// Caller must cleanAndFree() memory
 /// TODO BUG arg should be absolute but argv[0] should only be absolute IFF
 /// there was a / is the original token.
 pub fn makeAbsExecutable(a: Allocator, paths: [][]const u8, str: []const u8) Error!ArrayList(u8) {
     var exe = ArrayList(u8).init(a);
     if (str[0] == '/') {
-        const file = std.fs.openFileAbsolute(str, .{}) catch return Error.ExeNotFound;
-        const perm = (file.metadata() catch return Error.ExeNotFound).permissions().inner;
-        if (!perm.unixHas(
-            std.fs.File.PermissionsUnix.Class.other,
-            std.fs.File.PermissionsUnix.Permission.execute,
-        )) return Error.ExeNotFound;
+        if (!executablePath(str)) return Error.ExeNotFound;
         exe.appendSlice(str) catch return Error.Memory;
         return exe;
     }
@@ -64,13 +70,7 @@ pub fn makeAbsExecutable(a: Allocator, paths: [][]const u8, str: []const u8) Err
         exe.appendSlice(path) catch return Error.Memory;
         exe.append('/') catch return Error.Memory;
         exe.appendSlice(str) catch return Error.Memory;
-        const file = std.fs.openFileAbsolute(exe.items, .{}) catch continue;
-        defer file.close();
-        const perm = (file.metadata() catch continue).permissions().inner;
-        if (perm.unixHas(
-            std.fs.File.PermissionsUnix.Class.other,
-            std.fs.File.PermissionsUnix.Permission.execute,
-        )) break;
+        if (executablePath(exe.items)) break else continue;
     } else {
         exe.clearAndFree();
         return Error.ExeNotFound;
