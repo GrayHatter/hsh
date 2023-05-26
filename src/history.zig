@@ -30,6 +30,7 @@ pub fn readAt(self: *History, buffer: *std.ArrayList(u8)) !bool {
 
 /// Line.len must be > 0
 pub fn push(self: *History, line: []const u8) !void {
+    defer self.cnt = 0;
     std.debug.assert(line.len > 0);
     var hist = self.hist;
     try hist.seekFromEnd(0);

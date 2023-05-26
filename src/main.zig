@@ -34,6 +34,7 @@ test "main" {
 
 const Event = enum(u8) {
     None,
+    HSHIntern,
     Update,
     EnvState,
     Prompt,
@@ -263,15 +264,17 @@ fn core(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !bool {
             .None => continue,
             .ExitHSH => return false,
             .Exec => return true,
-            .Redraw, .Prompt => {
+            .Redraw, .Prompt, .Update => {
                 Draw.clearCtx(&hsh.draw);
                 try Draw.render(&hsh.draw);
 
                 //try prompt(hsh, tkn);
                 continue;
             },
-
-            else => {},
+            .Advice => {},
+            .HSHIntern => return true,
+            .ExpectedError => return true,
+            .EnvState => {},
         }
     }
 }
@@ -313,11 +316,11 @@ pub fn main() !void {
     while (true) {
         if (core(&hsh, &hsh.tkn, comp)) |l| {
             if (l) {
-                if (hsh.hist) |*hist| try hist.push(hsh.tkn.raw.items);
                 var tokens = hsh.tkn.tokenize() catch continue;
                 if (tokens.len == 0) continue;
                 var titr = Parser.parse(&hsh.tkn.alloc, tokens, false) catch continue;
                 titr.restart();
+                if (hsh.hist) |*hist| try hist.push(hsh.tkn.raw.items);
                 if (titr.peek()) |peek| {
                     switch (peek.type) {
                         .String => {
