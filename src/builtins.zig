@@ -44,7 +44,7 @@ pub fn exec(self: Builtins) BuiltinFn {
         .cd => cd,
         .die => die,
         .echo => echo,
-        .exit => die, // TODO exit should be kinder than die
+        .exit => exit, // TODO exit should be kinder than die
         .fg => fg,
         .jobs => jobs,
         .which => which,
@@ -122,7 +122,9 @@ fn echo(hsh: *HSH, _: *ParsedIterator) Err!void {
 }
 
 /// TODO implement real version of exit
-fn exit(_: *HSH, _: *ParsedIterator) Err!void {}
+fn exit(h: *HSH, i: *ParsedIterator) Err!void {
+    return noimpl(h, i);
+}
 
 /// TODO implement job selection support
 fn fg(hsh: *HSH, _: *ParsedIterator) Err!void {
@@ -149,7 +151,14 @@ fn jobs(hsh: *HSH, _: *ParsedIterator) Err!void {
     }
 }
 
-fn which(_: *HSH, _: *ParsedIterator) Err!void {}
+/// TODO implement real version
+fn which(h: *HSH, i: *ParsedIterator) Err!void {
+    return noimpl(h, i);
+}
+
+fn noimpl(h: *HSH, i: *ParsedIterator) Err!void {
+    h.tty.print("{s} not yet implemented\n", .{i.first().cannon()}) catch return Err.Unknown;
+}
 
 test "builtins" {
     const str = @tagName(Builtins.alias);
