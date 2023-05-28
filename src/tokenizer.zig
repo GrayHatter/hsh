@@ -33,6 +33,76 @@ pub const Error = error{
     Empty,
 };
 
+pub const TokenIterator = struct {
+    raw: []const u8,
+    index: ?usize = null,
+    token: Token = undefined,
+
+    const Self = @This();
+
+    pub fn first(self: *Self) *const Token {
+        self.restart();
+        return self.next().?;
+    }
+
+    pub fn nextAny(self: *Self) ?*const Token {
+        if (self.index) |i| {
+            if (i >= self.raw.len) {
+                return null;
+            }
+            if (Tokenizer.any(self.raw[i..])) |t| {
+                self.token = t;
+                self.index = i + t.raw.len;
+                return &self.token;
+            } else |e| {
+                std.debug.print("tokenizer error {}\n", .{e});
+                return null;
+            }
+        } else {
+            self.index = 0;
+            return self.next();
+        }
+    }
+
+    /// next skips whitespace, if you need whitespace tokens use nextAny
+    pub fn next(self: *Self) ?*const Token {
+        const n = self.nextAny();
+
+        if (n != null and n.?.type == .WhiteSpace) {
+            return self.next();
+        }
+        return n;
+    }
+
+    // caller owns the memory, this will reset the index
+    pub fn toSlice(self: *Self, a: Allocator) ![]Token {
+        var list = ArrayList(Token).init(a);
+        self.index = 0;
+        while (self.next()) |n| {
+            try list.append(n.*);
+        }
+        return list.toOwnedSlice();
+    }
+
+    // caller owns the memory, this will reset the index
+    pub fn toSliceAny(self: *Self, a: Allocator) ![]Token {
+        var list = ArrayList(Token).init(a);
+        self.index = 0;
+        while (self.nextAny()) |n| {
+            try list.append(n.*);
+        }
+        return list.toOwnedSlice();
+    }
+
+    pub fn peek(self: *Self) ?*const Token {
+        return self.next();
+    }
+
+    pub fn restart(self: *Self) void {
+        _ = self;
+    }
+};
+
 pub const Token = struct {
     raw: []const u8, // "full" Slice, you probably want to use cannon()
     i: u16 = 0,
@@ -604,4 +674,52 @@ test "breaking" {
     try t.consumes("alias la='ls -la'");
     _ = try t.tokenize();
     try expect(t.tokens.items.len == 4);
+}
+
+test "tokeniterator 0" {
+    var ti = TokenIterator{
+        .raw = "one two three",
+    };
+
+    try std.testing.expectEqualStrings("one", ti.first().cannon());
+    try std.testing.expectEqualStrings("two", ti.next().?.cannon());
+    try std.testing.expectEqualStrings("three", ti.next().?.cannon());
+    try std.testing.expect(ti.next() == null);
+}
+
+test "tokeniterator 1" {
+    var ti = TokenIterator{
+        .raw = "one two three",
+    };
+
+    try std.testing.expectEqualStrings("one", ti.first().cannon());
+    _ = ti.nextAny();
+    try std.testing.expectEqualStrings("two", ti.nextAny().?.cannon());
+    _ = ti.nextAny();
+    try std.testing.expectEqualStrings("three", ti.nextAny().?.cannon());
+    try std.testing.expect(ti.nextAny() == null);
+}
+
+test "tokeniterator 2" {
+    var ti = TokenIterator{
+        .raw = "one two three",
+    };
+
+    var slice = try ti.toSlice(std.testing.allocator);
+    try std.testing.expect(slice.len == 3);
+    try std.testing.expectEqualStrings("one", slice[0].cannon());
+    std.testing.allocator.free(slice);
+}
+
+test "tokeniterator 3" {
+    var ti = TokenIterator{
+        .raw = "one two three",
+    };
+
+    var slice = try ti.toSliceAny(std.testing.allocator);
+    try std.testing.expect(slice.len == 5);
+
+    try std.testing.expectEqualStrings("one", slice[0].cannon());
+    try std.testing.expectEqualStrings(" ", slice[1].cannon());
+    std.testing.allocator.free(slice);
 }
