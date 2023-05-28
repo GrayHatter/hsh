@@ -11,8 +11,7 @@ const Queue = std.atomic.Queue;
 const jobs = @import("jobs.zig");
 const parser = @import("parse.zig");
 const Parser = parser.Parser;
-const builtins = @import("builtins.zig");
-const alias = builtins.aliases;
+const bi = @import("builtins.zig");
 const State = @import("state.zig");
 const History = @import("history.zig");
 
@@ -139,7 +138,15 @@ fn getConfigs(A: Allocator, env: *std.process.EnvMap) !struct { ?std.fs.File, ?s
     return .{ rc, hs };
 }
 
+fn setupBuiltins(hsh: *HSH) !void {
+    savestates = ArrayList(State).init(hsh.alloc);
+    bi.aliases.init(hsh.alloc);
+    bi.Set.init();
+}
+
 fn initHSH(hsh: *HSH) !void {
+    try setupBuiltins(hsh);
+
     if (hsh.rc) |rc_| {
         var r = rc_.reader();
         var a = hsh.alloc;
@@ -156,7 +163,7 @@ fn initHSH(hsh: *HSH) !void {
             var titr = Parser.parse(&a, tokenizer.tokens.items, false) catch continue;
             if (titr.first().type != .Builtin) continue;
 
-            const bi_func = builtins.strExec(titr.first().cannon());
+            const bi_func = bi.strExec(titr.first().cannon());
             titr.restart();
             bi_func(hsh, &titr) catch |err| {
                 std.debug.print("rc parse error {}\n", .{err});
@@ -184,7 +191,6 @@ fn writeLine(f: std.fs.File, line: []const u8) !usize {
 
 fn writeState(h: *HSH, s: *State) !void {
     const outf = h.rc orelse return E.FSysGeneric;
-    try outf.seekTo(0);
     const data: ?[][]const u8 = s.save(h);
 
     if (data) |dd| {
@@ -196,6 +202,10 @@ fn writeState(h: *HSH, s: *State) !void {
             h.alloc.free(line);
         }
         _ = try writeLine(outf, "\n\n");
+    } else {
+        _ = try writeLine(outf, "# [ ");
+        _ = try writeLine(outf, s.name);
+        _ = try writeLine(outf, " ] didn't provide any save data\n");
     }
 }
 
@@ -222,9 +232,6 @@ pub const HSH = struct {
         // decide we care enough to fix this, or not. The internet seems to think
         // it's a mistake to alter the env for a running process.
         var env = std.process.getEnvMap(a) catch return E.Unknown; // TODO err handling
-
-        savestates = ArrayList(State).init(a);
-        alias.init(a);
 
         var conf = try getConfigs(a, &env);
         var hsh = HSH{
@@ -300,6 +307,7 @@ pub const HSH = struct {
         hsh.env.deinit();
         if (hsh.hist) |hist| hist.raze();
 
+        hsh.rc.?.seekTo(0) catch unreachable;
         for (savestates.items) |*saver| {
             writeState(hsh, saver) catch continue;
         }

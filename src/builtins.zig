@@ -2,10 +2,14 @@ const std = @import("std");
 const Token = @import("tokenizer.zig").Token;
 const HSH = @import("hsh.zig").HSH;
 const jobs_ = @import("jobs.zig");
-const alias = aliases.alias;
 const ParsedIterator = @import("parse.zig").ParsedIterator;
-pub const aliases = @import("builtins/alias.zig");
+
 pub const State = @import("state.zig");
+pub const aliases = @import("builtins/alias.zig");
+pub const Set = @import("builtins/set.zig");
+
+const alias = aliases.alias;
+const set = Set.set;
 
 var Self = @This();
 
@@ -28,6 +32,7 @@ pub const Builtins = enum {
     exit,
     fg,
     jobs,
+    set,
     which,
     // DEBUGGING BUILTINS
     tty,
@@ -47,6 +52,7 @@ pub fn exec(self: Builtins) BuiltinFn {
         .exit => exit, // TODO exit should be kinder than die
         .fg => fg,
         .jobs => jobs,
+        .set => set,
         .which => which,
         // DEBUGGING BUILTIN
         .tty => tty,
