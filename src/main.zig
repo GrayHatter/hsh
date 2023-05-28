@@ -220,7 +220,6 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
             var run = Parser.parse(&tkn.alloc, tkns, false);
             //Draw.clearCtx(&hsh.draw);
             if (run) |titr| {
-                //try tkn.dump_tokens(false);
                 if (titr.tokens.len > 0) return .Exec;
                 return .Redraw;
             } else |_| {}
@@ -319,6 +318,9 @@ pub fn main() !void {
                 var tokens = hsh.tkn.tokenize() catch continue;
                 if (tokens.len == 0) continue;
                 var titr = Parser.parse(&hsh.tkn.alloc, tokens, false) catch continue;
+                if (false)
+                    while (titr.next()) |t| std.debug.print("{}\n", .{t});
+
                 titr.restart();
                 if (hsh.hist) |*hist| try hist.push(hsh.tkn.raw.items);
                 if (titr.peek()) |peek| {

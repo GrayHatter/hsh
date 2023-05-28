@@ -10,7 +10,7 @@ const State = bi.State;
 
 /// name and value are assumed to be owned by alias, and are expected to be
 /// valid between calls to alias.
-const Alias = struct {
+pub const Alias = struct {
     name: []const u8,
     value: []const u8,
 
@@ -33,6 +33,14 @@ pub fn init(a: std.mem.Allocator) void {
         .ctx = &aliases,
         .api = &.{ .save = save },
     }) catch unreachable;
+}
+
+pub fn raze(a: std.mem.Allocator) void {
+    for (aliases.items) |ar| {
+        a.free(ar.name);
+        a.free(ar.value);
+    }
+    aliases.clearAndFree();
 }
 
 fn save(h: *HSH, _: *anyopaque) ?[][]const u8 {
@@ -109,3 +117,8 @@ fn add(src: []const u8, dst: []const u8) Err!void {
 }
 
 fn del() void {}
+
+pub fn testing_setup(a: std.mem.Allocator) *std.ArrayList(Alias) {
+    aliases = std.ArrayList(Alias).init(a);
+    return &aliases;
+}

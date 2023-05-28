@@ -20,7 +20,6 @@ pub const TokenKind = enum(u8) {
     Var,
     Aliased,
     Command, // custom string that alters hsh in some way
-    Tree, // Should this token be a separate type?
 };
 
 pub const Error = error{
@@ -99,7 +98,7 @@ pub const TokenIterator = struct {
     }
 
     pub fn restart(self: *Self) void {
-        _ = self;
+        self.index = 0;
     }
 };
 
@@ -121,7 +120,7 @@ pub const Token = struct {
 
     pub fn cannon(self: Token) []const u8 {
         if (self.backing) |b| return b.items;
-        if (self.resolved) |r| return r;
+        //if (self.resolved) |r| return r;
 
         return switch (self.type) {
             .Quote => return self.raw[1 .. self.raw.len - 1],

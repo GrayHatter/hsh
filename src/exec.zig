@@ -111,11 +111,10 @@ fn makeExecStack(h: *const HSH, titr: *ParsedIterator) Error![]ExecStack {
             },
             else => {
                 if (exeZ) |_| {} else {
-                    exeZ = makeExeZ(
-                        h.alloc,
-                        h.fs.paths.items,
-                        t.cannon(),
-                    ) catch |e| return e;
+                    exeZ = makeExeZ(h.alloc, h.fs.paths.items, t.cannon()) catch |e| {
+                        std.debug.print("path missing {s}\n", .{t.cannon()});
+                        return e;
+                    };
                     argv.append(exeZ.?) catch return Error.Memory;
                     continue;
                 }
@@ -135,7 +134,11 @@ fn makeExecStack(h: *const HSH, titr: *ParsedIterator) Error![]ExecStack {
 }
 
 pub fn exec(h: *const HSH, titr: *ParsedIterator) Error!ArrayList(Job) {
-    const stack = makeExecStack(h, titr) catch |e| return e;
+    titr.restart();
+    const stack = makeExecStack(h, titr) catch |e| {
+        std.debug.print("unable to make stack {}\n", .{e});
+        return e;
+    };
 
     var previo: ?StdIo = null;
     var rootout = std.os.dup(std.os.STDOUT_FILENO) catch return Error.OSErr;
