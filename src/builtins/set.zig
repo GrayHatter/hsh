@@ -18,7 +18,6 @@ pub const Opts = enum(u8) {
     PathExpan = 'f',
     HashAll = 'h',
     NOPMode = 'n',
-    Option = 'o',
     FailUnset = 'u',
     Verbose = 'v', // "echo" stdin to stderr
     Trace = 'x',
@@ -32,6 +31,7 @@ pub const Opts = enum(u8) {
 };
 
 pub const OOptions = enum {
+    // posix magic
     allexport,
     errexit,
     ignoreeof,
@@ -45,9 +45,30 @@ pub const OOptions = enum {
     verbose,
     vi,
     xtrace,
+    // hsh magic
 };
 
-pub fn init() void {
+const OptState = union(OOptions) {
+    allexport: ?bool,
+    errexit: ?bool,
+    ignoreeof: ?bool,
+    monitor: ?bool,
+    noclobber: ?bool,
+    noglob: ?bool,
+    noexec: ?bool,
+    nolog: ?bool,
+    notify: ?bool,
+    nounset: ?bool,
+    verbose: ?bool,
+    vi: ?bool,
+    xtrace: ?bool,
+};
+const KnOptions = std.ArrayList(OptState);
+
+var known_options: KnOptions = undefined;
+
+pub fn init(a: std.mem.Allocator) void {
+    known_options = KnOptions.init(a);
     hsh.addState(State{
         .name = "set",
         .ctx = &.{},
@@ -73,7 +94,6 @@ fn enable(h: *HSH, o: Opts) !void {
         .PathExpan => return nop(),
         .HashAll => return nop(),
         .NOPMode => return nop(),
-        .Option => return nop(),
         .FailUnset => return nop(),
         .Verbose => return nop(),
         .Trace => return nop(),
@@ -90,7 +110,6 @@ fn disable(h: *HSH, o: Opts) !void {
         .PathExpan => return nop(),
         .HashAll => return nop(),
         .NOPMode => return nop(),
-        .Option => return nop(),
         .FailUnset => return nop(),
         .Verbose => return nop(),
         .Trace => return nop(),

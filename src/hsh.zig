@@ -141,7 +141,7 @@ fn getConfigs(A: Allocator, env: *std.process.EnvMap) !struct { ?std.fs.File, ?s
 fn setupBuiltins(hsh: *HSH) !void {
     savestates = ArrayList(State).init(hsh.alloc);
     bi.aliases.init(hsh.alloc);
-    bi.Set.init();
+    bi.Set.init(hsh.alloc);
 }
 
 fn initHSH(hsh: *HSH) !void {
