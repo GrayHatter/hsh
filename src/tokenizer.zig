@@ -234,7 +234,7 @@ pub const Tokenizer = struct {
             '`' => Tokenizer.quote(src), // TODO magic
             ' ' => Tokenizer.space(src),
             '~', '/' => Tokenizer.path(src),
-            '|' => Tokenizer.ioredir(src),
+            '|', '>', '<' => Tokenizer.ioredir(src),
             '$' => unreachable,
             else => Tokenizer.string(src),
         };
@@ -254,15 +254,22 @@ pub const Tokenizer = struct {
     }
 
     fn ioredir(src: []const u8) Error!Token {
-        if (src[0] != '|') return Error.InvalidSrc;
-
-        if (src.len < 2) return Error.InvalidSrc;
-        //if (src.len < 2) return Token{ .raw = src[0..1], .type = .IoRedir };
-        //const follower = try Tokenizer.string(src[1..]);
-        return Token{
-            .raw = src[0..1],
-            .type = .IoRedir,
-        };
+        switch (src[0]) {
+            '|' => return Token{ .raw = src[0..1], .type = .IoRedir },
+            '<' => {
+                return Token{
+                    .raw = if (src.len > 1 and src[1] == '<') src[0..2] else src[0..1],
+                    .type = .IoRedir,
+                };
+            },
+            '>' => {
+                return Token{
+                    .raw = if (src.len > 1 and src[1] == '>') src[0..2] else src[0..1],
+                    .type = .IoRedir,
+                };
+            },
+            else => return Error.InvalidSrc,
+        }
     }
 
     pub fn oper(src: []const u8) Error!Token {
