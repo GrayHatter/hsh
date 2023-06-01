@@ -47,7 +47,9 @@ pub fn executable(h: *HSH, str: []const u8) bool {
 fn executablePath(path: []const u8) bool {
     const file = std.fs.openFileAbsolute(path, .{}) catch return false;
     defer file.close();
-    const perm = (file.metadata() catch return false).permissions().inner;
+    const md = file.metadata() catch return false;
+    if (md.kind() != .File) return false;
+    const perm = md.permissions().inner;
     if (perm.unixHas(
         std.fs.File.PermissionsUnix.Class.other,
         std.fs.File.PermissionsUnix.Permission.execute,
