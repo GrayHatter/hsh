@@ -97,3 +97,13 @@ pub fn jobsContext(hsh: *HSH, jobs: []Job) !void {
         });
     }
 }
+
+pub fn ctxContext(hsh: *HSH, word: Lexeme) !void {
+    try drawBefore(&hsh.draw, LexTree{
+        .siblings = &[_]Lexeme{
+            .{ .char = "[ " },
+            word,
+            .{ .char = " ]" },
+        },
+    });
+}

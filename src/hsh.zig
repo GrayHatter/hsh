@@ -14,6 +14,7 @@ const Parser = parser.Parser;
 const bi = @import("builtins.zig");
 const State = @import("state.zig");
 const History = @import("history.zig");
+const Context = @import("context.zig");
 
 pub const Error = error{
     Unknown,
@@ -146,6 +147,8 @@ fn setupBuiltins(hsh: *HSH) !void {
 
 fn initHSH(hsh: *HSH) !void {
     try setupBuiltins(hsh);
+
+    Context.init(hsh.alloc);
 
     if (hsh.rc) |rc_| {
         var r = rc_.reader();

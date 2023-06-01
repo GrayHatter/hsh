@@ -186,6 +186,7 @@ pub fn complete(hsh: *HSH, t: *const Token) !*CompSet {
         .WhiteSpace => try completeDir(&hsh.fs.cwdi),
         .String => try completeDirBase(&hsh.fs.cwdi, t.cannon()),
         .Path => try completePath(hsh, t.cannon()),
+        .IoRedir => {},
         else => {},
     }
     return &compset;

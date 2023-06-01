@@ -16,6 +16,7 @@ const Drawable = Draw.Drawable;
 const printAfter = Draw.printAfter;
 const prompt = @import("prompt.zig").prompt;
 const jobsContext = @import("prompt.zig").jobsContext;
+const ctxContext = @import("prompt.zig").ctxContext;
 const Context = @import("context.zig");
 const HSH = @import("hsh.zig").HSH;
 const complete = @import("completion.zig");
