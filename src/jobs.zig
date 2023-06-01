@@ -17,6 +17,7 @@ pub const Status = enum {
     Piped,
     Background, // in background
     Running, // foreground
+    Child,
     Unknown, // :<
 };
 

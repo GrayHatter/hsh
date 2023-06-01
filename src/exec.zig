@@ -1,7 +1,7 @@
 const std = @import("std");
 const hsh = @import("hsh.zig");
 const HSH = hsh.HSH;
-const Job = @import("jobs.zig").Job;
+const jobs = @import("jobs.zig");
 const Tokens = @import("tokenizer.zig");
 const Allocator = mem.Allocator;
 const Tokenizer = Tokens.Tokenizer;
@@ -133,7 +133,7 @@ fn makeExecStack(h: *const HSH, titr: *ParsedIterator) Error![]ExecStack {
     return stack.toOwnedSlice() catch return Error.Memory;
 }
 
-pub fn exec(h: *const HSH, titr: *ParsedIterator) Error!ArrayList(Job) {
+pub fn exec(h: *const HSH, titr: *ParsedIterator) Error!ArrayList(jobs.Job) {
     titr.restart();
     const stack = makeExecStack(h, titr) catch |e| {
         std.debug.print("unable to make stack {}\n", .{e});
@@ -143,7 +143,7 @@ pub fn exec(h: *const HSH, titr: *ParsedIterator) Error!ArrayList(Job) {
     var previo: ?StdIo = null;
     var rootout = std.os.dup(std.os.STDOUT_FILENO) catch return Error.OSErr;
 
-    var jobs = ArrayList(Job).init(h.alloc);
+    var cjobs = ArrayList(jobs.Job).init(h.alloc);
 
     for (stack) |s| {
         const fpid: std.os.pid_t = std.os.fork() catch return Error.OSErr;
@@ -180,7 +180,7 @@ pub fn exec(h: *const HSH, titr: *ParsedIterator) Error!ArrayList(Job) {
         // Child must noreturn
         // Parent
         //std.debug.print("chld pid {}\n", .{fpid});
-        jobs.append(Job{
+        cjobs.append(jobs.Job{
             .status = if (s.stdio) |_| .Piped else .Running,
             .pid = fpid,
             .name = h.alloc.dupe(u8, std.mem.sliceTo(s.arg, 0)) catch return Error.Memory,
@@ -191,7 +191,52 @@ pub fn exec(h: *const HSH, titr: *ParsedIterator) Error!ArrayList(Job) {
         }
         previo = s.stdio;
     }
-    return jobs;
+    return cjobs;
+}
+
+/// I hate all of this but stdlib likes to panic instead of manage errors
+/// so we're doing the whole ChildProcess thing now
+pub const ERes = struct {
+    stdout: [][]u8,
+};
+
+//const exec = std.ChildProcess.exec;
+pub fn child(h: *HSH, argv: [:null]const ?[*:0]const u8) !ERes {
+    var pipe = std.os.pipe2(0) catch unreachable;
+    const pid = std.os.fork() catch unreachable;
+    if (pid == 0) {
+        // we kid nao
+        //std.os.dup2(pipe[1], std.os.STDERR_FILENO) catch unreachable;
+        std.os.dup2(pipe[1], std.os.STDOUT_FILENO) catch unreachable;
+        std.os.close(pipe[0]);
+        std.os.close(pipe[1]);
+        std.os.execvpeZ(
+            argv[0].?,
+            argv.ptr,
+            @ptrCast([*:null]?[*:0]u8, std.os.environ),
+        ) catch {
+            unreachable;
+        };
+        unreachable;
+    }
+    //try jobs.add(jobs.Job{
+    //    .name = "child",
+    //    .pid = pid,
+    //    .status = .Child,
+    //});
+    std.os.close(pipe[1]);
+    defer std.os.close(pipe[0]);
+
+    var f = std.fs.File{ .handle = pipe[0] };
+    var r = f.reader();
+    var list = std.ArrayList([]u8).init(h.alloc);
+
+    while (try r.readUntilDelimiterOrEofAlloc(h.alloc, '\n', 2048)) |line| {
+        try list.append(line);
+    }
+    return ERes{
+        .stdout = try list.toOwnedSlice(),
+    };
 }
 
 test "c memory" {
