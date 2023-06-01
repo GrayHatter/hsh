@@ -1,3 +1,4 @@
+const std = @import("std");
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const TTY = TTY_.TTY;
@@ -9,7 +10,6 @@ const parser = @import("parse.zig");
 const Parser = parser.Parser;
 const mem = std.mem;
 const os = std.os;
-const std = @import("std");
 const tty_codes = TTY_.OpCodes;
 const Draw = @import("draw.zig");
 const Drawable = Draw.Drawable;
