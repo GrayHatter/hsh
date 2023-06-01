@@ -126,10 +126,10 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                 var table = try layoutTable(hsh.alloc, l.items, @intCast(u32, hsh.draw.term_size.x));
                 // TODO draw warning after if unable to tab complete
                 defer hsh.alloc.free(table);
-                defer hsh.alloc.free(@ptrCast([]Draw.Lexeme, table[0].sibling));
+                defer hsh.alloc.free(@ptrCast([]Draw.Lexeme, table[0].siblings));
                 for (table, 0..) |r, ri| {
-                    for (r.sibling, 0..) |*lex, li| {
-                        const i = ri * table[0].sibling.len + li;
+                    for (r.siblings, 0..) |*lex, li| {
+                        const i = ri * table[0].siblings.len + li;
                         switch (comp.list.items[i].kind) {
                             .FileSystem => |fs| {
                                 if (fs == .Dir) {
@@ -143,7 +143,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                         }
                     }
                     Draw.drawAfter(&hsh.draw, r) catch unreachable;
-                    for (r.sibling) |s| {
+                    for (r.siblings) |s| {
                         hsh.alloc.free(s.char);
                     }
                 }

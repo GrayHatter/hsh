@@ -39,7 +39,7 @@ fn userTextMultiline(hsh: *HSH, tkn: *Tokenizer) !void {
     const err = if (tkn.err_idx > 0) tkn.err_idx else tkn.raw.items.len;
     const good = tkn.raw.items[0..err];
     const bad = tkn.raw.items[err..];
-    try draw(&hsh.draw, LexTree{ .sibling = &[_]Lexeme{
+    try draw(&hsh.draw, LexTree{ .siblings = &[_]Lexeme{
         .{ .char = good },
         .{ .char = bad, .bg = .Red },
     } });
@@ -51,7 +51,7 @@ fn userText(hsh: *HSH, tkn: *Tokenizer) !void {
     const err = if (tkn.err_idx > 0) tkn.err_idx else tkn.raw.items.len;
     const good = tkn.raw.items[0..err];
     const bad = tkn.raw.items[err..];
-    try draw(&hsh.draw, LexTree{ .sibling = &[_]Lexeme{
+    try draw(&hsh.draw, LexTree{ .siblings = &[_]Lexeme{
         .{ .char = good },
         .{ .char = bad, .bg = .Red },
     } });
@@ -59,7 +59,7 @@ fn userText(hsh: *HSH, tkn: *Tokenizer) !void {
 
 pub fn prompt(hsh: *HSH, tkn: *Tokenizer) !void {
     try draw(&hsh.draw, .{
-        .sibling = &[_]Lexeme{
+        .siblings = &[_]Lexeme{
             .{
                 .char = hsh.env.get("USER") orelse "[username unknown]",
                 .attr = .Bold,
@@ -75,7 +75,7 @@ pub fn prompt(hsh: *HSH, tkn: *Tokenizer) !void {
     var tokens: [16]u8 = undefined;
     if (!hsh.enabled(Feature.Debugging)) return;
 
-    try drawRight(&hsh.draw, .{ .sibling = &[_]Lexeme{
+    try drawRight(&hsh.draw, .{ .siblings = &[_]Lexeme{
         .{ .char = try std.fmt.bufPrint(&tokens, "({}) ({}) [{}]", .{
             tkn.raw.items.len,
             tkn.tokens.items.len,
@@ -87,7 +87,7 @@ pub fn prompt(hsh: *HSH, tkn: *Tokenizer) !void {
 pub fn jobsContext(hsh: *HSH, jobs: []Job) !void {
     for (jobs) |j| {
         try drawBefore(&hsh.draw, LexTree{
-            .sibling = &[_]Lexeme{
+            .siblings = &[_]Lexeme{
                 .{ .char = "[ " },
                 if (j.status == .Background) spinner(.dots2t3) else .{ .char = "Z" },
                 .{ .char = " " },

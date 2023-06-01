@@ -51,7 +51,7 @@ pub const Color = enum {
 
 pub const Lexeme = struct {
     char: []const u8,
-    attr: Attr = .Reset,
+    attr: ?Attr = null,
     fg: ?Color = null,
     bg: ?Color = null,
 };
@@ -60,7 +60,7 @@ const LexSibling = []Lexeme;
 
 pub const LexTree = union(enum) {
     lex: Lexeme,
-    sibling: LexSibling,
+    siblings: LexSibling,
     children: []LexTree,
 };
 
@@ -133,12 +133,14 @@ pub const Drawable = struct {
     pub fn raze(_: *Drawable) void {}
 };
 
-fn setAttr(buf: *DrawBuf, attr: Attr) Err!void {
-    switch (attr) {
-        .Bold => buf.appendSlice("\x1B[1m") catch return Err.Memory,
-        .Reverse => buf.appendSlice("\x1B[7m") catch return Err.Memory,
-        .ReverseBold => buf.appendSlice("\x1B[1m\x1B[7m") catch return Err.Memory,
-        else => buf.appendSlice("\x1B[0m") catch return Err.Memory,
+fn setAttr(buf: *DrawBuf, attr: ?Attr) Err!void {
+    if (attr) |a| {
+        switch (a) {
+            .Bold => buf.appendSlice("\x1B[1m") catch return Err.Memory,
+            .Reverse => buf.appendSlice("\x1B[7m") catch return Err.Memory,
+            .ReverseBold => buf.appendSlice("\x1B[1m\x1B[7m") catch return Err.Memory,
+            else => buf.appendSlice("\x1B[0m") catch return Err.Memory,
+        }
     }
 }
 
@@ -187,7 +189,7 @@ fn drawSibling(buf: *DrawBuf, x: usize, y: usize, s: []Lexeme) Err!void {
 fn drawTree(buf: *DrawBuf, x: usize, y: usize, t: LexTree) Err!void {
     return switch (t) {
         LexTree.lex => |lex| drawLexeme(buf, x, y, lex),
-        LexTree.sibling => |sib| drawSibling(buf, x, y, sib),
+        LexTree.siblings => |sib| drawSibling(buf, x, y, sib),
         LexTree.children => |child| drawTrees(buf, x, y, child),
     };
 }

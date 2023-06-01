@@ -55,8 +55,8 @@ fn maxWidth(items: []const []const u8) u32 {
 
 /// Caller owns memory, strings **are** duplicated
 /// *LexTree
-/// LexTree.sibling.Lexem,
-/// LexTree.sibling.Lexem[..].char must all be free'd
+/// LexTree.siblings.Lexem,
+/// LexTree.siblings.Lexem[..].char must all be free'd
 pub fn layoutGrid(a: Allocator, items: []const []const u8, w: u32) Error![]LexTree {
     // errdefer
     const largest = maxWidth(items);
@@ -72,11 +72,11 @@ pub fn layoutGrid(a: Allocator, items: []const []const u8, w: u32) Error![]LexTr
 
     for (0..rows) |row| {
         trees[row] = LexTree{
-            .sibling = lexes[row * cols .. @min((row + 1) * cols, items.len)],
+            .siblings = lexes[row * cols .. @min((row + 1) * cols, items.len)],
         };
         for (0..cols) |col| {
             if (items.len <= cols * row + col) break;
-            trees[row].sibling[col] = Lexeme{
+            trees[row].siblings[col] = Lexeme{
                 .char = dupePadded(a, items[row * cols + col], largest) catch return Error.Memory,
             };
         }
@@ -93,8 +93,8 @@ fn sum(cs: []u16) u32 {
 
 /// Caller owns memory, strings **are** duplicated
 /// *LexTree
-/// LexTree.sibling.Lexem,
-/// LexTree.sibling.Lexem[..].char must all be free'd
+/// LexTree.siblings.Lexem,
+/// LexTree.siblings.Lexem[..].char must all be free'd
 /// items are not reordered
 pub fn layoutTable(a: Allocator, items: []const []const u8, w: u32) Error![]LexTree {
     const largest = maxWidth(items);
@@ -134,11 +134,11 @@ pub fn layoutTable(a: Allocator, items: []const []const u8, w: u32) Error![]LexT
 
     for (0..rows) |row| {
         trees[row] = LexTree{
-            .sibling = lexes[row * cols .. @min((row + 1) * cols, items.len)],
+            .siblings = lexes[row * cols .. @min((row + 1) * cols, items.len)],
         };
         for (0..cols) |col| {
             if (col + row * cols >= items.len) break;
-            trees[row].sibling[col] = Lexeme{
+            trees[row].siblings[col] = Lexeme{
                 .char = dupePadded(a, items[row * cols + col], cols_w[col]) catch return Error.Memory,
             };
         }
@@ -176,17 +176,17 @@ test "table" {
     //std.debug.print("rows {any}\n", .{rows});
     for (rows) |row| {
         //std.debug.print("  row {any}\n", .{row});
-        for (row.sibling) |sib| {
+        for (row.siblings) |sib| {
             //std.debug.print("    sib {s}\n", .{sib.char});
             a.free(sib.char);
         }
     }
 
     try std.testing.expect(rows.len == 3);
-    try std.testing.expect(rows[0].sibling.len == 4);
+    try std.testing.expect(rows[0].siblings.len == 4);
 
     // I have my good ol' C pointers back... this is so nice :)
-    a.free(@ptrCast(*[strs12.len]Lexeme, rows[0].sibling));
+    a.free(@ptrCast(*[strs12.len]Lexeme, rows[0].siblings));
     a.free(rows);
 }
 
@@ -197,18 +197,18 @@ test "grid 3*4" {
     //std.debug.print("rows {any}\n", .{rows});
     for (rows) |row| {
         //std.debug.print("  row {any}\n", .{row});
-        for (row.sibling) |sib| {
+        for (row.siblings) |sib| {
             //std.debug.print("    sib {s}\n", .{sib.char});
             a.free(sib.char);
         }
     }
 
     try std.testing.expect(rows.len == 4);
-    try std.testing.expect(rows[0].sibling.len == 3);
-    try std.testing.expect(rows[3].sibling.len == 3);
+    try std.testing.expect(rows[0].siblings.len == 3);
+    try std.testing.expect(rows[3].siblings.len == 3);
 
     // I have my good ol' C pointers back... this is so nice :)
-    a.free(@ptrCast(*[strs12.len]Lexeme, rows[0].sibling));
+    a.free(@ptrCast(*[strs12.len]Lexeme, rows[0].siblings));
     a.free(rows);
 }
 
@@ -218,17 +218,17 @@ test "grid 3*4 + 1" {
     //std.debug.print("rows {any}\n", .{rows});
     for (rows) |row| {
         //std.debug.print("  row {any}\n", .{row});
-        for (row.sibling) |sib| {
+        for (row.siblings) |sib| {
             //std.debug.print("    sib {s}\n", .{sib.char});
             a.free(sib.char);
         }
     }
 
     try std.testing.expectEqual(rows.len, 5);
-    try std.testing.expect(rows[0].sibling.len == 3);
-    try std.testing.expect(rows[4].sibling.len == 1);
+    try std.testing.expect(rows[0].siblings.len == 3);
+    try std.testing.expect(rows[4].siblings.len == 1);
 
     // I have my good ol' C pointers back... this is so nice :)
-    a.free(@ptrCast(*[strs13.len]Lexeme, rows[0].sibling));
+    a.free(@ptrCast(*[strs13.len]Lexeme, rows[0].siblings));
     a.free(rows);
 }
