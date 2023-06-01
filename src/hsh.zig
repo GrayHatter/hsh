@@ -216,7 +216,6 @@ pub const HSH = struct {
     fs: hshfs = undefined,
     pid: std.os.pid_t,
     pgrp: std.os.pid_t = -1,
-    sig_queue: Queue(Signals.Signal),
     jobs: *jobs.Jobs,
     rc: ?std.fs.File = null,
     hist: ?History,
@@ -239,7 +238,6 @@ pub const HSH = struct {
             .features = .{},
             .env = env,
             .pid = std.os.linux.getpid(),
-            .sig_queue = Queue(Signals.Signal).init(),
             .jobs = jobs.init(a),
             .rc = conf[0],
             .hist = if (conf[1]) |cfd| History{ .hist = cfd } else null,
@@ -349,7 +347,7 @@ pub const HSH = struct {
     const SI_CODE = enum(u6) { EXITED = 1, KILLED, DUMPED, TRAPPED, STOPPED, CONTINUED };
 
     fn doSignals(hsh: *HSH) void {
-        while (hsh.sig_queue.get()) |node| {
+        while (Signals.get()) |node| {
             var sig = node.data;
             const pid = sig.info.fields.common.first.piduid.pid;
             switch (sig.signal) {
@@ -363,8 +361,8 @@ pub const HSH = struct {
                     const child = jobs.get(pid) catch {
                         // TODO we should never not know about a job, but it's not a
                         // reason to die just yet.
-                        std.debug.print("Unknown child on {} {}\n", .{ sig.info.code, pid });
-                        return;
+                        //std.debug.print("Unknown child on {} {}\n", .{ sig.info.code, pid });
+                        continue;
                     };
                     switch (@intToEnum(SI_CODE, sig.info.code)) {
                         SI_CODE.STOPPED => {
@@ -429,8 +427,6 @@ pub const HSH = struct {
                     std.debug.print("\n", .{});
                 },
             }
-
-            hsh.alloc.free(@as(*[1]Queue(Signals.Signal).Node, node));
         }
     }
 };

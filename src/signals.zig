@@ -16,8 +16,9 @@ pub const Signal = struct {
     info: os.siginfo_t,
 };
 
+var arena: std.heap.ArenaAllocator = undefined;
 var alloc: Allocator = undefined;
-var queue: *Queue(Signal) = undefined;
+var queue: Queue(Signal) = Queue(Signal).init();
 
 export fn sig_cb(sig: c_int, info: *const os.siginfo_t, _: ?*const anyopaque) callconv(.C) void {
     if (false) { // signal debugging
@@ -30,21 +31,32 @@ export fn sig_cb(sig: c_int, info: *const os.siginfo_t, _: ?*const anyopaque) ca
             \\
         , .{sig});
     }
-    const sigp = alloc.alloc(Queue(Signal).Node, 1) catch {
+    const sigp = alloc.create(Queue(Signal).Node) catch {
         std.debug.print(
             "ERROR: unable to allocate memory for incoming signal {}\n",
             .{sig},
         );
         unreachable;
     };
-    sigp[0].data.signal = sig;
-    sigp[0].data.info = info.*;
-    queue.put(&sigp[0]);
+    sigp.* = Queue(Signal).Node{
+        .data = Signal{
+            .signal = sig,
+            .info = info.*,
+        },
+    };
+
+    queue.put(sigp);
 }
 
-pub fn init(a: Allocator, q: *Queue(Signal)) !void {
-    alloc = a;
-    queue = q;
+pub fn get() ?Queue(Signal).Node {
+    var node = queue.get() orelse return null;
+    defer alloc.destroy(node);
+    return node.*;
+}
+
+pub fn init() !void {
+    arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    alloc = arena.allocator();
 
     // zsh blocks and unblocks winch signals during most processing, collecting
     // them only when needed. It's likely something we should do as well
@@ -68,4 +80,8 @@ pub fn init(a: Allocator, q: *Queue(Signal)) !void {
             .flags = SA.SIGINFO | SA.NOCLDWAIT,
         }, null);
     }
+}
+
+pub fn raze() void {
+    arena.deinit();
 }

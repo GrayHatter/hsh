@@ -296,7 +296,8 @@ pub fn main() !void {
 
     var comp: *complete.CompSet = try complete.init(&hsh);
 
-    try Signals.init(hsh.alloc, &hsh.sig_queue);
+    try Signals.init();
+    defer Signals.raze();
 
     hsh.tty = try TTY.init(a);
     defer hsh.tty.raze();
