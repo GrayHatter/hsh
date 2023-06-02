@@ -50,10 +50,8 @@ pub const Job = struct {
 pub const Jobs = ArrayList(Job);
 
 pub var jobs: Jobs = undefined;
-//const alloc: Allocator = undefined;
 
 pub fn init(a: Allocator) *Jobs {
-    //alloc = a;
     jobs = Jobs.init(a);
     return &jobs;
 }

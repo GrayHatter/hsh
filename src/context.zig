@@ -13,9 +13,9 @@ pub const Error = error{
     Other,
 };
 
-pub const Contexts = enum {
-    state, // some internal state of hsh
-    git,
+pub const Contexts = enum(u2) {
+    state = 1, // some internal state of hsh
+    git = 0, // I know, I'm sorry, but... *runs*
 };
 
 /// Context priority clones log priority for simplicity, but isn't required to
@@ -33,24 +33,41 @@ const Priority = enum {
     Off,
 };
 
-const Ctx = struct {
+const Init = *const fn () Error!void;
+const Update = *const fn (*HSH) Error!void;
+const Fetch = *const fn (*const HSH) Error!Lexeme;
+
+pub const Ctx = struct {
     priority: Priority = .Noise,
-    name: []u8 = undefined,
+    name: []const u8 = undefined,
     // unstable
-    type: Contexts = .state,
+    kind: Contexts = .state,
+    init: Init,
+    fetch: Fetch,
+    update: Update,
 };
 
 var a_contexts: std.ArrayList(Ctx) = undefined;
 
-pub fn init(a: std.mem.Allocator) void {
-    a_contexts = std.ArrayList(Ctx).init(a);
+pub fn init(a: *std.mem.Allocator) Error!void {
+    a_contexts = std.ArrayList(Ctx).init(a.*);
+    a_contexts.append(git.ctx) catch return Error.Memory;
+
+    for (a_contexts.items) |c| {
+        try c.init();
+    }
 }
 
-pub fn ctxAvailable(hsh: *const HSH) ![]Contexts {
+pub fn available(hsh: *const HSH) ![]Contexts {
     if (hsh.pid > 0) return [_]Contexts{.git} else return [0]Contexts{};
 }
 
-/// Caller owns all memory within context
-pub fn ctxGet(h: *HSH) Error!Lexeme {
-    return git.get(h);
+pub fn update(h: *HSH, requested: []const Contexts) !void {
+    for (requested) |r| {
+        try a_contexts.items[@enumToInt(r)].update(h);
+    }
+}
+
+pub fn fetch(h: *const HSH, c: Contexts) Error!Lexeme {
+    return try a_contexts.items[@enumToInt(c)].fetch(h);
 }

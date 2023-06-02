@@ -148,7 +148,7 @@ fn setupBuiltins(hsh: *HSH) !void {
 fn initHSH(hsh: *HSH) !void {
     try setupBuiltins(hsh);
 
-    Context.init(hsh.alloc);
+    try Context.init(&hsh.alloc);
 
     if (hsh.rc) |rc_| {
         var r = rc_.reader();

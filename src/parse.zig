@@ -21,7 +21,7 @@ pub const Error = error{
 pub const ParsedIterator = struct {
     // I hate that this requires an allocator :( but the ratio of thinking
     // to writing is already too high
-    alloc: Allocator,
+    alloc: *Allocator,
     tokens: []Token,
     index: ?usize,
     subtokens: ?[]TokenIterator,
@@ -151,7 +151,7 @@ pub const Parser = struct {
         }
         _ = parseBuiltin(&tokens[0]) catch {};
         return ParsedIterator{
-            .alloc = a.*,
+            .alloc = a,
             .tokens = tokens,
             .index = 0,
             .subtokens = null,

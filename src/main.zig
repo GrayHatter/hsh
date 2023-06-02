@@ -239,6 +239,7 @@ fn core(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !bool {
     defer hsh.draw.reset();
     var buffer: [1]u8 = undefined;
     var prev: [1]u8 = undefined;
+    //try Context.update(hsh, &[_]Context.Contexts{.git});
 
     while (true) {
         hsh.draw.cursor = @truncate(u32, tkn.cadj());
@@ -249,6 +250,7 @@ fn core(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !bool {
         hsh.draw.clear();
         var bgjobs = jobs.getBg(hsh.alloc) catch unreachable;
         try jobsContext(hsh, bgjobs.items);
+        //try ctxContext(hsh, try Context.fetch(hsh, .git));
         bgjobs.clearAndFree();
         try prompt(hsh, tkn);
         try Draw.render(&hsh.draw);
@@ -320,7 +322,7 @@ pub fn main() !void {
                 var tokens = hsh.tkn.tokenize() catch continue;
                 if (tokens.len == 0) continue;
                 var titr = Parser.parse(&hsh.tkn.alloc, tokens, false) catch continue;
-                if (false)
+                if (true)
                     while (titr.next()) |t| std.debug.print("{}\n", .{t});
 
                 titr.restart();
