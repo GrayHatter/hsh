@@ -114,6 +114,25 @@ pub const TokenIterator = struct {
         return list.toOwnedSlice();
     }
 
+    // caller owns the memory, this will will move the index so calling next
+    // will return the command delimiter (if existing),
+    // Any calls to toSliceExec when current index is a command delemiter will
+    // start at the following word slice.
+    pub fn toSliceExec(self: *Self, a: Allocator) ![]Token {
+        var list = ArrayList(Token).init(a);
+        if (self.nextExec()) |n| {
+            try list.append(n.*);
+        } else if (self.next()) |n| {
+            if (n.type != .IoRedir and n.type != .ExecDelim) {
+                try list.append(n.*);
+            }
+        }
+        while (self.nextExec()) |n| {
+            try list.append(n.*);
+        }
+        return list.toOwnedSlice();
+    }
+
     pub fn peek(self: *Self) ?*const Token {
         return self.next();
     }
@@ -773,7 +792,7 @@ test "tokeniterator 3" {
     std.testing.allocator.free(slice);
 }
 
-test "slice pipeline" {
+test "token pipeline" {
     var ti = TokenIterator{
         .raw = "ls -la | cat | sort ; echo this works",
     };
@@ -808,4 +827,44 @@ test "slice pipeline" {
         len += 1;
     }
     try std.testing.expectEqual(len, 7);
+}
+
+test "token pipeline slice" {
+    var ti = TokenIterator{
+        .raw = "ls -la | cat | sort ; echo this works",
+    };
+
+    var len: usize = 0;
+    while (ti.next()) |_| {
+        len += 1;
+    }
+    try std.testing.expectEqual(len, 10);
+
+    ti.restart();
+    len = 0;
+    while (ti.nextExec()) |_| {
+        len += 1;
+    }
+    try std.testing.expectEqual(len, 2);
+
+    ti.restart();
+
+    var slice = try ti.toSliceExec(std.testing.allocator);
+    try std.testing.expectEqual(slice.len, 2);
+    std.testing.allocator.free(slice);
+
+    slice = try ti.toSliceExec(std.testing.allocator);
+    try std.testing.expectEqual(slice.len, 1);
+    std.testing.allocator.free(slice);
+
+    slice = try ti.toSliceExec(std.testing.allocator);
+    try std.testing.expectEqual(slice.len, 1);
+    std.testing.allocator.free(slice);
+
+    slice = try ti.toSliceExec(std.testing.allocator);
+    try std.testing.expectEqual(slice.len, 3);
+    try std.testing.expectEqualStrings("echo", slice[0].cannon());
+    try std.testing.expectEqualStrings("this", slice[1].cannon());
+    try std.testing.expectEqualStrings("works", slice[2].cannon());
+    std.testing.allocator.free(slice);
 }
