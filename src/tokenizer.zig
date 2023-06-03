@@ -15,11 +15,11 @@ pub const TokenKind = enum(u8) {
     Builtin,
     Quote,
     IoRedir,
+    ExecDelim,
     Operator,
     Path,
     Var,
     Aliased,
-    Command, // custom string that alters hsh in some way
 };
 
 pub const Error = error{
@@ -36,6 +36,8 @@ pub const TokenIterator = struct {
     raw: []const u8,
     index: ?usize = null,
     token: Token = undefined,
+
+    exec_index: ?usize = null,
 
     const Self = @This();
 
@@ -73,6 +75,25 @@ pub const TokenIterator = struct {
         return n;
     }
 
+    /// "cuts" to the next executable boundary
+    pub fn nextExec(self: *Self) ?*const Token {
+        if (self.exec_index) |_| {} else {
+            self.exec_index = self.index;
+        }
+
+        const t_ = self.next();
+        if (t_) |t| {
+            switch (t.type) {
+                .IoRedir, .ExecDelim => {
+                    self.index.? -= t.raw.len;
+                    return null;
+                },
+                else => {},
+            }
+        }
+        return t_;
+    }
+
     // caller owns the memory, this will reset the index
     pub fn toSlice(self: *Self, a: Allocator) ![]Token {
         var list = ArrayList(Token).init(a);
@@ -99,6 +120,13 @@ pub const TokenIterator = struct {
 
     pub fn restart(self: *Self) void {
         self.index = 0;
+        self.exec_index = null;
+    }
+
+    /// Jumps back to the token at most recent nextExec call
+    pub fn restartExec(self: *Self) void {
+        self.index = self.exec_index;
+        self.exec_index = null;
     }
 };
 
@@ -235,6 +263,7 @@ pub const Tokenizer = struct {
             ' ' => Tokenizer.space(src),
             '~', '/' => Tokenizer.path(src),
             '|', '>', '<' => Tokenizer.ioredir(src),
+            ';', '&' => Tokenizer.execdelim(src),
             '$' => unreachable,
             else => Tokenizer.string(src),
         };
@@ -267,6 +296,20 @@ pub const Tokenizer = struct {
                     .raw = if (src.len > 1 and src[1] == '>') src[0..2] else src[0..1],
                     .type = .IoRedir,
                 };
+            },
+            else => return Error.InvalidSrc,
+        }
+    }
+
+    fn execdelim(src: []const u8) Error!Token {
+        switch (src[0]) {
+            ';' => return Token{
+                .raw = src[0..1],
+                .type = .ExecDelim,
+            },
+            '&' => return Token{
+                .raw = src[0..1],
+                .type = .ExecDelim,
             },
             else => return Error.InvalidSrc,
         }
@@ -728,4 +771,41 @@ test "tokeniterator 3" {
     try std.testing.expectEqualStrings("one", slice[0].cannon());
     try std.testing.expectEqualStrings(" ", slice[1].cannon());
     std.testing.allocator.free(slice);
+}
+
+test "slice pipeline" {
+    var ti = TokenIterator{
+        .raw = "ls -la | cat | sort ; echo this works",
+    };
+
+    var len: usize = 0;
+    while (ti.next()) |_| {
+        len += 1;
+    }
+    try std.testing.expectEqual(len, 10);
+
+    ti.restart();
+    len = 0;
+    while (ti.nextExec()) |_| {
+        len += 1;
+    }
+    try std.testing.expectEqual(len, 2);
+
+    try std.testing.expectEqualStrings(ti.next().?.cannon(), "|");
+    while (ti.nextExec()) |_| {
+        len += 1;
+    }
+    try std.testing.expectEqual(len, 3);
+
+    try std.testing.expectEqualStrings(ti.next().?.cannon(), "|");
+    while (ti.nextExec()) |_| {
+        len += 1;
+    }
+    try std.testing.expectEqual(len, 4);
+
+    try std.testing.expectEqualStrings(ti.next().?.cannon(), ";");
+    while (ti.nextExec()) |_| {
+        len += 1;
+    }
+    try std.testing.expectEqual(len, 7);
 }
