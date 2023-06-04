@@ -20,7 +20,6 @@ const ctxContext = @import("prompt.zig").ctxContext;
 const Context = @import("context.zig");
 const HSH = @import("hsh.zig").HSH;
 const complete = @import("completion.zig");
-const Builtins = @import("builtins.zig");
 const Keys = @import("keys.zig");
 const Exec = @import("exec.zig");
 const exec = Exec.exec;
@@ -28,6 +27,7 @@ const Signals = @import("signals.zig");
 const History = @import("history.zig");
 const layoutTable = @import("draw/layout.zig").layoutTable;
 const jobs = @import("jobs.zig");
+const log = @import("log");
 
 test "main" {
     std.testing.refAllDecls(@This());
@@ -291,7 +291,7 @@ pub fn main() !void {
 
     var args = std.process.args();
     while (args.next()) |arg| {
-        std.debug.print("arg: {s}\n", .{arg});
+        log.info("arg: {s}\n", .{arg});
     }
 
     hsh.tkn = Tokenizer.init(a);
@@ -328,39 +328,27 @@ pub fn main() !void {
                 titr.restart();
                 if (hsh.hist) |*hist| try hist.push(hsh.tkn.raw.items);
                 if (titr.peek()) |peek| {
-                    switch (peek.type) {
-                        .String => {
-                            if (!Exec.executable(&hsh, peek.cannon())) {
-                                std.debug.print("Unable to find {s}\n", .{peek.cannon()});
-                                continue;
-                            }
-
-                            try hsh.tty.pushOrig();
-                            var exec_jobs = exec(&hsh, &titr) catch |err| {
-                                if (err == Exec.Error.ExeNotFound) {
-                                    std.debug.print("exe pipe error {}\n", .{err});
-                                }
-                                std.debug.print("Exec error {}\n", .{err});
-                                unreachable;
-                            };
-                            defer exec_jobs.clearAndFree();
-                            hsh.tkn.reset();
-                            _ = try jobs.add(exec_jobs.pop());
-                            while (exec_jobs.popOrNull()) |j| {
-                                _ = try jobs.add(j);
-                            }
-                        },
-                        .Builtin => {
-                            hsh.draw.reset();
-                            const bi_func = Builtins.strExec(peek.cannon());
-                            bi_func(&hsh, &titr) catch |err| {
-                                std.debug.print("builtin error {}\n", .{err});
-                            };
-                            hsh.tkn.reset();
-                            continue;
-                        },
-                        else => continue,
+                    if (!Exec.executable(&hsh, peek.cannon())) {
+                        std.debug.print("Unable to find {s}\n", .{peek.cannon()});
+                        continue;
                     }
+
+                    try hsh.tty.pushOrig();
+                    var itr = hsh.tkn.iterator();
+                    var exec_jobs = exec(&hsh, &itr) catch |err| {
+                        if (err == Exec.Error.ExeNotFound) {
+                            std.debug.print("exe pipe error {}\n", .{err});
+                        }
+                        std.debug.print("Exec error {}\n", .{err});
+                        unreachable;
+                    };
+                    defer exec_jobs.clearAndFree();
+                    hsh.tkn.reset();
+                    _ = try jobs.add(exec_jobs.pop());
+                    while (exec_jobs.popOrNull()) |j| {
+                        _ = try jobs.add(j);
+                    }
+                    continue;
                 }
             } else {
                 break;

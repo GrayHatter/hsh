@@ -134,6 +134,8 @@ pub const TokenIterator = struct {
     }
 
     pub fn peek(self: *Self) ?*const Token {
+        const old = self.index;
+        defer self.index = old;
         return self.next();
     }
 
@@ -245,6 +247,10 @@ pub const Tokenizer = struct {
     // Cursor adjustment to send to tty
     pub fn cadj(self: Tokenizer) usize {
         return self.raw.items.len - self.c_idx;
+    }
+
+    pub fn iterator(self: *Tokenizer) TokenIterator {
+        return TokenIterator{ .raw = self.raw.items };
     }
 
     /// Return a slice of the current tokens;
@@ -860,6 +866,52 @@ test "token pipeline slice" {
     slice = try ti.toSliceExec(std.testing.allocator);
     try std.testing.expectEqual(slice.len, 1);
     std.testing.allocator.free(slice);
+
+    slice = try ti.toSliceExec(std.testing.allocator);
+    try std.testing.expectEqual(slice.len, 3);
+    try std.testing.expectEqualStrings("echo", slice[0].cannon());
+    try std.testing.expectEqualStrings("this", slice[1].cannon());
+    try std.testing.expectEqualStrings("works", slice[2].cannon());
+    std.testing.allocator.free(slice);
+}
+
+test "token pipeline slice safe with next()" {
+    var ti = TokenIterator{
+        .raw = "ls -la | cat | sort ; echo this works",
+    };
+
+    var len: usize = 0;
+    while (ti.next()) |_| {
+        len += 1;
+    }
+    try std.testing.expectEqual(len, 10);
+
+    ti.restart();
+    len = 0;
+    while (ti.nextExec()) |_| {
+        len += 1;
+    }
+    try std.testing.expectEqual(len, 2);
+
+    ti.restart();
+
+    var slice = try ti.toSliceExec(std.testing.allocator);
+    try std.testing.expectEqual(slice.len, 2);
+    std.testing.allocator.free(slice);
+
+    _ = ti.next();
+
+    slice = try ti.toSliceExec(std.testing.allocator);
+    try std.testing.expectEqual(slice.len, 1);
+    std.testing.allocator.free(slice);
+
+    _ = ti.next();
+
+    slice = try ti.toSliceExec(std.testing.allocator);
+    try std.testing.expectEqual(slice.len, 1);
+    std.testing.allocator.free(slice);
+
+    _ = ti.next();
 
     slice = try ti.toSliceExec(std.testing.allocator);
     try std.testing.expectEqual(slice.len, 3);

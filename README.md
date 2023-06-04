@@ -60,6 +60,7 @@ clone [hsh]<br>
     - [ ] fg
     - [ ] jobs
     - [ ] kill?
+    - [ ] pipeline
     - [ ] pwd
     - [ ] read
     - [ ] set

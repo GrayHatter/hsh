@@ -13,6 +13,10 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    exe.addModule("log", b.createModule(.{
+        .source_file = .{ .path = "src/log.zig" },
+    }));
+
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);

@@ -2,14 +2,19 @@ const std = @import("std");
 const hsh = @import("hsh.zig");
 const HSH = hsh.HSH;
 const jobs = @import("jobs.zig");
-const Tokens = @import("tokenizer.zig");
+const tokenizer = @import("tokenizer.zig");
 const Allocator = mem.Allocator;
-const Tokenizer = Tokens.Tokenizer;
+const Tokenizer = tokenizer.Tokenizer;
 const ArrayList = std.ArrayList;
-const TokenKind = @import("tokenizer.zig").TokenKind;
-const ParsedIterator = @import("parse.zig").ParsedIterator;
+const TokenKind = tokenizer.TokenKind;
+const TokenIterator = tokenizer.TokenIterator;
+const parse = @import("parse.zig");
+const Parser = parse.Parser;
+const ParsedIterator = parse.ParsedIterator;
+
 const mem = std.mem;
 const fd_t = std.os.fd_t;
+const bi = @import("builtins.zig");
 
 pub const Error = error{
     InvalidSrc,
@@ -30,15 +35,30 @@ const StdIo = struct {
     stderr: fd_t,
 };
 
-const ExecStack = struct {
+const Exec = struct {
     arg: ARG,
     argv: ARGV,
+};
+
+const Builtin = struct {
+    builtin: []const u8,
+    argv: *ParsedIterator,
+};
+
+const Callable = union(enum) {
+    builtin: Builtin,
+    exec: Exec,
+};
+
+const CallableStack = struct {
+    callable: Callable,
     stdio: ?StdIo,
 };
 
 fn setup() void {}
 
 pub fn executable(h: *HSH, str: []const u8) bool {
+    if (bi.exists(str)) return true;
     var plsfree = makeAbsExecutable(h.alloc, h.fs.paths.items, str) catch return false;
     plsfree.clearAndFree();
     return true;
@@ -86,58 +106,76 @@ fn makeExeZ(a: Allocator, paths: [][]const u8, str: []const u8) Error!ARG {
     return exe.toOwnedSliceSentinel(0) catch return Error.Memory;
 }
 
+fn mkBuiltin(_: *const HSH, titr: *ParsedIterator) Error!Builtin {
+    return Builtin{
+        .builtin = titr.first().cannon(),
+        .argv = titr,
+    };
+}
+
 /// Caller owns memory of argv, and the open fds
-fn makeExecStack(h: *const HSH, titr: *ParsedIterator) Error![]ExecStack {
-    var stack = ArrayList(ExecStack).init(h.alloc);
+fn mkExec(h: *const HSH, titr: *ParsedIterator) Error!Exec {
     var exeZ: ?ARG = null;
     var argv = ArrayList(?ARG).init(h.alloc);
 
     while (titr.next()) |t| {
-        switch (t.type) {
+        if (exeZ) |_| {} else {
+            exeZ = makeExeZ(h.alloc, h.fs.paths.items, t.cannon()) catch |e| {
+                std.debug.print("path missing {s}\n", .{t.cannon()});
+                return e;
+            };
+            argv.append(exeZ.?) catch return Error.Memory;
+            continue;
+        }
+        argv.append(
+            h.alloc.dupeZ(u8, t.cannon()) catch return Error.Memory,
+        ) catch return Error.Memory;
+    }
+    return Exec{
+        .arg = exeZ.?,
+        .argv = argv.toOwnedSliceSentinel(null) catch return Error.Memory,
+    };
+}
+
+fn mkCallableStack(h: *HSH, itr: *TokenIterator) Error![]CallableStack {
+    var stack = ArrayList(CallableStack).init(h.alloc);
+
+    itr.restart();
+
+    while (itr.peek()) |peek| {
+        var io: ?StdIo = null;
+        switch (peek.type) {
             .IoRedir => {
-                if (!std.mem.eql(u8, "|", t.cannon())) unreachable;
+                if (!std.mem.eql(u8, "|", peek.cannon())) unreachable;
                 const pipe = std.os.pipe2(0) catch return Error.OSErr;
-                const io = StdIo{
+                io = StdIo{
                     .left = pipe[1],
                     .right = pipe[0],
                     .stderr = std.os.STDERR_FILENO,
                 };
-                stack.append(ExecStack{
-                    .arg = exeZ.?,
-                    .argv = argv.toOwnedSliceSentinel(null) catch return Error.Memory,
-                    .stdio = io,
-                }) catch return Error.Memory;
-                exeZ = null;
-                argv = ArrayList(?ARG).init(h.alloc);
-                continue;
             },
-            else => {
-                if (exeZ) |_| {} else {
-                    exeZ = makeExeZ(h.alloc, h.fs.paths.items, t.cannon()) catch |e| {
-                        std.debug.print("path missing {s}\n", .{t.cannon()});
-                        return e;
-                    };
-                    argv.append(exeZ.?) catch return Error.Memory;
-                    continue;
-                }
-                argv.append(
-                    h.alloc.dupeZ(u8, t.cannon()) catch return Error.Memory,
-                ) catch return Error.Memory;
-            },
+            else => {},
         }
+        var eslice = itr.toSliceExec(h.alloc) catch unreachable;
+        std.debug.print("{any}\n", .{peek});
+        std.debug.print("{any}\n", .{eslice});
+        defer h.alloc.free(eslice);
+        var parsed = Parser.parse(&h.alloc, eslice, false) catch unreachable;
+        var callable = switch (peek.type) {
+            .Builtin => Callable{ .builtin = try mkBuiltin(h, &parsed) },
+            else => Callable{ .exec = try mkExec(h, &parsed) },
+        };
+        stack.append(CallableStack{
+            .callable = callable,
+            .stdio = io,
+        }) catch return Error.Memory;
     }
-
-    stack.append(ExecStack{
-        .arg = exeZ.?,
-        .argv = argv.toOwnedSliceSentinel(null) catch return Error.Memory,
-        .stdio = null,
-    }) catch return Error.Memory;
     return stack.toOwnedSlice() catch return Error.Memory;
 }
 
-pub fn exec(h: *const HSH, titr: *ParsedIterator) Error!ArrayList(jobs.Job) {
+pub fn exec(h: *HSH, titr: *TokenIterator) Error!ArrayList(jobs.Job) {
     titr.restart();
-    const stack = makeExecStack(h, titr) catch |e| {
+    const stack = mkCallableStack(h, titr) catch |e| {
         std.debug.print("unable to make stack {}\n", .{e});
         return e;
     };
@@ -147,7 +185,7 @@ pub fn exec(h: *const HSH, titr: *ParsedIterator) Error!ArrayList(jobs.Job) {
 
     var cjobs = ArrayList(jobs.Job).init(h.alloc);
 
-    for (stack) |s| {
+    for (stack) |*s| {
         const fpid: std.os.pid_t = std.os.fork() catch return Error.OSErr;
         if (fpid == 0) {
             if (previo) |pio| {
@@ -163,18 +201,28 @@ pub fn exec(h: *const HSH, titr: *ParsedIterator) Error!ArrayList(jobs.Job) {
                 std.os.dup2(rootout, std.os.STDOUT_FILENO) catch return Error.OSErr;
             }
 
-            // TODO manage env
-            const res = std.os.execveZ(
-                s.arg,
-                s.argv,
-                @ptrCast([*:null]?[*:0]u8, std.os.environ),
-            );
-            switch (res) {
-                error.FileNotFound => {
-                    // we validate exes internall now this should be impossible
-                    unreachable;
+            switch (s.callable) {
+                .builtin => |*b| {
+                    const bi_func = bi.strExec(b.builtin);
+                    bi_func(h, b.argv) catch |err| {
+                        std.debug.print("builtin error {}\n", .{err});
+                    };
                 },
-                else => std.debug.print("exec error {}\n", .{res}),
+                .exec => |e| {
+                    // TODO manage env
+                    const res = std.os.execveZ(
+                        e.arg,
+                        e.argv,
+                        @ptrCast([*:null]?[*:0]u8, std.os.environ),
+                    );
+                    switch (res) {
+                        error.FileNotFound => {
+                            // we validate exes internall now this should be impossible
+                            unreachable;
+                        },
+                        else => std.debug.print("exec error {}\n", .{res}),
+                    }
+                },
             }
             unreachable;
         }
@@ -182,10 +230,14 @@ pub fn exec(h: *const HSH, titr: *ParsedIterator) Error!ArrayList(jobs.Job) {
         // Child must noreturn
         // Parent
         //std.debug.print("chld pid {}\n", .{fpid});
+        const name = switch (s.callable) {
+            .builtin => |b| b.builtin,
+            .exec => |e| std.mem.sliceTo(e.arg, 0),
+        };
         cjobs.append(jobs.Job{
             .status = if (s.stdio) |_| .Piped else .Running,
             .pid = fpid,
-            .name = h.alloc.dupe(u8, std.mem.sliceTo(s.arg, 0)) catch return Error.Memory,
+            .name = h.alloc.dupe(u8, name) catch return Error.Memory,
         }) catch return Error.Memory;
         if (previo) |pio| {
             std.os.close(pio.left);

@@ -7,8 +7,10 @@ const ParsedIterator = @import("parse.zig").ParsedIterator;
 pub const State = @import("state.zig");
 pub const aliases = @import("builtins/alias.zig");
 pub const Set = @import("builtins/set.zig");
+pub const Pipeline = @import("builtins/pipeline.zig");
 
 const alias = aliases.alias;
+const pipeline = Pipeline.pipeline;
 const set = Set.set;
 
 var Self = @This();
@@ -21,7 +23,7 @@ pub const Err = error{
     FileSysErr,
 };
 
-const BuiltinFn = *const fn (a: *HSH, b: *ParsedIterator) Err!void;
+pub const BuiltinFn = *const fn (a: *HSH, b: *ParsedIterator) Err!void;
 
 pub const Builtins = enum {
     alias,
@@ -32,6 +34,7 @@ pub const Builtins = enum {
     exit,
     fg,
     jobs,
+    pipeline,
     set,
     which,
     // DEBUGGING BUILTINS
@@ -52,6 +55,7 @@ pub fn exec(self: Builtins) BuiltinFn {
         .exit => exit, // TODO exit should be kinder than die
         .fg => fg,
         .jobs => jobs,
+        .pipeline => pipeline,
         .set => set,
         .which => which,
         // DEBUGGING BUILTIN
