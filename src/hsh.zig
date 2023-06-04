@@ -168,7 +168,7 @@ fn initHSH(hsh: *HSH) !void {
 
             const bi_func = bi.strExec(titr.first().cannon());
             titr.restart();
-            bi_func(hsh, &titr) catch |err| {
+            _ = bi_func(hsh, &titr) catch |err| {
                 std.debug.print("rc parse error {}\n", .{err});
             };
             //std.debug.print("tokens {any}\n", .{tokenizer.tokens.items});

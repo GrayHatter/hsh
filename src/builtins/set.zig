@@ -116,21 +116,24 @@ fn disable(h: *HSH, o: Opts) !void {
     }
 }
 
-fn special(h: *HSH, titr: *ParsedIterator) Err!void {
+fn special(h: *HSH, titr: *ParsedIterator) Err!u8 {
     _ = h;
     _ = titr;
+    return 0;
 }
 
-fn option(h: *HSH, titr: *ParsedIterator) Err!void {
+fn option(h: *HSH, titr: *ParsedIterator) Err!u8 {
     _ = h;
     _ = titr;
+    return 0;
 }
 
-fn dump(h: *HSH) Err!void {
+fn dump(h: *HSH) Err!u8 {
     _ = h;
+    return 0;
 }
 
-pub fn set(h: *HSH, titr: *ParsedIterator) Err!void {
+pub fn set(h: *HSH, titr: *ParsedIterator) Err!u8 {
     if (!std.mem.eql(u8, titr.first().cannon(), "set")) return Err.InvalidCommand;
 
     if (titr.next()) |arg| {
@@ -149,5 +152,5 @@ pub fn set(h: *HSH, titr: *ParsedIterator) Err!void {
     } else {
         return dump(h);
     }
-    return;
+    return 0;
 }

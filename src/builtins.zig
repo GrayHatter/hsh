@@ -18,12 +18,13 @@ var Self = @This();
 pub const Err = error{
     Unknown,
     Memory,
+    IO,
     InvalidToken,
     InvalidCommand,
     FileSysErr,
 };
 
-pub const BuiltinFn = *const fn (a: *HSH, b: *ParsedIterator) Err!void;
+pub const BuiltinFn = *const fn (a: *HSH, b: *ParsedIterator) Err!u8;
 
 pub const Builtins = enum {
     alias,
@@ -79,12 +80,22 @@ pub fn exists(str: []const u8) bool {
     return false;
 }
 
-fn bg(hsh: *HSH, _: *ParsedIterator) Err!void {
-    hsh.tty.print("bg not yet implemented\n", .{}) catch return Err.Unknown;
+/// reusable print function for builtins
+pub fn print(
+    comptime format: []const u8,
+    args: anytype,
+) !void {
+    const stdout = std.io.getStdOut().writer();
+    try stdout.print(format, args);
+}
+
+fn bg(_: *HSH, _: *ParsedIterator) Err!u8 {
+    print("bg not yet implemented\n", .{}) catch return Err.Unknown;
+    return 0;
 }
 
 /// Someone should add some sane input sanitzation to this
-fn cd(hsh: *HSH, titr: *ParsedIterator) Err!void {
+fn cd(hsh: *HSH, titr: *ParsedIterator) Err!u8 {
     // TODO pushd and popd
     var path: [1 << 10]u8 = undefined;
     var path_len: usize = 0;
@@ -113,9 +124,10 @@ fn cd(hsh: *HSH, titr: *ParsedIterator) Err!void {
         return Err.FileSysErr;
     };
     hsh.updateFs();
+    return 0;
 }
 
-pub fn die(_: *HSH, _: *ParsedIterator) Err!void {
+pub fn die(_: *HSH, _: *ParsedIterator) Err!u8 {
     unreachable;
 }
 
@@ -127,47 +139,51 @@ test "fs" {
     try ndir.setAsCwd();
 }
 
-fn echo(hsh: *HSH, _: *ParsedIterator) Err!void {
-    hsh.tty.print("echo not yet implemented\n", .{}) catch return Err.Unknown;
+fn echo(_: *HSH, _: *ParsedIterator) Err!u8 {
+    print("echo not yet implemented\n", .{}) catch return Err.Unknown;
+    return 0;
 }
 
 /// TODO implement real version of exit
-fn exit(h: *HSH, i: *ParsedIterator) Err!void {
+fn exit(h: *HSH, i: *ParsedIterator) Err!u8 {
     return noimpl(h, i);
 }
 
 /// TODO implement job selection support
-fn fg(hsh: *HSH, _: *ParsedIterator) Err!void {
+fn fg(hsh: *HSH, _: *ParsedIterator) Err!u8 {
     var paused: usize = 0;
     for (hsh.jobs.items) |j| {
         paused += if (j.status == .Paused or j.status == .Waiting) 1 else 0;
     }
     if (paused == 0) {
         hsh.tty.print("No resumeable jobs\n", .{}) catch {};
-        return;
+        return 1;
     }
     if (paused == 1) {
         hsh.tty.print("Restarting job\n", .{}) catch {};
         jobs_.contNext(hsh, true) catch unreachable;
-        return;
+        return 0;
     }
 
-    hsh.tty.print("More than one job paused, fg not yet implemented\n", .{}) catch return Err.Unknown;
+    print("More than one job paused, fg not yet implemented\n", .{}) catch return Err.Unknown;
+    return 0;
 }
 
-fn jobs(hsh: *HSH, _: *ParsedIterator) Err!void {
+fn jobs(hsh: *HSH, _: *ParsedIterator) Err!u8 {
     for (hsh.jobs.items) |j| {
         hsh.tty.print("{}", .{j}) catch return Err.Unknown;
     }
+    return 0;
 }
 
 /// TODO implement real version
-fn which(h: *HSH, i: *ParsedIterator) Err!void {
+fn which(h: *HSH, i: *ParsedIterator) Err!u8 {
     return noimpl(h, i);
 }
 
-fn noimpl(h: *HSH, i: *ParsedIterator) Err!void {
-    h.tty.print("{s} not yet implemented\n", .{i.first().cannon()}) catch return Err.Unknown;
+fn noimpl(_: *HSH, i: *ParsedIterator) Err!u8 {
+    print("{s} not yet implemented\n", .{i.first().cannon()}) catch return Err.Unknown;
+    return 0;
 }
 
 test "builtins" {
@@ -195,8 +211,9 @@ test "builtins alias" {
 }
 
 //DEBUGGING BUILTINS
-fn tty(hsh: *HSH, _: *ParsedIterator) Err!void {
+fn tty(hsh: *HSH, _: *ParsedIterator) Err!u8 {
     for (hsh.tty.attrs.items) |i| {
         std.debug.print("attr {any}\n", .{i});
     }
+    return 0;
 }

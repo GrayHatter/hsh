@@ -292,6 +292,9 @@ pub fn main() !void {
     var args = std.process.args();
     while (args.next()) |arg| {
         log.info("arg: {s}\n", .{arg});
+        if (std.mem.eql(u8, "debug", arg)) {
+            log.verbosity = .debug;
+        }
     }
 
     hsh.tkn = Tokenizer.init(a);
@@ -323,7 +326,7 @@ pub fn main() !void {
                 if (tokens.len == 0) continue;
                 var titr = Parser.parse(&hsh.tkn.alloc, tokens, false) catch continue;
                 if (true)
-                    while (titr.next()) |t| std.debug.print("{}\n", .{t});
+                    while (titr.next()) |t| log.debug("{}\n", .{t});
 
                 titr.restart();
                 if (hsh.hist) |*hist| try hist.push(hsh.tkn.raw.items);

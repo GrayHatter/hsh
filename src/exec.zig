@@ -11,7 +11,7 @@ const TokenIterator = tokenizer.TokenIterator;
 const parse = @import("parse.zig");
 const Parser = parse.Parser;
 const ParsedIterator = parse.ParsedIterator;
-
+const log = @import("log");
 const mem = std.mem;
 const fd_t = std.os.fd_t;
 const bi = @import("builtins.zig");
@@ -42,7 +42,7 @@ const Exec = struct {
 
 const Builtin = struct {
     builtin: []const u8,
-    argv: *ParsedIterator,
+    argv: ParsedIterator,
 };
 
 const Callable = union(enum) {
@@ -106,27 +106,27 @@ fn makeExeZ(a: Allocator, paths: [][]const u8, str: []const u8) Error!ARG {
     return exe.toOwnedSliceSentinel(0) catch return Error.Memory;
 }
 
-fn mkBuiltin(_: *const HSH, titr: *ParsedIterator) Error!Builtin {
+fn mkBuiltin(_: *const HSH, titr: ParsedIterator) Error!Builtin {
+    var itr = titr;
     return Builtin{
-        .builtin = titr.first().cannon(),
-        .argv = titr,
+        .builtin = itr.first().cannon(),
+        .argv = itr,
     };
 }
 
 /// Caller owns memory of argv, and the open fds
-fn mkExec(h: *const HSH, titr: *ParsedIterator) Error!Exec {
+fn mkExec(h: *const HSH, titr: ParsedIterator) Error!Exec {
     var exeZ: ?ARG = null;
     var argv = ArrayList(?ARG).init(h.alloc);
+    var itr = titr;
 
-    while (titr.next()) |t| {
-        if (exeZ) |_| {} else {
-            exeZ = makeExeZ(h.alloc, h.fs.paths.items, t.cannon()) catch |e| {
-                std.debug.print("path missing {s}\n", .{t.cannon()});
-                return e;
-            };
-            argv.append(exeZ.?) catch return Error.Memory;
-            continue;
-        }
+    exeZ = makeExeZ(h.alloc, h.fs.paths.items, itr.first().cannon()) catch |e| {
+        log.err("path missing {s}\n", .{itr.first().cannon()});
+        return e;
+    };
+    argv.append(exeZ) catch return Error.Memory;
+
+    while (itr.next()) |t| {
         argv.append(
             h.alloc.dupeZ(u8, t.cannon()) catch return Error.Memory,
         ) catch return Error.Memory;
@@ -143,6 +143,9 @@ fn mkCallableStack(h: *HSH, itr: *TokenIterator) Error![]CallableStack {
     itr.restart();
 
     while (itr.peek()) |peek| {
+        var eslice = itr.toSliceExec(h.alloc) catch unreachable;
+        //defer h.alloc.free(eslice);
+
         var io: ?StdIo = null;
         switch (peek.type) {
             .IoRedir => {
@@ -156,17 +159,13 @@ fn mkCallableStack(h: *HSH, itr: *TokenIterator) Error![]CallableStack {
             },
             else => {},
         }
-        var eslice = itr.toSliceExec(h.alloc) catch unreachable;
-        std.debug.print("{any}\n", .{peek});
-        std.debug.print("{any}\n", .{eslice});
-        defer h.alloc.free(eslice);
+
         var parsed = Parser.parse(&h.alloc, eslice, false) catch unreachable;
-        var callable = switch (peek.type) {
-            .Builtin => Callable{ .builtin = try mkBuiltin(h, &parsed) },
-            else => Callable{ .exec = try mkExec(h, &parsed) },
-        };
         stack.append(CallableStack{
-            .callable = callable,
+            .callable = switch (parsed.peek().?.type) {
+                .Builtin => Callable{ .builtin = try mkBuiltin(h, parsed) },
+                else => Callable{ .exec = try mkExec(h, parsed) },
+            },
             .stdio = io,
         }) catch return Error.Memory;
     }
@@ -176,7 +175,7 @@ fn mkCallableStack(h: *HSH, itr: *TokenIterator) Error![]CallableStack {
 pub fn exec(h: *HSH, titr: *TokenIterator) Error!ArrayList(jobs.Job) {
     titr.restart();
     const stack = mkCallableStack(h, titr) catch |e| {
-        std.debug.print("unable to make stack {}\n", .{e});
+        log.err("unable to make stack {}\n", .{e});
         return e;
     };
 
@@ -204,9 +203,14 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!ArrayList(jobs.Job) {
             switch (s.callable) {
                 .builtin => |*b| {
                     const bi_func = bi.strExec(b.builtin);
-                    bi_func(h, b.argv) catch |err| {
-                        std.debug.print("builtin error {}\n", .{err});
+                    log.dump(bi_func);
+                    log.dump(b.argv);
+                    log.dump(b.argv.first());
+                    const exit = bi_func(h, &b.argv) catch |err| e: {
+                        log.err("builtin error {}\n", .{err});
+                        break :e 255;
                     };
+                    std.os.exit(exit);
                 },
                 .exec => |e| {
                     // TODO manage env
@@ -220,7 +224,7 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!ArrayList(jobs.Job) {
                             // we validate exes internall now this should be impossible
                             unreachable;
                         },
-                        else => std.debug.print("exec error {}\n", .{res}),
+                        else => log.err("exec error {}\n", .{res}),
                     }
                 },
             }
@@ -229,7 +233,7 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!ArrayList(jobs.Job) {
 
         // Child must noreturn
         // Parent
-        //std.debug.print("chld pid {}\n", .{fpid});
+        //log.err("chld pid {}\n", .{fpid});
         const name = switch (s.callable) {
             .builtin => |b| b.builtin,
             .exec => |e| std.mem.sliceTo(e.arg, 0),

@@ -7,6 +7,7 @@ const bi = @import("../builtins.zig");
 const Err = bi.Err;
 const ParsedIterator = @import("../parse.zig").ParsedIterator;
 const State = bi.State;
+const print = bi.print;
 
 /// name and value are assumed to be owned by alias, and are expected to be
 /// valid between calls to alias.
@@ -51,7 +52,7 @@ fn save(h: *HSH, _: *anyopaque) ?[][]const u8 {
     return list;
 }
 
-pub fn alias(h: *HSH, titr: *ParsedIterator) Err!void {
+pub fn alias(h: *HSH, titr: *ParsedIterator) Err!u8 {
     if (!std.mem.eql(u8, "alias", titr.first().cannon())) return Err.InvalidCommand;
 
     var name: ?[]const u8 = null;
@@ -82,22 +83,23 @@ pub fn alias(h: *HSH, titr: *ParsedIterator) Err!void {
                 h.alloc.free(found.*.value);
                 found.*.value = v;
                 h.alloc.free(n);
-                return;
+                return 0;
             }
-            return add(n, v);
+            if (add(n, v)) return 0 else |err| return err;
         }
         if (find(n)) |nn| {
-            h.tty.print("{}\n", .{nn}) catch return Err.Unknown;
+            print("{}\n", .{nn}) catch return Err.Unknown;
         } else {
-            h.tty.print("no known alias for {s}\n", .{n}) catch return Err.Unknown;
+            print("no known alias for {s}\n", .{n}) catch return Err.Unknown;
         }
         h.alloc.free(n);
-        return;
+        return 0;
     }
 
     for (aliases.items) |a| {
-        h.tty.print("{}\n", .{a}) catch return Err.Unknown;
+        print("{}\n", .{a}) catch return Err.Unknown;
     }
+    return 0;
 }
 
 pub fn find(src: []const u8) ?*Alias {
