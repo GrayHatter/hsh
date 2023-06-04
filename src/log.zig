@@ -13,6 +13,8 @@ pub const Level = enum(u4) {
     trace,
 };
 
+pub var verbosity: Level = .info;
+
 /// TODO NO_COLOR support
 pub fn hshLogFn(
     comptime level: Level,
@@ -20,6 +22,7 @@ pub fn hshLogFn(
     comptime format: []const u8,
     args: anytype,
 ) void {
+    if (@enumToInt(verbosity) < @enumToInt(level)) return;
     const prefix = comptime switch (level) {
         .err => "[\x1B[31merr\x1B[39m] ",
         .warning => "[\x1B[33mwrn\x1B[39m] ",
@@ -40,4 +43,12 @@ pub fn err(comptime format: []const u8, args: anytype) void {
 
 pub fn info(comptime format: []const u8, args: anytype) void {
     hshLogFn(.info, .default, format, args);
+}
+
+pub fn debug(comptime format: []const u8, args: anytype) void {
+    hshLogFn(.debug, .default, format, args);
+}
+
+pub fn dump(args: anytype) void {
+    hshLogFn(.critical, .default, "{}\n", .{args});
 }
