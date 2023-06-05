@@ -52,3 +52,7 @@ pub fn debug(comptime format: []const u8, args: anytype) void {
 pub fn dump(args: anytype) void {
     hshLogFn(.critical, .default, "{}\n", .{args});
 }
+
+pub fn dumpstr(args: anytype) void {
+    hshLogFn(.critical, .default, "{s}\n", .{args});
+}
