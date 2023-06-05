@@ -336,7 +336,6 @@ pub fn main() !void {
                         continue;
                     }
 
-                    try hsh.tty.pushOrig();
                     var itr = hsh.tkn.iterator();
                     var exec_jobs = exec(&hsh, &itr) catch |err| {
                         if (err == Exec.Error.ExeNotFound) {
@@ -347,7 +346,6 @@ pub fn main() !void {
                     };
                     defer exec_jobs.clearAndFree();
                     hsh.tkn.reset();
-                    _ = try jobs.add(exec_jobs.pop());
                     while (exec_jobs.popOrNull()) |j| {
                         _ = try jobs.add(j);
                     }

@@ -35,7 +35,7 @@ const StdIo = struct {
     stderr: fd_t,
 };
 
-const Exec = struct {
+const Binary = struct {
     arg: ARG,
     argv: ARGV,
 };
@@ -47,15 +47,13 @@ const Builtin = struct {
 
 const Callable = union(enum) {
     builtin: Builtin,
-    exec: Exec,
+    exec: Binary,
 };
 
 const CallableStack = struct {
     callable: Callable,
     stdio: ?StdIo,
 };
-
-fn setup() void {}
 
 pub fn executable(h: *HSH, str: []const u8) bool {
     if (bi.exists(str)) return true;
@@ -115,7 +113,7 @@ fn mkBuiltin(_: *const HSH, titr: ParsedIterator) Error!Builtin {
 }
 
 /// Caller owns memory of argv, and the open fds
-fn mkExec(h: *const HSH, titr: ParsedIterator) Error!Exec {
+fn mkExec(h: *const HSH, titr: ParsedIterator) Error!Binary {
     var exeZ: ?ARG = null;
     var argv = ArrayList(?ARG).init(h.alloc);
     var itr = titr;
@@ -131,7 +129,7 @@ fn mkExec(h: *const HSH, titr: ParsedIterator) Error!Exec {
             h.alloc.dupeZ(u8, t.cannon()) catch return Error.Memory,
         ) catch return Error.Memory;
     }
-    return Exec{
+    return Binary{
         .arg = exeZ.?,
         .argv = argv.toOwnedSliceSentinel(null) catch return Error.Memory,
     };
@@ -172,6 +170,33 @@ fn mkCallableStack(h: *HSH, itr: *TokenIterator) Error![]CallableStack {
     return stack.toOwnedSlice() catch return Error.Memory;
 }
 
+fn execBuiltin(h: *HSH, b: *Builtin) Error!u8 {
+    const bi_func = bi.strExec(b.builtin);
+    log.dump(bi_func);
+    log.dump(b.argv);
+    log.dump(b.argv.first());
+    return bi_func(h, &b.argv) catch |err| {
+        log.err("builtin error {}\n", .{err});
+        return 255;
+    };
+}
+
+fn execBin(e: Binary) Error!void {
+    // TODO manage env
+    const res = std.os.execveZ(
+        e.arg,
+        e.argv,
+        @ptrCast([*:null]?[*:0]u8, std.os.environ),
+    );
+    switch (res) {
+        error.FileNotFound => {
+            // we validate exes internally now this should be impossible
+            unreachable;
+        },
+        else => log.err("exec error {}\n", .{res}),
+    }
+}
+
 pub fn exec(h: *HSH, titr: *TokenIterator) Error!ArrayList(jobs.Job) {
     titr.restart();
     const stack = mkCallableStack(h, titr) catch |e| {
@@ -183,6 +208,16 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!ArrayList(jobs.Job) {
     var rootout = std.os.dup(std.os.STDOUT_FILENO) catch return Error.OSErr;
 
     var cjobs = ArrayList(jobs.Job).init(h.alloc);
+
+    if (stack.len == 1 and stack[0].callable == .builtin) {
+        _ = try execBuiltin(h, &stack[0].callable.builtin);
+        return cjobs;
+    }
+
+    h.tty.pushOrig() catch |e| {
+        log.err("TTY didn't respond {}\n", .{e});
+        return Error.Unknown;
+    };
 
     for (stack) |*s| {
         const fpid: std.os.pid_t = std.os.fork() catch return Error.OSErr;
@@ -202,30 +237,11 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!ArrayList(jobs.Job) {
 
             switch (s.callable) {
                 .builtin => |*b| {
-                    const bi_func = bi.strExec(b.builtin);
-                    log.dump(bi_func);
-                    log.dump(b.argv);
-                    log.dump(b.argv.first());
-                    const exit = bi_func(h, &b.argv) catch |err| e: {
-                        log.err("builtin error {}\n", .{err});
-                        break :e 255;
-                    };
-                    std.os.exit(exit);
+                    std.os.exit(try execBuiltin(h, b));
                 },
                 .exec => |e| {
-                    // TODO manage env
-                    const res = std.os.execveZ(
-                        e.arg,
-                        e.argv,
-                        @ptrCast([*:null]?[*:0]u8, std.os.environ),
-                    );
-                    switch (res) {
-                        error.FileNotFound => {
-                            // we validate exes internall now this should be impossible
-                            unreachable;
-                        },
-                        else => log.err("exec error {}\n", .{res}),
-                    }
+                    try execBin(e);
+                    unreachable;
                 },
             }
             unreachable;
