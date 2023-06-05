@@ -192,24 +192,29 @@ fn writeLine(f: std.fs.File, line: []const u8) !usize {
     return size;
 }
 
-fn writeState(h: *HSH, s: *State) !void {
+fn writeState(h: *HSH, saves: []State) !void {
     const outf = h.rc orelse return E.FSysGeneric;
-    const data: ?[][]const u8 = s.save(h);
 
-    if (data) |dd| {
-        _ = try writeLine(outf, "# [ ");
-        _ = try writeLine(outf, s.name);
-        _ = try writeLine(outf, " ]\n");
-        for (dd) |line| {
-            _ = try writeLine(outf, line);
-            h.alloc.free(line);
+    for (saves) |*s| {
+        const data: ?[][]const u8 = s.save(h);
+
+        if (data) |dd| {
+            _ = try writeLine(outf, "# [ ");
+            _ = try writeLine(outf, s.name);
+            _ = try writeLine(outf, " ]\n");
+            for (dd) |line| {
+                _ = try writeLine(outf, line);
+                h.alloc.free(line);
+            }
+            _ = try writeLine(outf, "\n\n");
+        } else {
+            _ = try writeLine(outf, "# [ ");
+            _ = try writeLine(outf, s.name);
+            _ = try writeLine(outf, " ] didn't provide any save data\n");
         }
-        _ = try writeLine(outf, "\n\n");
-    } else {
-        _ = try writeLine(outf, "# [ ");
-        _ = try writeLine(outf, s.name);
-        _ = try writeLine(outf, " ] didn't provide any save data\n");
     }
+    const cpos = outf.getPos() catch return E.FSysGeneric;
+    outf.setEndPos(cpos) catch return E.FSysGeneric;
 }
 
 pub const HSH = struct {
@@ -309,9 +314,7 @@ pub const HSH = struct {
         if (hsh.hist) |hist| hist.raze();
 
         hsh.rc.?.seekTo(0) catch unreachable;
-        for (savestates.items) |*saver| {
-            writeState(hsh, saver) catch continue;
-        }
+        writeState(hsh, savestates.items) catch {};
 
         if (hsh.rc) |rrc| rrc.close();
     }
@@ -324,7 +327,6 @@ pub const HSH = struct {
     }
 
     pub fn find_confdir(_: HSH) []const u8 {}
-    pub fn cd(_: HSH, _: []u8) ![]u8 {}
 
     fn stopChildren(hsh: *HSH) void {
         for (hsh.jobs.items) |*j| {
