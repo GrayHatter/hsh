@@ -8,6 +8,7 @@ const Err = bi.Err;
 const ParsedIterator = @import("../parse.zig").ParsedIterator;
 const State = bi.State;
 const print = bi.print;
+const log = @import("log");
 
 /// name and value are assumed to be owned by alias, and are expected to be
 /// valid between calls to alias.
@@ -67,6 +68,10 @@ pub fn alias(h: *HSH, titr: *ParsedIterator) Err!u8 {
                 } else {
                     if (std.mem.indexOf(u8, t.cannon(), "=")) |i| {
                         name = h.alloc.dupe(u8, t.cannon()[0..i]) catch return Err.Memory;
+                        if (t.cannon().len > i + 1) {
+                            value = h.alloc.dupe(u8, t.cannon()[i + 1 ..]) catch return Err.Memory;
+                            break;
+                        }
                     } else {
                         name = h.alloc.dupe(u8, t.cannon()) catch return Err.Memory;
                     }
@@ -111,14 +116,25 @@ pub fn find(src: []const u8) ?*Alias {
     return null;
 }
 
+// TODO might leak
 fn add(src: []const u8, dst: []const u8) Err!void {
+    if (dst.len == 0) return del(src);
     aliases.append(Alias{
         .name = src,
         .value = dst,
     }) catch return Err.Memory;
 }
 
-fn del() void {}
+fn del(src: []const u8) Err!void {
+    for (aliases.items, 0..) |a, i| {
+        if (std.mem.eql(u8, src, a.name)) {
+            var d = aliases.swapRemove(i);
+            aliases.allocator.free(d.name);
+            aliases.allocator.free(d.value);
+            return;
+        }
+    }
+}
 
 pub fn testing_setup(a: std.mem.Allocator) *std.ArrayList(Alias) {
     aliases = std.ArrayList(Alias).init(a);
