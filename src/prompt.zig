@@ -67,7 +67,7 @@ pub fn prompt(hsh: *HSH, tkn: *Tokenizer) !void {
             },
             .{ .char = "@" },
             .{ .char = "host " },
-            .{ .char = hsh.fs.cwd_short },
+            .{ .char = hsh.hfs.names.cwd_short },
             .{ .char = " $ " },
         },
     });

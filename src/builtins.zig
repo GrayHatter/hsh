@@ -111,19 +111,18 @@ fn cd(hsh: *HSH, titr: *ParsedIterator) Err!u8 {
             else => return Err.InvalidToken,
         }
     } else {
-        if (hsh.fs.home_name != null) {
-            std.mem.copy(u8, &path, hsh.fs.home_name.?);
-            path_len = hsh.fs.home_name.?.len;
+        if (hsh.hfs.names.home) |home| {
+            std.mem.copy(u8, &path, home);
+            path_len = home.len;
         } else return Err.InvalidCommand;
     }
 
     // std.debug.print("cd path {s} default {s}\n", .{ &path, hsh.fs.home_name });
-    const dir = hsh.fs.cwd.openDir(path[0..path_len], .{}) catch return Err.FileSysErr;
+    const dir = hsh.hfs.dirs.cwd.dir.openDir(path[0..path_len], .{}) catch return Err.FileSysErr;
     dir.setAsCwd() catch |e| {
         std.debug.print("cwd failed! {}", .{e});
         return Err.FileSysErr;
     };
-    hsh.updateFs();
     return 0;
 }
 

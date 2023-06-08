@@ -9,6 +9,8 @@ pub fn init() void {}
 
 pub fn raze() void {}
 
+fn file() !std.fs.File {}
+
 pub fn pipeline(h: *HSH, titr: *ParsedIterator) Err!u8 {
     _ = h;
     _ = titr;

@@ -15,16 +15,15 @@ const bi = @import("builtins.zig");
 const State = @import("state.zig");
 const History = @import("history.zig");
 const Context = @import("context.zig");
+const fs = @import("fs.zig");
 
 pub const Error = error{
     Unknown,
     Memory,
     EOF,
-    FSysMissing,
-    FSysGeneric,
     CorruptFile,
     Other,
-};
+} || fs.Error;
 const E = Error;
 
 pub const Features = enum {
@@ -49,17 +48,6 @@ comptime {
     }
 }
 
-const hshfs = struct {
-    cwd: std.fs.Dir,
-    cwdi: std.fs.IterableDir,
-    cwd_name: []u8 = undefined,
-    cwd_short: []u8 = undefined,
-    confdir: ?[]const u8 = null,
-    home_name: ?[]const u8 = null,
-    path_env: ?[]const u8 = null,
-    paths: ArrayList([]const u8),
-};
-
 test "fs" {
     const a = std.testing.allocator;
     var env = std.process.getEnvMap(a) catch return E.Unknown; // TODO err handling
@@ -70,52 +58,12 @@ test "fs" {
     defer env.deinit();
 }
 
-fn openishFile(dir: std.fs.Dir, name: []const u8, comptime create: bool) ?std.fs.File {
-    if (create) {
-        return dir.createFile(name, .{ .read = true, .truncate = false }) catch return null;
-    } else {
-        return dir.openFile(name, .{ .mode = .read_write }) catch return null;
-    }
-}
-
-/// Caller owns returned file
-fn findPath(a: Allocator, env: *std.process.EnvMap, name: []const u8, comptime create: bool) !std.fs.File {
-    if (env.get("XDG_CONFIG_HOME")) |xdg| {
-        var out = try a.dupe(u8, xdg);
-        out = try mem.concatPath(a, out, "hsh");
-        defer a.free(out);
-        if (std.fs.openDirAbsolute(out, .{})) |d| {
-            if (openishFile(d, name, create)) |file| return file;
-        } else |_| {
-            std.debug.print("unable to open {s}\n", .{out});
-        }
-    } else if (env.get("HOME")) |home| {
-        var main = try a.dupe(u8, home);
-        defer a.free(main);
-        if (std.fs.openDirAbsolute(home, .{})) |h| {
-            if (h.openDir(".config", .{})) |hc| {
-                if (hc.openDir("hsh", .{})) |hch| {
-                    if (openishFile(hch, name[1..], create)) |file| {
-                        return file;
-                    }
-                } else |e| std.debug.print("unable to open {s} {}\n", .{ "hsh", e });
-                //return hc;
-            } else |e| std.debug.print("unable to open {s} {}\n", .{ "conf", e });
-            if (openishFile(h, name, create)) |file| {
-                return file;
-            }
-        } else |e| std.debug.print("unable to open {s} {}\n", .{ "home", e });
-    }
-
-    return E.FSysMissing;
-}
-
 fn openRcFile(a: Allocator, env: *std.process.EnvMap) !?std.fs.File {
-    return try findPath(a, env, ".hshrc", false);
+    return try fs.findPath(a, env, ".hshrc", false);
 }
 
 fn openHistFile(a: Allocator, env: *std.process.EnvMap) !?std.fs.File {
-    return try findPath(a, env, ".hsh_history", false);
+    return try fs.findPath(a, env, ".hsh_history", false);
 }
 
 /// caller owns memory
@@ -150,7 +98,7 @@ fn initHSH(hsh: *HSH) !void {
 
     try Context.init(&hsh.alloc);
 
-    if (hsh.rc) |rc_| {
+    if (hsh.hfs.rc) |rc_| {
         var r = rc_.reader();
         var a = hsh.alloc;
 
@@ -193,7 +141,7 @@ fn writeLine(f: std.fs.File, line: []const u8) !usize {
 }
 
 fn writeState(h: *HSH, saves: []State) !void {
-    const outf = h.rc orelse return E.FSysGeneric;
+    const outf = h.hfs.rc orelse return E.FSysGeneric;
 
     for (saves) |*s| {
         const data: ?[][]const u8 = s.save(h);
@@ -221,11 +169,23 @@ pub const HSH = struct {
     alloc: Allocator,
     features: hshFeature,
     env: std.process.EnvMap,
-    fs: hshfs = undefined,
+    hfs: struct {
+        rc: ?std.fs.File = null,
+        dirs: struct {
+            cwd: std.fs.IterableDir,
+            conf: ?std.fs.IterableDir = null,
+        },
+        names: struct {
+            cwd: []u8,
+            cwd_short: []u8,
+            home: ?[]const u8,
+            path: ?[]const u8,
+            paths: ArrayList([]const u8),
+        },
+    },
     pid: std.os.pid_t,
     pgrp: std.os.pid_t = -1,
     jobs: *jobs.Jobs,
-    rc: ?std.fs.File = null,
     hist: ?History,
     tty: TTY = undefined,
     draw: Drawable = undefined,
@@ -240,6 +200,16 @@ pub const HSH = struct {
         // it's a mistake to alter the env for a running process.
         var env = std.process.getEnvMap(a) catch return E.Unknown; // TODO err handling
 
+        const path = if (env.get("PATH")) |p| a.dupe(u8, p) catch null else null;
+        var cwd = std.fs.cwd().realpathAlloc(a, ".") catch return E.Memory;
+        var cwd_short = cwd;
+        if (env.get("HOME")) |home| {
+            if (std.mem.startsWith(u8, cwd, home)) {
+                cwd_short = a.dupe(u8, cwd[home.len - 1 ..]) catch return E.Memory;
+                cwd_short[0] = '~';
+            }
+        }
+
         var conf = try getConfigs(a, &env);
         var hsh = HSH{
             .alloc = a,
@@ -247,38 +217,26 @@ pub const HSH = struct {
             .env = env,
             .pid = std.os.linux.getpid(),
             .jobs = jobs.init(a),
-            .rc = conf[0],
+            .hfs = .{
+                .rc = conf[0],
+                .dirs = .{
+                    .cwd = std.fs.cwd().openIterableDir(".", .{}) catch return E.Memory,
+                },
+                .names = .{
+                    .cwd = cwd,
+                    .cwd_short = cwd_short,
+                    .home = env.get("HOME"),
+                    .path = path,
+                    .paths = initPath(a, path) catch return E.Memory,
+                },
+            },
             .hist = if (conf[1]) |cfd| History{ .hist = cfd } else null,
         };
-        hsh.initFs() catch return E.FSysGeneric;
 
         try initHSH(&hsh);
         return hsh;
         //__hsh = hsh;
         //return hsh;
-    }
-
-    fn initFs(hsh: *HSH) !void {
-        var fs = &hsh.fs;
-        const env = hsh.env;
-        fs.cwd = std.fs.cwd();
-        fs.cwdi = try fs.cwd.openIterableDir(".", .{});
-        fs.cwd_name = try fs.cwd.realpathAlloc(hsh.alloc, ".");
-
-        fs.home_name = env.get("HOME");
-        const penv = env.get("PATH");
-
-        fs.path_env = if (penv) |_| hsh.alloc.dupe(u8, penv.?) catch null else null;
-
-        fs.cwd_short = fs.cwd_name;
-        if (fs.home_name) |home| {
-            if (std.mem.startsWith(u8, fs.cwd_name, home)) {
-                fs.cwd_short = hsh.alloc.dupe(u8, fs.cwd_name[home.len - 1 ..]) catch return E.Memory;
-                fs.cwd_short[0] = '~';
-            }
-        }
-
-        fs.paths = initPath(hsh.alloc, fs.path_env) catch return E.Memory;
     }
 
     fn initPath(a: Allocator, path_env: ?[]const u8) !ArrayList([]const u8) {
@@ -294,7 +252,6 @@ pub const HSH = struct {
 
     pub fn updateFs(hsh: *HSH) void {
         hsh.razeFs();
-        hsh.initFs() catch unreachable;
     }
 
     pub fn enabled(hsh: *const HSH, comptime f: Features) bool {
@@ -313,10 +270,10 @@ pub const HSH = struct {
         hsh.env.deinit();
         if (hsh.hist) |hist| hist.raze();
 
-        hsh.rc.?.seekTo(0) catch unreachable;
+        hsh.hfs.rc.?.seekTo(0) catch unreachable;
         writeState(hsh, savestates.items) catch {};
 
-        if (hsh.rc) |rrc| rrc.close();
+        if (hsh.hfs.rc) |rrc| rrc.close();
     }
 
     fn razeFs(hsh: *HSH) void {

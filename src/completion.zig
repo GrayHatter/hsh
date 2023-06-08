@@ -147,7 +147,7 @@ fn completePath(h: *HSH, target: []const u8) !void {
     var whole = std.mem.splitBackwards(u8, target, "/");
     var base = whole.first();
     var path = whole.rest();
-    var dir = h.fs.cwdi.dir.openIterableDir(path, .{}) catch return;
+    var dir = h.hfs.dirs.cwd.dir.openIterableDir(path, .{}) catch return;
 
     var itr = dir.iterate();
     while (try itr.next()) |each| {
@@ -183,8 +183,8 @@ pub fn complete(hsh: *HSH, t: *const Token) !*CompSet {
         .kind = CompKindE{ .Original = 0 },
     });
     switch (t.type) {
-        .WhiteSpace => try completeDir(&hsh.fs.cwdi),
-        .String => try completeDirBase(&hsh.fs.cwdi, t.cannon()),
+        .WhiteSpace => try completeDir(&hsh.hfs.dirs.cwd),
+        .String => try completeDirBase(&hsh.hfs.dirs.cwd, t.cannon()),
         .Path => try completePath(hsh, t.cannon()),
         .IoRedir => {},
         else => {},

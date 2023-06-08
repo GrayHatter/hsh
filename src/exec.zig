@@ -57,7 +57,7 @@ const CallableStack = struct {
 
 pub fn executable(h: *HSH, str: []const u8) bool {
     if (bi.exists(str)) return true;
-    var plsfree = makeAbsExecutable(h.alloc, h.fs.paths.items, str) catch return false;
+    var plsfree = makeAbsExecutable(h.alloc, h.hfs.names.paths.items, str) catch return false;
     plsfree.clearAndFree();
     return true;
 }
@@ -118,7 +118,7 @@ fn mkExec(h: *const HSH, titr: ParsedIterator) Error!Binary {
     var argv = ArrayList(?ARG).init(h.alloc);
     var itr = titr;
 
-    exeZ = makeExeZ(h.alloc, h.fs.paths.items, itr.first().cannon()) catch |e| {
+    exeZ = makeExeZ(h.alloc, h.hfs.names.paths.items, itr.first().cannon()) catch |e| {
         log.err("path missing {s}\n", .{itr.first().cannon()});
         return e;
     };
