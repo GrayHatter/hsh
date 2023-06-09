@@ -342,8 +342,13 @@ pub const Tokenizer = struct {
                 t.kindext = KindExt{ .io = .In };
             },
             '>' => {
-                t.raw = if (src.len > 1 and src[1] == '>') src[0..2] else src[0..1];
-                t.kindext = KindExt{ .io = .Out };
+                if (src[1] == '>') {
+                    t.raw = src[0..2];
+                    t.kindext = KindExt{ .io = .Append };
+                } else {
+                    t.raw = src[0..1];
+                    t.kindext = KindExt{ .io = .Out };
+                }
             },
             else => return Error.InvalidSrc,
         }
@@ -961,7 +966,10 @@ test "token > file" {
     try std.testing.expectEqual(len, 2);
 
     try std.testing.expectEqualStrings("ls", ti.first().cannon());
-    try std.testing.expectEqualStrings("file.txt", ti.next().?.cannon());
+    var iot = ti.next().?;
+    try std.testing.expectEqualStrings("file.txt", iot.cannon());
+    try std.testing.expect(iot.kind == .IoRedir);
+    try std.testing.expect(iot.kindext.io == .Out);
 }
 
 test "token > file extra ws" {
@@ -977,6 +985,24 @@ test "token > file extra ws" {
 
     try std.testing.expectEqualStrings("ls", ti.first().cannon());
     try std.testing.expectEqualStrings("file.txt", ti.next().?.cannon());
+}
+
+test "token >> file" {
+    var ti = TokenIterator{
+        .raw = "ls >> file.txt",
+    };
+
+    var len: usize = 0;
+    while (ti.next()) |_| {
+        len += 1;
+    }
+    try std.testing.expectEqual(len, 2);
+
+    try std.testing.expectEqualStrings("ls", ti.first().cannon());
+    var iot = ti.next().?;
+    try std.testing.expectEqualStrings("file.txt", iot.cannon());
+    try std.testing.expect(iot.kind == .IoRedir);
+    try std.testing.expect(iot.kindext.io == .Append);
 }
 
 test "token < file" {
