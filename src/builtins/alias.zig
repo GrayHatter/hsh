@@ -60,7 +60,7 @@ pub fn alias(h: *HSH, titr: *ParsedIterator) Err!u8 {
     var value: ?[]const u8 = null;
     var mode: ?[]const u8 = null;
     while (titr.next()) |t| {
-        switch (t.type) {
+        switch (t.kind) {
             .Operator => {},
             else => {
                 if (name) |_| {

@@ -56,10 +56,10 @@ pub const ParsedIterator = struct {
 
         if (self.subtokens) |_| return self.nextSubtoken(token);
 
-        if (i == 0 and token.type == .String) {
+        if (i == 0 and token.kind == .String) {
             if (self.nextSubtoken(token)) |tk| return tk;
             return token;
-        } else if (token.type == .WhiteSpace and !self.ws) {
+        } else if (token.kind == .WhiteSpace and !self.ws) {
             self.index.? += 1;
             return self.next();
         }
@@ -163,7 +163,7 @@ pub const Parser = struct {
     fn parseToken(a: *Allocator, token: *Token) Error!*Token {
         if (token.raw.len == 0) return token;
 
-        switch (token.type) {
+        switch (token.kind) {
             .Quote => {
                 var needle = [2]u8{ '\\', token.subtoken };
                 if (mem.indexOfScalar(u8, token.raw, '\\')) |_| {} else return token;
@@ -182,7 +182,7 @@ pub const Parser = struct {
             },
             .String => {
                 if (mem.indexOf(u8, token.raw, "/")) |_| {
-                    token.type = .Path;
+                    token.kind = .Path;
                     return token;
                 } else return token;
             },
@@ -210,7 +210,7 @@ pub const Parser = struct {
 
     fn parseBuiltin(tkn: *Token) Error!*Token {
         if (Builtins.exists(tkn.cannon())) {
-            tkn.*.type = .Builtin;
+            tkn.*.kind = .Builtin;
             return tkn;
         }
         return Error.Empty;
@@ -346,9 +346,9 @@ test "iterator ws" {
 //     var a = std.testing.allocator;
 //
 //     var ts = [_]Token{
-//         Token{ .type = .Tree, .raw = "ls -la" },
-//         Token{ .type = .WhiteSpace, .raw = " " },
-//         Token{ .type = .String, .raw = "src" },
+//         Token{ .kind = .Tree, .raw = "ls -la" },
+//         Token{ .kind = .WhiteSpace, .raw = " " },
+//         Token{ .kind = .String, .raw = "src" },
 //     };
 //
 //     var itr = try Parser.parse(&a, &ts, false);
@@ -367,7 +367,7 @@ test "iterator alias is builtin" {
     var a = std.testing.allocator;
 
     var ts = [_]Token{
-        Token{ .type = .String, .raw = "alias" },
+        Token{ .kind = .String, .raw = "alias" },
     };
 
     var itr = try Parser.parse(&a, &ts, false);
@@ -378,7 +378,7 @@ test "iterator alias is builtin" {
     try expectEql(i, 1);
     try std.testing.expectEqualStrings("alias", itr.first().cannon());
     try expect(itr.next() == null);
-    try std.testing.expect(itr.first().type == .Builtin);
+    try std.testing.expect(itr.first().kind == .Builtin);
 }
 
 test "iterator aliased" {
@@ -391,9 +391,9 @@ test "iterator aliased" {
     });
 
     var ts = [_]Token{
-        Token{ .type = .String, .raw = "la" },
-        Token{ .type = .WhiteSpace, .raw = " " },
-        Token{ .type = .String, .raw = "src" },
+        Token{ .kind = .String, .raw = "la" },
+        Token{ .kind = .WhiteSpace, .raw = " " },
+        Token{ .kind = .String, .raw = "src" },
     };
 
     var itr = try Parser.parse(&a, &ts, false);
@@ -418,9 +418,9 @@ test "iterator aliased self" {
     });
 
     var ts = [_]Token{
-        Token{ .type = .String, .raw = "ls" },
-        Token{ .type = .WhiteSpace, .raw = " " },
-        Token{ .type = .String, .raw = "src" },
+        Token{ .kind = .String, .raw = "ls" },
+        Token{ .kind = .WhiteSpace, .raw = " " },
+        Token{ .kind = .String, .raw = "src" },
     };
 
     var itr = try Parser.parse(&a, &ts, false);
@@ -451,9 +451,9 @@ test "iterator aliased recurse" {
     });
 
     var ts = [_]Token{
-        Token{ .type = .String, .raw = "la" },
-        Token{ .type = .WhiteSpace, .raw = " " },
-        Token{ .type = .String, .raw = "src" },
+        Token{ .kind = .String, .raw = "la" },
+        Token{ .kind = .WhiteSpace, .raw = " " },
+        Token{ .kind = .String, .raw = "src" },
     };
 
     var itr = try Parser.parse(&a, &ts, false);

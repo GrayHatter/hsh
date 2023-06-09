@@ -5,7 +5,7 @@ const HSH = @import("hsh.zig").HSH;
 const IterableDir = std.fs.IterableDir;
 const tokenizer = @import("tokenizer.zig");
 const Token = tokenizer.Token;
-const TokenKind = tokenizer.TokenKind;
+const Kind = tokenizer.Kind;
 
 const Self = @This();
 
@@ -65,7 +65,7 @@ pub const CompSet = struct {
     // actually using most of orig_token is much danger, such UB
     // the pointers contained within are likely already invalid!
     //orig_token: ?*const Token = null,
-    kind: TokenKind = undefined,
+    kind: Kind = undefined,
 
     /// true when there's a known completion [or the original]
     pub fn known(self: *CompSet) bool {
@@ -173,7 +173,7 @@ fn completePath(h: *HSH, target: []const u8) !void {
 /// called again.
 pub fn complete(hsh: *HSH, t: *const Token) !*CompSet {
     compset.raze();
-    compset.kind = t.type;
+    compset.kind = t.kind;
     compset.index = 0;
 
     const full = try compset.alloc.dupe(u8, t.cannon());
@@ -182,7 +182,7 @@ pub fn complete(hsh: *HSH, t: *const Token) !*CompSet {
         .name = full,
         .kind = CompKindE{ .Original = 0 },
     });
-    switch (t.type) {
+    switch (t.kind) {
         .WhiteSpace => try completeDir(&hsh.hfs.dirs.cwd),
         .String => try completeDirBase(&hsh.hfs.dirs.cwd, t.cannon()),
         .Path => try completePath(hsh, t.cannon()),

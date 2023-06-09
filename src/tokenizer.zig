@@ -9,7 +9,7 @@ const CompOption = @import("completion.zig").CompOption;
 
 const breaking_tokens = " \t\"'`${|><#;:";
 
-pub const TokenKind = enum(u8) {
+pub const Kind = enum(u8) {
     WhiteSpace,
     String,
     Builtin,
@@ -20,6 +20,21 @@ pub const TokenKind = enum(u8) {
     Path,
     Var,
     Aliased,
+};
+
+pub const IOKind = enum {
+    Pipe,
+    In,
+    HDoc,
+    Out,
+    Append,
+    Err,
+};
+
+pub const KindExt = union(enum) {
+    nos: void,
+    word: void,
+    io: IOKind,
 };
 
 pub const Error = error{
@@ -69,7 +84,7 @@ pub const TokenIterator = struct {
     pub fn next(self: *Self) ?*const Token {
         const n = self.nextAny();
 
-        if (n != null and n.?.type == .WhiteSpace) {
+        if (n != null and n.?.kind == .WhiteSpace) {
             return self.next();
         }
         return n;
@@ -83,7 +98,7 @@ pub const TokenIterator = struct {
 
         const t_ = self.next();
         if (t_) |t| {
-            switch (t.type) {
+            switch (t.kind) {
                 .IoRedir, .ExecDelim => {
                     self.index.? -= t.raw.len;
                     return null;
@@ -123,7 +138,7 @@ pub const TokenIterator = struct {
         if (self.nextExec()) |n| {
             try list.append(n.*);
         } else if (self.next()) |n| {
-            if (n.type != .IoRedir and n.type != .ExecDelim) {
+            if (n.kind != .IoRedir and n.kind != .ExecDelim) {
                 try list.append(n.*);
             }
         }
@@ -155,7 +170,8 @@ pub const Token = struct {
     raw: []const u8, // "full" Slice, you probably want to use cannon()
     i: u16 = 0,
     backing: ?ArrayList(u8) = null,
-    type: TokenKind,
+    kind: Kind,
+    extrakind: KindExt = .nos,
     parsed: bool = false,
     subtoken: u8 = 0,
     // I hate this but I've spent too much time on this already #YOLO
@@ -164,14 +180,14 @@ pub const Token = struct {
     pub fn format(self: Token, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
         // this is what net.zig does, so it's what I do
         if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
-        try std.fmt.format(out, "Token({}){{{s}}}", .{ self.type, self.raw });
+        try std.fmt.format(out, "Token({}){{{s}}}", .{ self.kind, self.raw });
     }
 
     pub fn cannon(self: Token) []const u8 {
         if (self.backing) |b| return b.items;
         //if (self.resolved) |r| return r;
 
-        return switch (self.type) {
+        return switch (self.kind) {
             .Quote => return self.raw[1 .. self.raw.len - 1],
             else => self.raw,
         };
@@ -189,9 +205,9 @@ pub const Token = struct {
     }
 };
 
-pub fn tokenPos(comptime t: TokenKind, hs: []const Token) ?usize {
+pub fn tokenPos(comptime t: Kind, hs: []const Token) ?usize {
     for (hs, 0..) |tk, i| {
-        if (t == tk.type) return i;
+        if (t == tk.kind) return i;
     }
     return null;
 }
@@ -303,23 +319,23 @@ pub const Tokenizer = struct {
         } else end += 1;
         return Token{
             .raw = src[0..end],
-            .type = TokenKind.String,
+            .kind = Kind.String,
         };
     }
 
     fn ioredir(src: []const u8) Error!Token {
         switch (src[0]) {
-            '|' => return Token{ .raw = src[0..1], .type = .IoRedir },
+            '|' => return Token{ .raw = src[0..1], .kind = .IoRedir },
             '<' => {
                 return Token{
                     .raw = if (src.len > 1 and src[1] == '<') src[0..2] else src[0..1],
-                    .type = .IoRedir,
+                    .kind = .IoRedir,
                 };
             },
             '>' => {
                 return Token{
                     .raw = if (src.len > 1 and src[1] == '>') src[0..2] else src[0..1],
-                    .type = .IoRedir,
+                    .kind = .IoRedir,
                 };
             },
             else => return Error.InvalidSrc,
@@ -330,11 +346,11 @@ pub const Tokenizer = struct {
         switch (src[0]) {
             ';' => return Token{
                 .raw = src[0..1],
-                .type = .ExecDelim,
+                .kind = .ExecDelim,
             },
             '&' => return Token{
                 .raw = src[0..1],
-                .type = .ExecDelim,
+                .kind = .ExecDelim,
             },
             else => return Error.InvalidSrc,
         }
@@ -344,7 +360,7 @@ pub const Tokenizer = struct {
         switch (src[0]) {
             '=' => return Token{
                 .raw = src[0..1],
-                .type = .Operator,
+                .kind = .Operator,
             },
             else => return Error.InvalidSrc,
         }
@@ -368,7 +384,7 @@ pub const Tokenizer = struct {
 
         return Token{
             .raw = src[0..end],
-            .type = TokenKind.Quote,
+            .kind = Kind.Quote,
             .subtoken = subt,
         };
     }
@@ -381,20 +397,20 @@ pub const Tokenizer = struct {
         }
         return Token{
             .raw = src[0..end],
-            .type = TokenKind.WhiteSpace,
+            .kind = Kind.WhiteSpace,
         };
     }
 
     fn path(src: []const u8) Error!Token {
         var t = try Tokenizer.string(src);
-        t.type = TokenKind.Path;
+        t.kind = Kind.Path;
         return t;
     }
 
     pub fn dump_tokens(self: Tokenizer, ws: bool) !void {
         std.debug.print("\n", .{});
         for (self.tokens.items) |i| {
-            if (!ws and i.type == .WhiteSpace) continue;
+            if (!ws and i.kind == .WhiteSpace) continue;
             std.debug.print("{}\n", .{i});
         }
     }
@@ -415,7 +431,7 @@ pub const Tokenizer = struct {
             sum += t.raw.len;
         }
         self.c_idx = sum + old.raw.len;
-        if (old.type != .WhiteSpace) try self.popRange(old.raw.len);
+        if (old.kind != .WhiteSpace) try self.popRange(old.raw.len);
         if (new.kind == .Original and mem.eql(u8, new.full, " ")) return;
 
         try self.consumeSafeish(new.full);
@@ -692,7 +708,7 @@ test "tokenize path" {
     _ = try t.tokenize();
     try expectEql(t.raw.items.len, "blerg ~/dir".len);
     try expectEql(t.tokens.items.len, 3);
-    try expect(t.tokens.items[2].type == TokenKind.Path);
+    try expect(t.tokens.items[2].kind == Kind.Path);
     try expect(eql(u8, t.tokens.items[2].raw, "~/dir"));
     t.reset();
 
@@ -700,7 +716,7 @@ test "tokenize path" {
     _ = try t.tokenize();
     try expectEql(t.raw.items.len, "blerg /home/user/something".len);
     try expectEql(t.tokens.items.len, 3);
-    try expect(t.tokens.items[2].type == TokenKind.Path);
+    try expect(t.tokens.items[2].kind == Kind.Path);
     try expect(eql(u8, t.tokens.items[2].raw, "/home/user/something"));
 }
 

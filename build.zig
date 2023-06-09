@@ -13,9 +13,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    exe.addModule("log", b.createModule(.{
+    const log = b.createModule(.{
         .source_file = .{ .path = "src/log.zig" },
-    }));
+    });
+
+    exe.addModule("log", log);
 
     b.installArtifact(exe);
 
@@ -33,8 +35,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-
+    unit_tests.addModule("log", log);
     const run_tests = b.addRunArtifact(unit_tests);
+
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
 }

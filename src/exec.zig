@@ -145,7 +145,7 @@ fn mkCallableStack(h: *HSH, itr: *TokenIterator) Error![]CallableStack {
         //defer h.alloc.free(eslice);
 
         var io: ?StdIo = null;
-        switch (peek.type) {
+        switch (peek.kind) {
             .IoRedir => {
                 if (!std.mem.eql(u8, "|", peek.cannon())) unreachable;
                 const pipe = std.os.pipe2(0) catch return Error.OSErr;
@@ -160,7 +160,7 @@ fn mkCallableStack(h: *HSH, itr: *TokenIterator) Error![]CallableStack {
 
         var parsed = Parser.parse(&h.alloc, eslice, false) catch unreachable;
         stack.append(CallableStack{
-            .callable = switch (parsed.peek().?.type) {
+            .callable = switch (parsed.peek().?.kind) {
                 .Builtin => Callable{ .builtin = try mkBuiltin(h, parsed) },
                 else => Callable{ .exec = try mkExec(h, parsed) },
             },
@@ -183,11 +183,7 @@ fn execBuiltin(h: *HSH, b: *Builtin) Error!u8 {
 
 fn execBin(e: Binary) Error!void {
     // TODO manage env
-    const res = std.os.execveZ(
-        e.arg,
-        e.argv,
-        @ptrCast([*:null]?[*:0]u8, std.os.environ),
-    );
+    const res = std.os.execveZ(e.arg, e.argv, @ptrCast([*:null]?[*:0]u8, std.os.environ));
     switch (res) {
         error.FileNotFound => {
             // we validate exes internally now this should be impossible
@@ -330,7 +326,7 @@ test "c memory" {
     try std.testing.expect(mem.eql(u8, tkn.tokens.items[0].raw, "ls"));
     try std.testing.expect(mem.eql(u8, tkn.tokens.items[0].cannon(), "ls"));
     for (tkn.tokens.items) |token| {
-        if (token.type == .WhiteSpace) continue;
+        if (token.kind == .WhiteSpace) continue;
         var arg = a.alloc(u8, token.cannon().len + 1) catch unreachable;
         mem.copy(u8, arg, token.cannon());
         arg[token.cannon().len] = 0;
