@@ -978,3 +978,33 @@ test "token > file extra ws" {
     try std.testing.expectEqualStrings("ls", ti.first().cannon());
     try std.testing.expectEqualStrings("file.txt", ti.next().?.cannon());
 }
+
+test "token < file" {
+    var ti = TokenIterator{
+        .raw = "ls < file.txt",
+    };
+
+    var len: usize = 0;
+    while (ti.next()) |_| {
+        len += 1;
+    }
+    try std.testing.expectEqual(len, 2);
+
+    try std.testing.expectEqualStrings("ls", ti.first().cannon());
+    try std.testing.expectEqualStrings("file.txt", ti.next().?.cannon());
+}
+
+test "token < file extra ws" {
+    var ti = TokenIterator{
+        .raw = "ls <               file.txt",
+    };
+
+    var len: usize = 0;
+    while (ti.next()) |_| {
+        len += 1;
+    }
+    try std.testing.expectEqual(len, 2);
+
+    try std.testing.expectEqualStrings("ls", ti.first().cannon());
+    try std.testing.expectEqualStrings("file.txt", ti.next().?.cannon());
+}
