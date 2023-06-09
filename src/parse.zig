@@ -26,7 +26,6 @@ pub const ParsedIterator = struct {
     index: ?usize,
     subtokens: ?[]TokenIterator,
     resolved: [][]const u8,
-    ws: bool,
     const Self = @This();
 
     /// Restart iterator, and assumes length >= 1
@@ -59,9 +58,14 @@ pub const ParsedIterator = struct {
         if (i == 0 and token.kind == .String) {
             if (self.nextSubtoken(token)) |tk| return tk;
             return token;
-        } else if (token.kind == .WhiteSpace and !self.ws) {
-            self.index.? += 1;
-            return self.next();
+        } else {
+            switch (token.kind) {
+                .WhiteSpace, .IoRedir, .ExecDelim => {
+                    self.index.? += 1;
+                    return self.next();
+                },
+                else => {},
+            }
         }
         defer self.index.? += 1;
         return token;
@@ -144,7 +148,7 @@ pub const ParsedIterator = struct {
 pub const Parser = struct {
     alloc: Allocator,
 
-    pub fn parse(a: *Allocator, tokens: []Token, comptime ws: bool) Error!ParsedIterator {
+    pub fn parse(a: *Allocator, tokens: []Token) Error!ParsedIterator {
         if (tokens.len == 0) return Error.Empty;
         for (tokens) |*tk| {
             _ = parseToken(a, tk) catch unreachable;
@@ -156,7 +160,6 @@ pub const Parser = struct {
             .index = 0,
             .subtokens = null,
             .resolved = a.alloc([]u8, 0) catch return Error.Memory,
-            .ws = ws,
         };
     }
 
@@ -319,27 +322,12 @@ test "iterator nows" {
 
     try t.consumes("\"this is some text\" more text");
     var ts = try t.tokenize();
-    var itr = try Parser.parse(&a, ts, false);
+    var itr = try Parser.parse(&a, ts);
     var i: usize = 0;
     while (itr.next()) |_| {
         i += 1;
     }
     try expectEql(i, 3);
-}
-
-test "iterator ws" {
-    var a = std.testing.allocator;
-    var t: Tokenizer = Tokenizer.init(std.testing.allocator);
-    defer t.reset();
-
-    try t.consumes("\"this is some text\" more text");
-    var ts = try t.tokenize();
-    var itr = try Parser.parse(&a, ts, true);
-    var i: usize = 0;
-    while (itr.next()) |_| {
-        i += 1;
-    }
-    try expectEql(i, 5);
 }
 
 // test "iterator tree" {
@@ -351,7 +339,7 @@ test "iterator ws" {
 //         Token{ .kind = .String, .raw = "src" },
 //     };
 //
-//     var itr = try Parser.parse(&a, &ts, false);
+//     var itr = try Parser.parse(&a, &ts);
 //     var i: usize = 0;
 //     while (itr.next()) |_| {
 //         i += 1;
@@ -370,7 +358,7 @@ test "iterator alias is builtin" {
         Token{ .kind = .String, .raw = "alias" },
     };
 
-    var itr = try Parser.parse(&a, &ts, false);
+    var itr = try Parser.parse(&a, &ts);
     var i: usize = 0;
     while (itr.next()) |_| {
         i += 1;
@@ -396,7 +384,7 @@ test "iterator aliased" {
         Token{ .kind = .String, .raw = "src" },
     };
 
-    var itr = try Parser.parse(&a, &ts, false);
+    var itr = try Parser.parse(&a, &ts);
     var i: usize = 0;
     while (itr.next()) |_| {
         i += 1;
@@ -423,7 +411,7 @@ test "iterator aliased self" {
         Token{ .kind = .String, .raw = "src" },
     };
 
-    var itr = try Parser.parse(&a, &ts, false);
+    var itr = try Parser.parse(&a, &ts);
     var i: usize = 0;
     while (itr.next()) |_| {
         //std.debug.print("{}\n", .{t});
@@ -456,7 +444,7 @@ test "iterator aliased recurse" {
         Token{ .kind = .String, .raw = "src" },
     };
 
-    var itr = try Parser.parse(&a, &ts, false);
+    var itr = try Parser.parse(&a, &ts);
     var i: usize = 0;
     while (itr.next()) |_| {
         //std.debug.print("{}\n", .{t});

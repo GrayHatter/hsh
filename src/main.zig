@@ -103,7 +103,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
         '\x09' => |b| { // \t
             // Tab is best effort, it shouldn't be able to crash hsh
             var tkns = tkn.tokenize() catch return .Prompt;
-            _ = Parser.parse(&tkn.alloc, tkns, false) catch return .Prompt;
+            _ = Parser.parse(&tkn.alloc, tkns) catch return .Prompt;
 
             if (!tkn.tab()) {
                 try tkn.consumec(b);
@@ -218,7 +218,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                 }
                 return .Prompt;
             };
-            var run = Parser.parse(&tkn.alloc, tkns, false);
+            var run = Parser.parse(&tkn.alloc, tkns);
             //Draw.clearCtx(&hsh.draw);
             if (run) |titr| {
                 if (titr.tokens.len > 0) return .Exec;
@@ -324,7 +324,7 @@ pub fn main() !void {
             if (l) {
                 var tokens = hsh.tkn.tokenize() catch continue;
                 if (tokens.len == 0) continue;
-                var titr = Parser.parse(&hsh.tkn.alloc, tokens, false) catch continue;
+                var titr = Parser.parse(&hsh.tkn.alloc, tokens) catch continue;
                 if (true)
                     while (titr.next()) |t| log.debug("{}\n", .{t});
 
@@ -337,18 +337,14 @@ pub fn main() !void {
                     }
 
                     var itr = hsh.tkn.iterator();
-                    var exec_jobs = exec(&hsh, &itr) catch |err| {
+                    exec(&hsh, &itr) catch |err| {
                         if (err == Exec.Error.ExeNotFound) {
                             std.debug.print("exe pipe error {}\n", .{err});
                         }
                         std.debug.print("Exec error {}\n", .{err});
                         unreachable;
                     };
-                    defer exec_jobs.clearAndFree();
                     hsh.tkn.reset();
-                    while (exec_jobs.popOrNull()) |j| {
-                        _ = try jobs.add(j);
-                    }
                     continue;
                 }
             } else {

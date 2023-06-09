@@ -111,7 +111,7 @@ fn initHSH(hsh: *HSH) !void {
             defer tokenizer.reset();
             tokenizer.consumes(line) catch continue;
             _ = tokenizer.tokenize() catch continue;
-            var titr = Parser.parse(&a, tokenizer.tokens.items, false) catch continue;
+            var titr = Parser.parse(&a, tokenizer.tokens.items) catch continue;
             if (titr.first().kind != .Builtin) continue;
 
             const bi_func = bi.strExec(titr.first().cannon());

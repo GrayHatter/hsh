@@ -6,7 +6,8 @@ const tokenizer = @import("tokenizer.zig");
 const Allocator = mem.Allocator;
 const Tokenizer = tokenizer.Tokenizer;
 const ArrayList = std.ArrayList;
-const TokenKind = tokenizer.TokenKind;
+const Kind = tokenizer.Kind;
+const KindExt = tokenizer.KindExt;
 const TokenIterator = tokenizer.TokenIterator;
 const parse = @import("parse.zig");
 const Parser = parse.Parser;
@@ -14,6 +15,7 @@ const ParsedIterator = parse.ParsedIterator;
 const log = @import("log");
 const mem = std.mem;
 const fd_t = std.os.fd_t;
+const fs = @import("fs.zig");
 const bi = @import("builtins.zig");
 
 pub const Error = error{
@@ -30,9 +32,10 @@ const ARG = [*:0]u8;
 const ARGV = [:null]?ARG;
 
 const StdIo = struct {
-    left: fd_t,
-    right: fd_t,
-    stderr: fd_t,
+    in: fd_t = std.os.STDIN_FILENO,
+    out: fd_t = std.os.STDOUT_FILENO,
+    err: fd_t = std.os.STDERR_FILENO,
+    pipe: bool = false,
 };
 
 const Binary = struct {
@@ -52,7 +55,7 @@ const Callable = union(enum) {
 
 const CallableStack = struct {
     callable: Callable,
-    stdio: ?StdIo,
+    stdio: StdIo,
 };
 
 pub fn executable(h: *HSH, str: []const u8) bool {
@@ -139,28 +142,56 @@ fn mkCallableStack(h: *HSH, itr: *TokenIterator) Error![]CallableStack {
     var stack = ArrayList(CallableStack).init(h.alloc);
 
     itr.restart();
+    var prev_stdout: ?fd_t = null;
 
     while (itr.peek()) |peek| {
-        var eslice = itr.toSliceExec(h.alloc) catch unreachable;
-        //defer h.alloc.free(eslice);
-
-        var io: ?StdIo = null;
-        switch (peek.kind) {
-            .IoRedir => {
-                if (!std.mem.eql(u8, "|", peek.cannon())) unreachable;
-                const pipe = std.os.pipe2(0) catch return Error.OSErr;
-                io = StdIo{
-                    .left = pipe[1],
-                    .right = pipe[0],
-                    .stderr = std.os.STDERR_FILENO,
-                };
-            },
-            else => {},
+        var io: StdIo = StdIo{ .in = prev_stdout orelse std.os.STDIN_FILENO };
+        if (peek.kindext == .io) {
+            log.dump(peek);
+            log.err("itr idx = {}\n", .{itr.index.?});
+            switch (peek.kindext.io) {
+                .Pipe => {
+                    const pipe = std.os.pipe2(0) catch return Error.OSErr;
+                    io.pipe = true;
+                    io.out = pipe[1];
+                    prev_stdout = pipe[0];
+                },
+                else => {
+                    log.dump(peek);
+                    unreachable;
+                },
+            }
         }
 
-        var parsed = Parser.parse(&h.alloc, eslice, false) catch unreachable;
+        var eslice = itr.toSliceExec(h.alloc) catch unreachable;
+        //defer h.alloc.free(eslice);
+        // peek is now invalid because of how the iterator works :<
+        var parsed = Parser.parse(&h.alloc, eslice) catch unreachable;
+        for (eslice) |maybeio| {
+            if (maybeio.kindext == .io) {
+                switch (maybeio.kindext.io) {
+                    .Out, .Append => {
+                        if (fs.openFile(maybeio.cannon(), true)) |file| {
+                            io.out = file.handle;
+                        }
+                    },
+                    .In, .HDoc => {
+                        if (prev_stdout) |out| {
+                            std.os.close(out);
+                            prev_stdout = null;
+                        }
+                        if (fs.openFile(maybeio.cannon(), true)) |file| {
+                            io.in = file.handle;
+                        }
+                    },
+                    .Err => unreachable,
+                    .Pipe => unreachable,
+                }
+            }
+        }
+
         stack.append(CallableStack{
-            .callable = switch (parsed.peek().?.kind) {
+            .callable = switch (parsed.first().kind) {
                 .Builtin => Callable{ .builtin = try mkBuiltin(h, parsed) },
                 else => Callable{ .exec = try mkExec(h, parsed) },
             },
@@ -193,21 +224,16 @@ fn execBin(e: Binary) Error!void {
     }
 }
 
-pub fn exec(h: *HSH, titr: *TokenIterator) Error!ArrayList(jobs.Job) {
+pub fn exec(h: *HSH, titr: *TokenIterator) Error!void {
     titr.restart();
     const stack = mkCallableStack(h, titr) catch |e| {
         log.err("unable to make stack {}\n", .{e});
         return e;
     };
 
-    var previo: ?StdIo = null;
-    var rootout = std.os.dup(std.os.STDOUT_FILENO) catch return Error.OSErr;
-
-    var cjobs = ArrayList(jobs.Job).init(h.alloc);
-
     if (stack.len == 1 and stack[0].callable == .builtin) {
         _ = try execBuiltin(h, &stack[0].callable.builtin);
-        return cjobs;
+        return;
     }
 
     h.tty.pushOrig() catch |e| {
@@ -218,17 +244,17 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!ArrayList(jobs.Job) {
     for (stack) |*s| {
         const fpid: std.os.pid_t = std.os.fork() catch return Error.OSErr;
         if (fpid == 0) {
-            if (previo) |pio| {
-                std.os.dup2(pio.right, std.os.STDIN_FILENO) catch return Error.OSErr;
-                std.os.close(pio.left);
-                std.os.close(pio.right);
+            if (s.stdio.in != std.os.STDIN_FILENO) {
+                std.os.dup2(s.stdio.in, std.os.STDIN_FILENO) catch return Error.OSErr;
+                std.os.close(s.stdio.in);
             }
-            if (s.stdio) |io| {
-                std.os.dup2(io.left, std.os.STDOUT_FILENO) catch return Error.OSErr;
-                std.os.close(io.left);
-                std.os.close(io.right);
-            } else {
-                std.os.dup2(rootout, std.os.STDOUT_FILENO) catch return Error.OSErr;
+            if (s.stdio.out != std.os.STDOUT_FILENO) {
+                std.os.dup2(s.stdio.out, std.os.STDOUT_FILENO) catch return Error.OSErr;
+                std.os.close(s.stdio.out);
+            }
+            if (s.stdio.err != std.os.STDERR_FILENO) {
+                std.os.dup2(s.stdio.err, std.os.STDERR_FILENO) catch return Error.OSErr;
+                std.os.close(s.stdio.err);
             }
 
             switch (s.callable) {
@@ -241,27 +267,24 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!ArrayList(jobs.Job) {
                 },
             }
             unreachable;
+            // Child must noreturn
         }
-
-        // Child must noreturn
         // Parent
+
         //log.err("chld pid {}\n", .{fpid});
         const name = switch (s.callable) {
             .builtin => |b| b.builtin,
             .exec => |e| std.mem.sliceTo(e.arg, 0),
         };
-        cjobs.append(jobs.Job{
-            .status = if (s.stdio) |_| .Piped else .Running,
+        jobs.add(jobs.Job{
+            .status = if (s.stdio.pipe) .Piped else .Running,
             .pid = fpid,
             .name = h.alloc.dupe(u8, name) catch return Error.Memory,
         }) catch return Error.Memory;
-        if (previo) |pio| {
-            std.os.close(pio.left);
-            std.os.close(pio.right);
-        }
-        previo = s.stdio;
+        if (s.stdio.in != std.os.STDIN_FILENO) std.os.close(s.stdio.in);
+        if (s.stdio.out != std.os.STDOUT_FILENO) std.os.close(s.stdio.out);
+        if (s.stdio.err != std.os.STDERR_FILENO) std.os.close(s.stdio.err);
     }
-    return cjobs;
 }
 
 /// I hate all of this but stdlib likes to panic instead of manage errors
@@ -276,7 +299,6 @@ pub fn child(h: *HSH, argv: [:null]const ?[*:0]const u8) !ERes {
     const pid = std.os.fork() catch unreachable;
     if (pid == 0) {
         // we kid nao
-        //std.os.dup2(pipe[1], std.os.STDERR_FILENO) catch unreachable;
         std.os.dup2(pipe[1], std.os.STDOUT_FILENO) catch unreachable;
         std.os.close(pipe[0]);
         std.os.close(pipe[1]);
@@ -289,11 +311,6 @@ pub fn child(h: *HSH, argv: [:null]const ?[*:0]const u8) !ERes {
         };
         unreachable;
     }
-    //try jobs.add(jobs.Job{
-    //    .name = "child",
-    //    .pid = pid,
-    //    .status = .Child,
-    //});
     std.os.close(pipe[1]);
     defer std.os.close(pipe[0]);
 

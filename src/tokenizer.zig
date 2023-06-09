@@ -82,15 +82,16 @@ pub const TokenIterator = struct {
 
     /// next skips whitespace, if you need whitespace tokens use nextAny
     pub fn next(self: *Self) ?*const Token {
-        const n = self.nextAny();
+        const n = self.nextAny() orelse return null;
 
-        if (n != null and n.?.kind == .WhiteSpace) {
+        if (n.kind == .WhiteSpace) {
             return self.next();
         }
         return n;
     }
 
-    /// "cuts" to the next executable boundary
+    /// returns next until index reaches an executable boundary,
+    /// returns null if index is at that boundary.
     pub fn nextExec(self: *Self) ?*const Token {
         if (self.exec_index) |_| {} else {
             self.exec_index = self.index;
@@ -99,7 +100,13 @@ pub const TokenIterator = struct {
         const t_ = self.next();
         if (t_) |t| {
             switch (t.kind) {
-                .IoRedir, .ExecDelim => {
+                .IoRedir => {
+                    if (t.kindext.io == .Pipe) {
+                        self.index.? -= t.raw.len;
+                        return null;
+                    }
+                },
+                .ExecDelim => {
                     self.index.? -= t.raw.len;
                     return null;
                 },
@@ -122,7 +129,6 @@ pub const TokenIterator = struct {
     // caller owns the memory, this will reset the index
     pub fn toSliceAny(self: *Self, a: Allocator) ![]Token {
         var list = ArrayList(Token).init(a);
-        self.index = 0;
         while (self.nextAny()) |n| {
             try list.append(n.*);
         }
@@ -138,7 +144,7 @@ pub const TokenIterator = struct {
         if (self.nextExec()) |n| {
             try list.append(n.*);
         } else if (self.next()) |n| {
-            if (n.kind != .IoRedir and n.kind != .ExecDelim) {
+            if ((n.kindext == .io and n.kindext.io != .Pipe) and n.kind != .ExecDelim) {
                 try list.append(n.*);
             }
         }
@@ -985,6 +991,33 @@ test "token > file extra ws" {
 
     try std.testing.expectEqualStrings("ls", ti.first().cannon());
     try std.testing.expectEqualStrings("file.txt", ti.next().?.cannon());
+}
+
+test "token > execSlice" {
+    var ti = TokenIterator{
+        .raw = "ls > file.txt",
+    };
+
+    var len: usize = 0;
+    while (ti.nextExec()) |_| {
+        len += 1;
+    }
+    try std.testing.expectEqual(len, 2);
+
+    try std.testing.expectEqualStrings("ls", ti.first().cannon());
+    var iot = ti.next().?;
+    try std.testing.expectEqualStrings("file.txt", iot.cannon());
+    try std.testing.expect(iot.kind == .IoRedir);
+    try std.testing.expect(iot.kindext.io == .Out);
+
+    ti.restart();
+    try std.testing.expect(ti.peek() != null);
+    var slice = try ti.toSliceExec(std.testing.allocator);
+    try std.testing.expect(ti.peek() == null);
+    try std.testing.expect(ti.peek() == null);
+    try std.testing.expect(ti.peek() == null);
+    try std.testing.expect(ti.peek() == null);
+    std.testing.allocator.free(slice);
 }
 
 test "token >> file" {
