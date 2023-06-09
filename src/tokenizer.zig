@@ -171,7 +171,7 @@ pub const Token = struct {
     i: u16 = 0,
     backing: ?ArrayList(u8) = null,
     kind: Kind,
-    extrakind: KindExt = .nos,
+    kindext: KindExt = .nos,
     parsed: bool = false,
     subtoken: u8 = 0,
     // I hate this but I've spent too much time on this already #YOLO
@@ -189,6 +189,7 @@ pub const Token = struct {
 
         return switch (self.kind) {
             .Quote => return self.raw[1 .. self.raw.len - 1],
+            .IoRedir => return self.resolved.?,
             else => self.raw,
         };
     }
@@ -324,22 +325,33 @@ pub const Tokenizer = struct {
     }
 
     fn ioredir(src: []const u8) Error!Token {
+        if (src.len < 3) return Error.InvalidSrc;
+        var i: usize = std.mem.indexOfAny(u8, src, " \t") orelse return Error.InvalidSrc;
+        var t = Token{
+            .raw = src[0..1],
+            .kind = .IoRedir,
+        };
         switch (src[0]) {
-            '|' => return Token{ .raw = src[0..1], .kind = .IoRedir },
+            '|' => {
+                t.kindext = KindExt{ .io = .Pipe };
+                t.resolved = t.raw;
+                return t;
+            },
             '<' => {
-                return Token{
-                    .raw = if (src.len > 1 and src[1] == '<') src[0..2] else src[0..1],
-                    .kind = .IoRedir,
-                };
+                t.raw = if (src.len > 1 and src[1] == '<') src[0..2] else src[0..1];
+                t.kindext = KindExt{ .io = .In };
             },
             '>' => {
-                return Token{
-                    .raw = if (src.len > 1 and src[1] == '>') src[0..2] else src[0..1],
-                    .kind = .IoRedir,
-                };
+                t.raw = if (src.len > 1 and src[1] == '>') src[0..2] else src[0..1];
+                t.kindext = KindExt{ .io = .Out };
             },
             else => return Error.InvalidSrc,
         }
+        while (src[i] == ' ' or src[i] == '\t') : (i += 1) {}
+        var target = (try any(src[i..])).raw;
+        t.resolved = target;
+        t.raw = src[0 .. i + target.len];
+        return t;
     }
 
     fn execdelim(src: []const u8) Error!Token {
@@ -935,4 +947,34 @@ test "token pipeline slice safe with next()" {
     try std.testing.expectEqualStrings("this", slice[1].cannon());
     try std.testing.expectEqualStrings("works", slice[2].cannon());
     std.testing.allocator.free(slice);
+}
+
+test "token > file" {
+    var ti = TokenIterator{
+        .raw = "ls > file.txt",
+    };
+
+    var len: usize = 0;
+    while (ti.next()) |_| {
+        len += 1;
+    }
+    try std.testing.expectEqual(len, 2);
+
+    try std.testing.expectEqualStrings("ls", ti.first().cannon());
+    try std.testing.expectEqualStrings("file.txt", ti.next().?.cannon());
+}
+
+test "token > file extra ws" {
+    var ti = TokenIterator{
+        .raw = "ls >               file.txt",
+    };
+
+    var len: usize = 0;
+    while (ti.next()) |_| {
+        len += 1;
+    }
+    try std.testing.expectEqual(len, 2);
+
+    try std.testing.expectEqualStrings("ls", ti.first().cannon());
+    try std.testing.expectEqualStrings("file.txt", ti.next().?.cannon());
 }
