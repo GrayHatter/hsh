@@ -147,8 +147,6 @@ fn mkCallableStack(h: *HSH, itr: *TokenIterator) Error![]CallableStack {
     while (itr.peek()) |peek| {
         var io: StdIo = StdIo{ .in = prev_stdout orelse std.os.STDIN_FILENO };
         if (peek.kindext == .io) {
-            log.dump(peek);
-            log.err("itr idx = {}\n", .{itr.index.?});
             switch (peek.kindext.io) {
                 .Pipe => {
                     const pipe = std.os.pipe2(0) catch return Error.OSErr;
