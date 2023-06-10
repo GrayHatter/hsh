@@ -43,11 +43,28 @@ fn countPrintableMany(bufs: []const []const u8) u32 {
     return total;
 }
 
+fn countLexems(lexs: []const Lexeme) u32 {
+    var total: u32 = 0;
+    for (lexs) |lex| {
+        total += countPrintable(lex.char) + 1;
+    }
+    return total;
+}
+
 /// Returns the longest width + 1 to account for whitespace during layout
 fn maxWidth(items: []const []const u8) u32 {
     var max: u32 = 0;
     for (items) |item| {
         var len: u32 = countPrintable(item);
+        max = @max(max, len);
+    }
+    return max + 1;
+}
+
+fn maxWidthLexem(lexs: []const Lexeme) u32 {
+    var max: u32 = 0;
+    for (lexs) |lex| {
+        var len: u32 = countPrintable(lex.char);
         max = @max(max, len);
     }
     return max + 1;
@@ -91,13 +108,8 @@ fn sum(cs: []u16) u32 {
     return total;
 }
 
-/// Caller owns memory, strings **are** duplicated
-/// *LexTree
-/// LexTree.siblings.Lexem,
-/// LexTree.siblings.Lexem[..].char must all be free'd
-/// items are not reordered
-pub fn layoutTable(a: Allocator, items: []const []const u8, w: u32) Error![]LexTree {
-    const largest = maxWidth(items);
+pub fn layoutTableLex(a: Allocator, items: []Lexeme, w: u32) Error![]LexTree {
+    const largest = maxWidthLexem(items);
     if (largest > w) return Error.SizeTooLarge;
     var cols_w: []u16 = a.alloc(u16, w / largest) catch return Error.Memory;
     // not ideal but it's a reasonable start
@@ -107,7 +119,7 @@ pub fn layoutTable(a: Allocator, items: []const []const u8, w: u32) Error![]LexT
     var rows: u32 = 0;
 
     first: while (true) : (cols -= 1) {
-        if (countPrintableMany(items[0..cols]) > w) continue;
+        if (countLexems(items[0..cols]) > w) continue;
         if (cols == 0) return Error.LayoutUnable;
 
         cols_w = a.realloc(cols_w, cols) catch return Error.Memory;
@@ -117,10 +129,12 @@ pub fn layoutTable(a: Allocator, items: []const []const u8, w: u32) Error![]LexT
         for (0..rows) |row| {
             const curr_len = @min(items.len, (row + 1) * cols);
             const current = items[row * cols .. curr_len];
-            if (countPrintableMany(current) > w) continue :first;
+            if (countLexems(current) > w) {
+                //continue :first;
+            }
             for (0..cols) |c| {
                 if (c + row * cols >= items.len) break;
-                cols_w[c] = @max(cols_w[c], countPrintable(current[c]) + 1);
+                cols_w[c] = @max(cols_w[c], countPrintable(current[c].char) + 1);
             }
             if (sum(cols_w) > w) continue :first;
         }
@@ -129,22 +143,37 @@ pub fn layoutTable(a: Allocator, items: []const []const u8, w: u32) Error![]LexT
 
     if (rows == 1) @memset(cols_w, @truncate(u16, largest));
     var trees = a.alloc(LexTree, rows) catch return Error.Memory;
-    var lexes = a.alloc(Lexeme, items.len) catch return Error.Memory;
     // errdefer
 
     for (0..rows) |row| {
         trees[row] = LexTree{
-            .siblings = lexes[row * cols .. @min((row + 1) * cols, items.len)],
+            .siblings = items[row * cols .. @min((row + 1) * cols, items.len)],
         };
         for (0..cols) |col| {
             if (col + row * cols >= items.len) break;
             trees[row].siblings[col] = Lexeme{
-                .char = dupePadded(a, items[row * cols + col], cols_w[col]) catch return Error.Memory,
+                .char = dupePadded(a, items[row * cols + col].char, cols_w[col]) catch return Error.Memory,
             };
         }
     }
 
     return trees;
+}
+
+/// Caller owns memory, strings **are** duplicated
+/// *LexTree
+/// LexTree.siblings.Lexem,
+/// LexTree.siblings.Lexem[..].char must all be free'd
+/// items are not reordered
+pub fn layoutTable(a: Allocator, items: []const []const u8, w: u32) Error![]LexTree {
+    var lexes = a.alloc(Lexeme, items.len) catch return Error.Memory;
+    errdefer a.free(lexes);
+
+    for (items, lexes) |i, *l| {
+        l.*.char = i;
+    }
+
+    return layoutTableLex(a, lexes, w);
 }
 
 test "count printable" {
