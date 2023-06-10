@@ -5,19 +5,12 @@ const HSH = @import("hsh.zig").HSH;
 const IterableDir = std.fs.IterableDir;
 const tokenizer = @import("tokenizer.zig");
 const Token = tokenizer.Token;
-const Kind = tokenizer.Kind;
 
 const Self = @This();
 
 pub const CompList = ArrayList(CompOption);
 
 var compset: CompSet = undefined;
-
-pub const CompKind = enum {
-    Unknown,
-    Original,
-    FileSystem,
-};
 
 pub const FSKind = enum {
     File,
@@ -41,9 +34,9 @@ pub const FSKind = enum {
     }
 };
 
-pub const CompKindE = union(CompKind) {
-    Unknown: u8,
-    Original: u8,
+pub const Kind = union(enum) {
+    Unknown: void,
+    Original: bool,
     FileSystem: FSKind,
 };
 
@@ -51,7 +44,7 @@ pub const CompOption = struct {
     full: []const u8,
     /// name is normally a simple subslice of full.
     name: []const u8,
-    kind: CompKindE = CompKindE{ .Unknown = 0 },
+    kind: Kind = Kind{ .Unknown = {} },
     pub fn format(self: CompOption, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
         if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
         try std.fmt.format(out, "CompOption{{{s}, {s}}}", .{ self.full, @tagName(self.kind) });
@@ -65,7 +58,7 @@ pub const CompSet = struct {
     // actually using most of orig_token is much danger, such UB
     // the pointers contained within are likely already invalid!
     //orig_token: ?*const Token = null,
-    kind: Kind = undefined,
+    kind: tokenizer.Kind = undefined,
 
     /// true when there's a known completion [or the original]
     pub fn known(self: *CompSet) bool {
@@ -97,6 +90,9 @@ pub const CompSet = struct {
     pub fn optList(self: *const CompSet) ArrayList([]const u8) {
         var list = ArrayList([]const u8).init(self.alloc);
         for (self.list.items) |i| {
+            if (i.kind == .Original) {
+                if (i.kind.Original) continue;
+            }
             list.append(i.name) catch break;
         }
         return list;
@@ -117,7 +113,7 @@ fn completeDir(cwdi: *IterableDir) !void {
         try compset.list.append(CompOption{
             .full = full,
             .name = full,
-            .kind = CompKindE{
+            .kind = Kind{
                 .FileSystem = FSKind.fromFsKind(each.kind),
             },
         });
@@ -132,7 +128,7 @@ fn completeDirBase(cwdi: *IterableDir, base: []const u8) !void {
         try compset.list.append(CompOption{
             .full = full,
             .name = full,
-            .kind = CompKindE{
+            .kind = Kind{
                 .FileSystem = FSKind.fromFsKind(each.kind),
             },
         });
@@ -162,7 +158,7 @@ fn completePath(h: *HSH, target: []const u8) !void {
         try compset.list.append(CompOption{
             .full = full,
             .name = name,
-            .kind = CompKindE{
+            .kind = Kind{
                 .FileSystem = FSKind.fromFsKind(each.kind),
             },
         });
@@ -180,7 +176,7 @@ pub fn complete(hsh: *HSH, t: *const Token) !*CompSet {
     try compset.list.append(CompOption{
         .full = full,
         .name = full,
-        .kind = CompKindE{ .Original = 0 },
+        .kind = Kind{ .Original = t.kind == .WhiteSpace },
     });
     switch (t.kind) {
         .WhiteSpace => try completeDir(&hsh.hfs.dirs.cwd),
