@@ -60,7 +60,7 @@ pub const ParsedIterator = struct {
             return token;
         } else {
             switch (token.kind) {
-                .WhiteSpace, .IoRedir, .ExecDelim => {
+                .WhiteSpace, .IoRedir, .Operator => {
                     self.index.? += 1;
                     return self.next();
                 },

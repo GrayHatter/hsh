@@ -15,7 +15,6 @@ pub const Kind = enum(u8) {
     Builtin,
     Quote,
     IoRedir,
-    ExecDelim,
     Operator,
     Path,
     Var,
@@ -23,7 +22,6 @@ pub const Kind = enum(u8) {
 };
 
 pub const IOKind = enum {
-    Pipe,
     In,
     HDoc,
     Out,
@@ -32,10 +30,11 @@ pub const IOKind = enum {
 };
 
 pub const OpKind = enum {
+    Pipe,
     Next,
     Success,
     Fail,
-    BackGround,
+    Background,
 };
 
 pub const KindExt = union(enum) {
@@ -107,14 +106,8 @@ pub const TokenIterator = struct {
 
         const t_ = self.next();
         if (t_) |t| {
-            switch (t.kind) {
-                .IoRedir => {
-                    if (t.kindext.io == .Pipe) {
-                        self.index.? -= t.raw.len;
-                        return null;
-                    }
-                },
-                .ExecDelim => {
+            switch (t.kindext) {
+                .oper => {
                     self.index.? -= t.raw.len;
                     return null;
                 },
@@ -152,7 +145,7 @@ pub const TokenIterator = struct {
         if (self.nextExec()) |n| {
             try list.append(n.*);
         } else if (self.next()) |n| {
-            if ((n.kindext == .io and n.kindext.io != .Pipe) and n.kind != .ExecDelim) {
+            if (n.kindext != .oper) {
                 try list.append(n.*);
             }
         }
@@ -318,8 +311,8 @@ pub const Tokenizer = struct {
             '`' => Tokenizer.quote(src), // TODO magic
             ' ' => Tokenizer.space(src),
             '~', '/' => Tokenizer.path(src),
-            '|', '>', '<' => Tokenizer.ioredir(src),
-            ';', '&' => Tokenizer.execOp(src),
+            '>', '<' => Tokenizer.ioredir(src),
+            '|', '&', ';' => Tokenizer.execOp(src),
             '$' => unreachable,
             else => Tokenizer.string(src),
         };
@@ -346,14 +339,6 @@ pub const Tokenizer = struct {
             .kind = .IoRedir,
         };
         switch (src[0]) {
-            '|' => {
-                if (src[1] == '|') {
-                    return execOp(src);
-                }
-                t.kindext = KindExt{ .io = .Pipe };
-                t.resolved = t.raw;
-                return t;
-            },
             '<' => {
                 t.raw = if (src.len > 1 and src[1] == '<') src[0..2] else src[0..1];
                 t.kindext = KindExt{ .io = .In };
@@ -380,32 +365,36 @@ pub const Tokenizer = struct {
         switch (src[0]) {
             ';' => return Token{
                 .raw = src[0..1],
-                .kind = .ExecDelim,
+                .kind = .Operator,
                 .kindext = KindExt{ .oper = .Next },
             },
             '&' => {
                 if (src.len > 1 and src[1] == '&') {
                     return Token{
                         .raw = src[0..2],
-                        .kind = .ExecDelim,
+                        .kind = .Operator,
                         .kindext = KindExt{ .oper = .Success },
                     };
                 }
                 return Token{
                     .raw = src[0..1],
-                    .kind = .ExecDelim,
-                    .kindext = KindExt{ .oper = .BackGround },
+                    .kind = .Operator,
+                    .kindext = KindExt{ .oper = .Background },
                 };
             },
             '|' => {
                 if (src.len > 1 and src[1] == '|') {
                     return Token{
                         .raw = src[0..2],
-                        .kind = .ExecDelim,
+                        .kind = .Operator,
                         .kindext = KindExt{ .oper = .Fail },
                     };
                 }
-                return Error.InvalidSrc;
+                return Token{
+                    .raw = src[0..1],
+                    .kind = .Operator,
+                    .kindext = KindExt{ .oper = .Pipe },
+                };
             },
             else => return Error.InvalidSrc,
         }
@@ -1114,7 +1103,7 @@ test "token &&" {
     try std.testing.expectEqualStrings("ls", ti.first().cannon());
     const n = ti.next().?;
     try std.testing.expectEqualStrings("&&", n.cannon());
-    try std.testing.expect(n.kind == .ExecDelim);
+    try std.testing.expect(n.kind == .Operator);
     try std.testing.expect(n.kindext == .oper);
     try std.testing.expect(n.kindext.oper == .Success);
     try std.testing.expectEqualStrings("success", ti.next().?.cannon());
@@ -1134,7 +1123,7 @@ test "token ||" {
     try std.testing.expectEqualStrings("ls", ti.first().cannon());
     const n = ti.next().?;
     try std.testing.expectEqualStrings("||", n.cannon());
-    try std.testing.expect(n.kind == .ExecDelim);
+    try std.testing.expect(n.kind == .Operator);
     try std.testing.expect(n.kindext == .oper);
     try std.testing.expect(n.kindext.oper == .Fail);
     try std.testing.expectEqualStrings("fail", ti.next().?.cannon());

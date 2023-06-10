@@ -58,9 +58,12 @@ const CallableStack = struct {
     stdio: StdIo,
 };
 
+var paths: []const []const u8 = undefined;
+
 pub fn executable(h: *HSH, str: []const u8) bool {
+    paths = h.hfs.names.paths.items;
     if (bi.exists(str)) return true;
-    var plsfree = makeAbsExecutable(h.alloc, h.hfs.names.paths.items, str) catch return false;
+    var plsfree = makeAbsExecutable(h.alloc, str) catch return false;
     plsfree.clearAndFree();
     return true;
 }
@@ -81,7 +84,7 @@ fn executablePath(path: []const u8) bool {
 /// Caller must cleanAndFree() memory
 /// TODO BUG arg should be absolute but argv[0] should only be absolute IFF
 /// there was a / is the original token.
-pub fn makeAbsExecutable(a: Allocator, paths: [][]const u8, str: []const u8) Error!ArrayList(u8) {
+pub fn makeAbsExecutable(a: Allocator, str: []const u8) Error!ArrayList(u8) {
     var exe = ArrayList(u8).init(a);
     if (str[0] == '/') {
         if (!executablePath(str)) return Error.ExeNotFound;
@@ -102,12 +105,12 @@ pub fn makeAbsExecutable(a: Allocator, paths: [][]const u8, str: []const u8) Err
 }
 
 /// Caller will own memory
-fn makeExeZ(a: Allocator, paths: [][]const u8, str: []const u8) Error!ARG {
-    var exe = makeAbsExecutable(a, paths, str) catch |e| return e;
+fn makeExeZ(a: Allocator, str: []const u8) Error!ARG {
+    var exe = makeAbsExecutable(a, str) catch |e| return e;
     return exe.toOwnedSliceSentinel(0) catch return Error.Memory;
 }
 
-fn mkBuiltin(_: *const HSH, titr: ParsedIterator) Error!Builtin {
+fn mkBuiltin(titr: ParsedIterator) Error!Builtin {
     var itr = titr;
     return Builtin{
         .builtin = itr.first().cannon(),
@@ -116,12 +119,12 @@ fn mkBuiltin(_: *const HSH, titr: ParsedIterator) Error!Builtin {
 }
 
 /// Caller owns memory of argv, and the open fds
-fn mkExec(h: *const HSH, titr: ParsedIterator) Error!Binary {
+fn mkExec(a: Allocator, titr: ParsedIterator) Error!Binary {
     var exeZ: ?ARG = null;
-    var argv = ArrayList(?ARG).init(h.alloc);
+    var argv = ArrayList(?ARG).init(a);
     var itr = titr;
 
-    exeZ = makeExeZ(h.alloc, h.hfs.names.paths.items, itr.first().cannon()) catch |e| {
+    exeZ = makeExeZ(a, itr.first().cannon()) catch |e| {
         log.err("path missing {s}\n", .{itr.first().cannon()});
         return e;
     };
@@ -129,7 +132,7 @@ fn mkExec(h: *const HSH, titr: ParsedIterator) Error!Binary {
 
     while (itr.next()) |t| {
         argv.append(
-            h.alloc.dupeZ(u8, t.cannon()) catch return Error.Memory,
+            a.dupeZ(u8, t.cannon()) catch return Error.Memory,
         ) catch return Error.Memory;
     }
     return Binary{
@@ -138,33 +141,34 @@ fn mkExec(h: *const HSH, titr: ParsedIterator) Error!Binary {
     };
 }
 
-fn mkCallableStack(h: *HSH, itr: *TokenIterator) Error![]CallableStack {
-    var stack = ArrayList(CallableStack).init(h.alloc);
+fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
+    var stack = ArrayList(CallableStack).init(a.*);
 
     itr.restart();
     var prev_stdout: ?fd_t = null;
 
     while (itr.peek()) |peek| {
+        var eslice = itr.toSliceExec(a.*) catch unreachable;
+        var parsed = Parser.parse(a, eslice) catch unreachable;
+        defer parsed.restart();
         var io: StdIo = StdIo{ .in = prev_stdout orelse std.os.STDIN_FILENO };
-        if (peek.kindext == .io) {
-            switch (peek.kindext.io) {
+
+        // peek is now the exec operator because of how the iterator works :<
+        if (peek.kindext == .oper) {
+            switch (peek.kindext.oper) {
                 .Pipe => {
                     const pipe = std.os.pipe2(0) catch return Error.OSErr;
                     io.pipe = true;
                     io.out = pipe[1];
                     prev_stdout = pipe[0];
                 },
-                else => {
-                    log.dump(peek);
-                    unreachable;
-                },
+                .Fail => {},
+                .Success => {},
+                .Background => {},
+                .Next => {},
             }
         }
 
-        var eslice = itr.toSliceExec(h.alloc) catch unreachable;
-        //defer h.alloc.free(eslice);
-        // peek is now invalid because of how the iterator works :<
-        var parsed = Parser.parse(&h.alloc, eslice) catch unreachable;
         for (eslice) |maybeio| {
             if (maybeio.kindext == .io) {
                 switch (maybeio.kindext.io) {
@@ -183,18 +187,25 @@ fn mkCallableStack(h: *HSH, itr: *TokenIterator) Error![]CallableStack {
                         }
                     },
                     .Err => unreachable,
-                    .Pipe => unreachable,
                 }
             }
         }
 
-        stack.append(CallableStack{
-            .callable = switch (parsed.first().kind) {
-                .Builtin => Callable{ .builtin = try mkBuiltin(h, parsed) },
-                else => Callable{ .exec = try mkExec(h, parsed) },
+        switch (parsed.first().kind) {
+            .Builtin => {
+                stack.append(CallableStack{
+                    .callable = .{ .builtin = try mkBuiltin(parsed) },
+                    .stdio = io,
+                }) catch return Error.Memory;
             },
-            .stdio = io,
-        }) catch return Error.Memory;
+            else => {
+                stack.append(CallableStack{
+                    .callable = .{ .exec = try mkExec(a.*, parsed) },
+                    .stdio = io,
+                }) catch return Error.Memory;
+                a.free(eslice);
+            },
+        }
     }
     return stack.toOwnedSlice() catch return Error.Memory;
 }
@@ -223,8 +234,11 @@ fn execBin(e: Binary) Error!void {
 }
 
 pub fn exec(h: *HSH, titr: *TokenIterator) Error!void {
+    // HACK I don't like it either, but LOOK OVER THERE!!!
+    paths = h.hfs.names.paths.items;
+
     titr.restart();
-    const stack = mkCallableStack(h, titr) catch |e| {
+    const stack = mkCallableStack(&h.alloc, titr) catch |e| {
         log.err("unable to make stack {}\n", .{e});
         return e;
     };
@@ -353,4 +367,31 @@ test "c memory" {
     try std.testing.expect(mem.eql(u8, argv[0].?[0..2 :0], "ls"));
     try std.testing.expect(mem.eql(u8, argv[1].?[0..3 :0], "-la"));
     try std.testing.expect(argv[2] == null);
+}
+
+test "mkstack" {
+    var ti = TokenIterator{
+        .raw = "ls | sort",
+    };
+
+    var len: usize = 0;
+    while (ti.next()) |_| {
+        len += 1;
+    }
+
+    try std.testing.expectEqualStrings("ls", ti.first().cannon());
+
+    paths = &[_][]const u8{"/usr/bin"};
+
+    var a = std.heap.page_allocator;
+    //var a = std.testing.allocator;
+    var stk = try mkCallableStack(&a, &ti);
+    try std.testing.expect(stk.len == 2);
+    for (stk) |*s| {
+        var argl = std.mem.len(s.callable.exec.arg) + 1;
+        var arg = s.callable.exec.arg[0..argl];
+        a.free(@as([]u8, arg));
+        var argv = s.callable.exec.argv;
+        a.free(@as([]?[*]u8, argv[0..2]));
+    }
 }
