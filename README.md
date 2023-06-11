@@ -25,13 +25,13 @@ clone [hsh]<br>
   - [x] basic parsing
   - [ ] .hshrc support
   - [x] exec
-    - [ ] friendly exec
-    - [ ] && success
-    - [ ] || failues
+    - [x] friendly exec
+    - [x] && success
+    - [x] || failues
     - [ ] ; cmd
   - [ ] IoRedir
     - [x] | func
-    - [ ] > std clobber
+    - [x] > std clobber
     - [ ] >> std append
     - [ ] 2> err clobber
     - [ ] 2>&1 err to out
