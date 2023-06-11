@@ -140,6 +140,7 @@ pub const TokenIterator = struct {
     // will return the command delimiter (if existing),
     // Any calls to toSliceExec when current index is a command delemiter will
     // start at the following word slice.
+    // calling this invalidates the previously returned pointer from next/peek
     pub fn toSliceExec(self: *Self, a: Allocator) ![]Token {
         var list = ArrayList(Token).init(a);
         if (self.nextExec()) |n| {
