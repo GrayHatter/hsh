@@ -119,7 +119,7 @@ fn mkBuiltin(titr: ParsedIterator) Error!Builtin {
 }
 
 /// Caller owns memory of argv, and the open fds
-fn mkExec(a: Allocator, titr: ParsedIterator) Error!Binary {
+fn binary(a: Allocator, titr: ParsedIterator) Error!Binary {
     var exeZ: ?ARG = null;
     var argv = ArrayList(?ARG).init(a);
     var itr = titr;
@@ -150,7 +150,7 @@ fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
     while (itr.peek()) |peek| {
         var eslice = itr.toSliceExec(a.*) catch unreachable;
         var parsed = Parser.parse(a, eslice) catch unreachable;
-        defer parsed.restart();
+        //defer parsed.restart();
         var io: StdIo = StdIo{ .in = prev_stdout orelse std.os.STDIN_FILENO };
 
         // peek is now the exec operator because of how the iterator works :<
@@ -200,7 +200,7 @@ fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
             },
             else => {
                 stack.append(CallableStack{
-                    .callable = .{ .exec = try mkExec(a.*, parsed) },
+                    .callable = .{ .exec = try binary(a.*, parsed) },
                     .stdio = io,
                 }) catch return Error.Memory;
                 a.free(eslice);
@@ -383,8 +383,7 @@ test "mkstack" {
 
     paths = &[_][]const u8{"/usr/bin"};
 
-    var a = std.heap.page_allocator;
-    //var a = std.testing.allocator;
+    var a = std.testing.allocator;
     var stk = try mkCallableStack(&a, &ti);
     try std.testing.expect(stk.len == 2);
     for (stk) |*s| {
@@ -394,4 +393,5 @@ test "mkstack" {
         var argv = s.callable.exec.argv;
         a.free(@as([]?[*]u8, argv[0..2]));
     }
+    a.free(stk);
 }

@@ -137,6 +137,9 @@ pub const ParsedIterator = struct {
     /// Resets the iterator to the initial slice.
     pub fn restart(self: *Self) void {
         self.index = 0;
+        if (self.resolved.len > 0) {
+            self.alloc.free(self.resolved);
+        }
         self.resolved = self.alloc.alloc([]u8, 0) catch unreachable;
         if (self.subtokens) |ts| {
             self.alloc.free(ts);
