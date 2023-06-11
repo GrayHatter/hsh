@@ -26,6 +26,7 @@ pub const Error = error{
     NotFound,
     ExecFailed,
     ExeNotFound,
+    PipelineError,
 };
 
 const ARG = [*:0]u8;
@@ -48,14 +49,19 @@ const Builtin = struct {
     argv: ParsedIterator,
 };
 
-const Callable = union(enum) {
-    builtin: Builtin,
-    exec: Binary,
+const Conditional = enum {
+    Success,
+    Failure,
+    After,
 };
 
 const CallableStack = struct {
-    callable: Callable,
+    callable: union(enum) {
+        builtin: Builtin,
+        exec: Binary,
+    },
     stdio: StdIo,
+    conditional: ?Conditional = null,
 };
 
 var paths: []const []const u8 = undefined;
@@ -110,8 +116,9 @@ fn makeExeZ(a: Allocator, str: []const u8) Error!ARG {
     return exe.toOwnedSliceSentinel(0) catch return Error.Memory;
 }
 
-fn mkBuiltin(titr: ParsedIterator) Error!Builtin {
-    var itr = titr;
+fn builtin(a: Allocator, parsed: ParsedIterator) Error!Builtin {
+    var itr = parsed;
+    itr.tokens = a.dupe(tokenizer.Token, itr.tokens) catch return Error.Memory;
     return Builtin{
         .builtin = itr.first().cannon(),
         .argv = itr,
@@ -143,15 +150,15 @@ fn binary(a: Allocator, titr: ParsedIterator) Error!Binary {
 
 fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
     var stack = ArrayList(CallableStack).init(a.*);
-
-    itr.restart();
     var prev_stdout: ?fd_t = null;
+    var conditional_rule: ?Conditional = null;
 
     while (itr.peek()) |peek| {
+        //var before: tokenizer.Token = peek.*;
         var eslice = itr.toSliceExec(a.*) catch unreachable;
         var parsed = Parser.parse(a, eslice) catch unreachable;
-        //defer parsed.restart();
         var io: StdIo = StdIo{ .in = prev_stdout orelse std.os.STDIN_FILENO };
+        var condition: ?Conditional = conditional_rule;
 
         // peek is now the exec operator because of how the iterator works :<
         if (peek.kindext == .oper) {
@@ -162,10 +169,16 @@ fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
                     io.out = pipe[1];
                     prev_stdout = pipe[0];
                 },
-                .Fail => {},
-                .Success => {},
+                .Fail => {
+                    conditional_rule = .Failure;
+                },
+                .Success => {
+                    conditional_rule = .Success;
+                },
+                .Next => {
+                    conditional_rule = .After;
+                },
                 .Background => {},
-                .Next => {},
             }
         }
 
@@ -191,21 +204,16 @@ fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
             }
         }
 
-        switch (parsed.first().kind) {
-            .Builtin => {
-                stack.append(CallableStack{
-                    .callable = .{ .builtin = try mkBuiltin(parsed) },
-                    .stdio = io,
-                }) catch return Error.Memory;
+        var stk = CallableStack{
+            .callable = switch (parsed.first().kind) {
+                .Builtin => .{ .builtin = try builtin(a.*, parsed) },
+                else => .{ .exec = try binary(a.*, parsed) },
             },
-            else => {
-                stack.append(CallableStack{
-                    .callable = .{ .exec = try binary(a.*, parsed) },
-                    .stdio = io,
-                }) catch return Error.Memory;
-                a.free(eslice);
-            },
-        }
+            .stdio = io,
+            .conditional = condition,
+        };
+        stack.append(stk) catch return Error.Memory;
+        a.free(eslice);
     }
     return stack.toOwnedSlice() catch return Error.Memory;
 }
@@ -253,8 +261,31 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!void {
         return Error.Unknown;
     };
 
+    var fpid: std.os.pid_t = 0;
     for (stack) |*s| {
-        const fpid: std.os.pid_t = std.os.fork() catch return Error.OSErr;
+        if (s.conditional) |cond| {
+            if (fpid == 0) unreachable;
+            switch (cond) {
+                .After => _ = jobs.waitFor(h, fpid) catch {},
+                .Failure => {
+                    if (jobs.waitFor(h, fpid) catch continue) {
+                        continue;
+                    }
+                },
+                .Success => {
+                    if (!(jobs.waitFor(h, fpid) catch return Error.PipelineError)) {
+                        continue;
+                    }
+                },
+            }
+            // repush original because spinning will revert
+            h.tty.pushOrig() catch |e| {
+                log.err("TTY didn't respond {}\n", .{e});
+                return Error.Unknown;
+            };
+        }
+
+        fpid = std.os.fork() catch return Error.OSErr;
         if (fpid == 0) {
             if (s.stdio.in != std.os.STDIN_FILENO) {
                 std.os.dup2(s.stdio.in, std.os.STDIN_FILENO) catch return Error.OSErr;
@@ -380,10 +411,13 @@ test "mkstack" {
     }
 
     try std.testing.expectEqualStrings("ls", ti.first().cannon());
+    try std.testing.expectEqualStrings("|", ti.next().?.cannon());
+    try std.testing.expectEqualStrings("sort", ti.next().?.cannon());
 
     paths = &[_][]const u8{"/usr/bin"};
 
     var a = std.testing.allocator;
+    ti.restart();
     var stk = try mkCallableStack(&a, &ti);
     try std.testing.expect(stk.len == 2);
     for (stk) |*s| {

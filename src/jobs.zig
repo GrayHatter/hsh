@@ -29,6 +29,19 @@ pub const Job = struct {
     status: Status = .Unknown,
     termattr: std.os.termios = undefined,
 
+    pub fn alive(self: Job) bool {
+        return switch (self.status) {
+            .Paused,
+            .Waiting,
+            .Piped,
+            .Background,
+            .Running,
+            .Child,
+            => true,
+            else => false,
+        };
+    }
+
     pub fn format(self: Job, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
         if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
         try std.fmt.format(out,
@@ -116,4 +129,11 @@ pub fn getFg() ?*const Job {
         }
     }
     return null;
+}
+
+/// waits for the job to complete, and reports true if it exited successfully
+pub fn waitFor(h: *HSH, jid: std.os.pid_t) Error!bool {
+    var job = try get(jid);
+    while (job.alive()) h.spin();
+    return job.exit_code == 0;
 }
