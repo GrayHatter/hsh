@@ -314,7 +314,7 @@ pub const Tokenizer = struct {
             '~', '/' => Tokenizer.path(src),
             '>', '<' => Tokenizer.ioredir(src),
             '|', '&', ';' => Tokenizer.execOp(src),
-            '$' => unreachable,
+            '$' => vari(src),
             else => Tokenizer.string(src),
         };
     }
@@ -399,6 +399,16 @@ pub const Tokenizer = struct {
             },
             else => return Error.InvalidSrc,
         }
+    }
+
+    pub fn vari(src: []const u8) Error!Token {
+        if (src[0] != '$') return Error.InvalidSrc;
+
+        // TODO accept {} in vars
+        var t = try string(src[1..]);
+        t.raw = src[0 .. t.raw.len + 1];
+        t.kind = .Var;
+        return t;
     }
 
     pub fn oper(src: []const u8) Error!Token {
@@ -1128,4 +1138,10 @@ test "token ||" {
     try std.testing.expect(n.kindext == .oper);
     try std.testing.expect(n.kindext.oper == .Fail);
     try std.testing.expectEqualStrings("fail", ti.next().?.cannon());
+}
+
+test "token vari" {
+    var t = try Tokenizer.vari("$string");
+
+    try std.testing.expectEqualStrings("$string", t.cannon());
 }
