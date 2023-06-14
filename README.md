@@ -50,6 +50,7 @@ clone [hsh]<br>
     - [ ] bg
     - [x] cd
     - [ ] colon
+    - [ ] date
     - [ ] disown
     - [ ] dot
     - [ ] echo
