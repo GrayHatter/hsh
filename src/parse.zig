@@ -7,7 +7,7 @@ const Tokenizer = tokenizer.Tokenizer;
 const Token = tokenizer.Token;
 const TokenIterator = tokenizer.TokenIterator;
 const Builtins = @import("builtins.zig");
-const alias = Builtins.aliases;
+const Aliases = Builtins.aliases;
 
 pub const Error = error{
     Unknown,
@@ -117,7 +117,7 @@ pub const ParsedIterator = struct {
             }
         }
         self.setResolved(token.cannon());
-        if (Parser.parseAlias(token)) |als| {
+        if (Parser.alias(token)) |als| {
             if (self.subtokens) |sub| {
                 self.subtokens = self.alloc.realloc(sub, sub.len + 1) catch unreachable;
             } else {
@@ -156,7 +156,7 @@ pub const Parser = struct {
         for (tokens) |*tk| {
             _ = parseToken(a, tk) catch unreachable;
         }
-        _ = parseBuiltin(&tokens[0]) catch {};
+        _ = builtin(&tokens[0]) catch {};
         return ParsedIterator{
             .alloc = a,
             .tokens = tokens,
@@ -202,19 +202,19 @@ pub const Parser = struct {
     }
 
     fn resolve(token: *Token) Error!*Token {
-        _ = try parseAlias(token);
-        _ = try parseBuiltin(token);
+        _ = try alias(token);
+        _ = try builtin(token);
         return token;
     }
 
-    fn parseAlias(token: *const Token) Error!TokenIterator {
-        if (alias.find(token.cannon())) |a| {
+    fn alias(token: *const Token) Error!TokenIterator {
+        if (Aliases.find(token.cannon())) |a| {
             return TokenIterator{ .raw = a.value };
         }
         return Error.Empty;
     }
 
-    fn parseBuiltin(tkn: *Token) Error!*Token {
+    fn builtin(tkn: *Token) Error!*Token {
         if (Builtins.exists(tkn.cannon())) {
             tkn.*.kind = .Builtin;
             return tkn;
@@ -374,9 +374,9 @@ test "iterator alias is builtin" {
 
 test "iterator aliased" {
     var a = std.testing.allocator;
-    var als = alias.testing_setup(a);
-    defer alias.raze(a);
-    try als.append(alias.Alias{
+    var als = Aliases.testing_setup(a);
+    defer Aliases.raze(a);
+    try als.append(Aliases.Alias{
         .name = a.dupe(u8, "la") catch unreachable,
         .value = a.dupe(u8, "ls -la") catch unreachable,
     });
@@ -401,9 +401,9 @@ test "iterator aliased" {
 
 test "iterator aliased self" {
     var a = std.testing.allocator;
-    var als = alias.testing_setup(a);
-    defer alias.raze(a);
-    try als.append(alias.Alias{
+    var als = Aliases.testing_setup(a);
+    defer Aliases.raze(a);
+    try als.append(Aliases.Alias{
         .name = a.dupe(u8, "ls") catch unreachable,
         .value = a.dupe(u8, "ls -la") catch unreachable,
     });
@@ -429,14 +429,14 @@ test "iterator aliased self" {
 
 test "iterator aliased recurse" {
     var a = std.testing.allocator;
-    var als = alias.testing_setup(a);
-    defer alias.raze(a);
-    try als.append(alias.Alias{
+    var als = Aliases.testing_setup(a);
+    defer Aliases.raze(a);
+    try als.append(Aliases.Alias{
         .name = a.dupe(u8, "la") catch unreachable,
         .value = a.dupe(u8, "ls -la") catch unreachable,
     });
 
-    try als.append(alias.Alias{
+    try als.append(Aliases.Alias{
         .name = a.dupe(u8, "ls") catch unreachable,
         .value = a.dupe(u8, "ls --color=auto") catch unreachable,
     });
