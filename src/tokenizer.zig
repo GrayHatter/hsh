@@ -197,7 +197,7 @@ pub const Token = struct {
 
         return switch (self.kind) {
             .Quote => return self.raw[1 .. self.raw.len - 1],
-            .IoRedir => return self.resolved.?,
+            .IoRedir, .Var => return self.resolved orelse self.raw,
             else => self.raw,
         };
     }
@@ -406,8 +406,10 @@ pub const Tokenizer = struct {
 
         // TODO accept {} in vars
         var t = try word(src[1..]);
+        t.resolved = t.raw;
         t.raw = src[0 .. t.raw.len + 1];
         t.kind = .Var;
+
         return t;
     }
 
@@ -1153,31 +1155,31 @@ test "token ||" {
 test "token vari" {
     var t = try Tokenizer.vari("$string");
 
-    try std.testing.expectEqualStrings("$string", t.cannon());
+    try std.testing.expectEqualStrings("string", t.cannon());
 }
 
 test "token vari words" {
     var t = try Tokenizer.vari("$string ");
-    try std.testing.expectEqualStrings("$string", t.cannon());
+    try std.testing.expectEqualStrings("string", t.cannon());
 
     t = try Tokenizer.vari("$string993");
-    try std.testing.expectEqualStrings("$string", t.cannon());
+    try std.testing.expectEqualStrings("string", t.cannon());
 
     t = try Tokenizer.vari("$string 993");
-    try std.testing.expectEqualStrings("$string", t.cannon());
+    try std.testing.expectEqualStrings("string", t.cannon());
 
     t = try Tokenizer.vari("$string{} 993");
-    try std.testing.expectEqualStrings("$string", t.cannon());
+    try std.testing.expectEqualStrings("string", t.cannon());
 
     t = try Tokenizer.vari("$string+");
-    try std.testing.expectEqualStrings("$string", t.cannon());
+    try std.testing.expectEqualStrings("string", t.cannon());
 
     t = try Tokenizer.vari("$string:");
-    try std.testing.expectEqualStrings("$string", t.cannon());
+    try std.testing.expectEqualStrings("string", t.cannon());
 
     t = try Tokenizer.vari("$string~");
-    try std.testing.expectEqualStrings("$string", t.cannon());
+    try std.testing.expectEqualStrings("string", t.cannon());
 
     t = try Tokenizer.vari("$string-");
-    try std.testing.expectEqualStrings("$string", t.cannon());
+    try std.testing.expectEqualStrings("string", t.cannon());
 }

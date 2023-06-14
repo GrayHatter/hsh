@@ -16,6 +16,7 @@ const State = @import("state.zig");
 const History = @import("history.zig");
 const Context = @import("context.zig");
 const fs = @import("fs.zig");
+const Variables = @import("variables.zig");
 
 pub const Error = error{
     Unknown,
@@ -98,6 +99,7 @@ fn initHSH(hsh: *HSH) !void {
 
     try Context.init(&hsh.alloc);
 
+    // Include hshrc
     if (hsh.hfs.rc) |rc_| {
         var r = rc_.reader();
         var a = hsh.alloc;
@@ -127,6 +129,9 @@ fn initHSH(hsh: *HSH) !void {
             }
         }
     }
+
+    Variables.init(hsh.alloc);
+    Variables.load(hsh.env) catch return E.Memory;
 }
 
 var savestates: ArrayList(State) = undefined;

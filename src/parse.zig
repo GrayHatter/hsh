@@ -8,6 +8,7 @@ const Token = tokenizer.Token;
 const TokenIterator = tokenizer.TokenIterator;
 const Builtins = @import("builtins.zig");
 const Aliases = Builtins.aliases;
+const Variables = @import("variables.zig");
 
 pub const Error = error{
     Unknown,
@@ -186,6 +187,9 @@ pub const Parser = struct {
                 }
                 return token;
             },
+            .Var => {
+                return try variable(token);
+            },
             .String => {
                 if (mem.indexOf(u8, token.raw, "/")) |_| {
                     token.kind = .Path;
@@ -220,6 +224,13 @@ pub const Parser = struct {
             return tkn;
         }
         return Error.Empty;
+    }
+
+    fn variable(tkn: *Token) Error!*Token {
+        if (Variables.get(tkn.cannon())) |v| {
+            tkn.resolved = v;
+        }
+        return tkn;
     }
 };
 
@@ -459,5 +470,62 @@ test "iterator aliased recurse" {
     try expect(eql(u8, itr.next().?.cannon(), "-la"));
     try expect(eql(u8, itr.next().?.cannon(), "--color=auto"));
     try expect(eql(u8, itr.next().?.cannon(), "src"));
+    try expect(itr.next() == null);
+}
+
+const eqlStr = std.testing.expectEqualStrings;
+
+test "parse vars" {
+    var a = std.testing.allocator;
+
+    comptime var ts = [3]Token{
+        try Tokenizer.any("echo"),
+        try Tokenizer.any("$string"),
+        try Tokenizer.any("blerg"),
+    };
+
+    var itr = try Parser.parse(&a, &ts);
+    var i: usize = 0;
+    while (itr.next()) |_| {
+        //std.debug.print("{}\n", .{t});
+        i += 1;
+    }
+    try expectEql(i, 3);
+    var first = itr.first().cannon();
+    try eqlStr("echo", first);
+    try eqlStr("string", itr.peek().?.cannon());
+    try expect(itr.next().?.kind == .Var);
+    try eqlStr("blerg", itr.next().?.cannon());
+    try expect(itr.next() == null);
+}
+
+test "parse vars existing" {
+    var a = std.testing.allocator;
+
+    comptime var ts = [3]Token{
+        try Tokenizer.any("echo"),
+        try Tokenizer.any("$string"),
+        try Tokenizer.any("blerg"),
+    };
+
+    Variables.init(a);
+    defer Variables.raze();
+
+    try Variables.put("string", "value");
+
+    try eqlStr("value", Variables.get("string").?);
+
+    var itr = try Parser.parse(&a, &ts);
+    var i: usize = 0;
+    while (itr.next()) |_| {
+        //std.debug.print("{}\n", .{t});
+        i += 1;
+    }
+    try expectEql(i, 3);
+    var first = itr.first().cannon();
+    try eqlStr("echo", first);
+    try eqlStr("value", itr.peek().?.cannon());
+    try expect(itr.next().?.kind == .Var);
+    try eqlStr("blerg", itr.next().?.cannon());
     try expect(itr.next() == null);
 }
