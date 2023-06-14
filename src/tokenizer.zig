@@ -405,10 +405,20 @@ pub const Tokenizer = struct {
         if (src[0] != '$') return Error.InvalidSrc;
 
         // TODO accept {} in vars
-        var t = try string(src[1..]);
+        var t = try word(src[1..]);
         t.raw = src[0 .. t.raw.len + 1];
         t.kind = .Var;
         return t;
+    }
+
+    // ASCII only :<
+    pub fn word(src: []const u8) Error!Token {
+        var i: usize = 0;
+        while (i < src.len and std.ascii.isAlphabetic(src[i])) : (i += 1) {}
+        return Token{
+            .raw = src[0..i],
+            .kind = .String,
+        };
     }
 
     pub fn oper(src: []const u8) Error!Token {
@@ -1143,5 +1153,31 @@ test "token ||" {
 test "token vari" {
     var t = try Tokenizer.vari("$string");
 
+    try std.testing.expectEqualStrings("$string", t.cannon());
+}
+
+test "token vari words" {
+    var t = try Tokenizer.vari("$string ");
+    try std.testing.expectEqualStrings("$string", t.cannon());
+
+    t = try Tokenizer.vari("$string993");
+    try std.testing.expectEqualStrings("$string", t.cannon());
+
+    t = try Tokenizer.vari("$string 993");
+    try std.testing.expectEqualStrings("$string", t.cannon());
+
+    t = try Tokenizer.vari("$string{} 993");
+    try std.testing.expectEqualStrings("$string", t.cannon());
+
+    t = try Tokenizer.vari("$string+");
+    try std.testing.expectEqualStrings("$string", t.cannon());
+
+    t = try Tokenizer.vari("$string:");
+    try std.testing.expectEqualStrings("$string", t.cannon());
+
+    t = try Tokenizer.vari("$string~");
+    try std.testing.expectEqualStrings("$string", t.cannon());
+
+    t = try Tokenizer.vari("$string-");
     try std.testing.expectEqualStrings("$string", t.cannon());
 }
