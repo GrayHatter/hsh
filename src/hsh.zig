@@ -275,7 +275,7 @@ pub const HSH = struct {
         hsh.env.deinit();
         if (hsh.hist) |hist| hist.raze();
 
-        hsh.hfs.rc.?.seekTo(0) catch unreachable;
+        if (hsh.hfs.rc) |rc| rc.seekTo(0) catch unreachable;
         writeState(hsh, savestates.items) catch {};
 
         if (hsh.hfs.rc) |rrc| rrc.close();
