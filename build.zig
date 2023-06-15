@@ -13,6 +13,14 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const exe_opt = b.addOptions();
+    exe.addOptions("hsh_build", exe_opt);
+    exe_opt.addOption(
+        std.SemanticVersion,
+        "version",
+        std.SemanticVersion.parse(version(b)) catch unreachable,
+    );
+
     const log = b.createModule(.{
         .source_file = .{ .path = "src/log.zig" },
     });
@@ -35,9 +43,30 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    unit_tests.addOptions("hsh_build", exe_opt);
     unit_tests.addModule("log", log);
     const run_tests = b.addRunArtifact(unit_tests);
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
+}
+
+fn version(b: *std.Build) []const u8 {
+    if (!std.process.can_spawn) {
+        std.debug.print("Can't get a version number\n", .{});
+        std.process.exit(1);
+    }
+
+    var code: u8 = undefined;
+    var git_wide = b.execAllowFail(&[_][]const u8{
+        "git",
+        "describe",
+        "--dirty",
+        "--always",
+    }, &code, .Ignore) catch {
+        std.process.exit(2);
+    };
+
+    var git = std.mem.trim(u8, git_wide, " \r\n");
+    return if (std.mem.startsWith(u8, git, "v")) git[1..] else git;
 }

@@ -1,4 +1,5 @@
 const std = @import("std");
+const hsh_build = @import("hsh_build");
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const TTY = TTY_.TTY;
@@ -294,6 +295,9 @@ pub fn main() !void {
         log.info("arg: {s}\n", .{arg});
         if (std.mem.eql(u8, "debug", arg)) {
             log.verbosity = .debug;
+        } else if (std.mem.eql(u8, "--version", arg)) {
+            std.debug.print("version: {}\n", .{hsh_build.version});
+            std.process.exit(0);
         }
     }
 
