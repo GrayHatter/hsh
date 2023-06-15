@@ -5,7 +5,9 @@ const ArrayList = std.ArrayList;
 const hsh_ = @import("hsh.zig");
 const HSH = hsh_.HSH;
 const Features = hsh_.Features;
-const countPrintable = @import("draw/layout.zig").countPrintable;
+const countPrintable = Layout.countPrintable;
+
+pub const Layout = @import("draw/layout.zig");
 
 const DrawBuf = ArrayList(u8);
 

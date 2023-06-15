@@ -5,6 +5,7 @@ const HSH = @import("hsh.zig").HSH;
 const IterableDir = std.fs.IterableDir;
 const tokenizer = @import("tokenizer.zig");
 const Token = tokenizer.Token;
+const Draw = @import("draw.zig");
 
 const Self = @This();
 
@@ -21,6 +22,13 @@ pub const FSKind = enum {
     Socket,
     Other,
 
+    pub fn color(k: FSKind) ?Draw.Color {
+        return switch (k) {
+            .Dir => .Blue,
+            else => null,
+        };
+    }
+
     pub fn fromFsKind(k: std.fs.IterableDir.Entry.Kind) FSKind {
         return switch (k) {
             .File => .File,
@@ -34,7 +42,15 @@ pub const FSKind = enum {
     }
 };
 
-pub const Kind = union(enum) {
+pub const Flavors = enum(u3) {
+    Unknown,
+    Original,
+    FileSystem,
+};
+
+const flavors_len = @typeInfo(Flavors).Enum.fields.len;
+
+pub const Kind = union(Flavors) {
     Unknown: void,
     Original: bool,
     FileSystem: FSKind,
@@ -49,60 +65,129 @@ pub const CompOption = struct {
         if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
         try std.fmt.format(out, "CompOption{{{s}, {s}}}", .{ self.full, @tagName(self.kind) });
     }
+
+    pub fn lexeme(self: CompOption, active: bool) Draw.Lexeme {
+        var lex = Draw.Lexeme{
+            .char = self.name,
+            .attr = if (active) .Reverse else .Reset,
+        };
+
+        switch (self.kind) {
+            .FileSystem => |fs| {
+                lex.fg = fs.color();
+                if (fs == .Dir) {
+                    lex.attr = if (active) .ReverseBold else .Bold;
+                }
+            },
+            else => {},
+        }
+
+        return lex;
+    }
 };
+
+/// For when groups gets dynamic alloc
+//pub const Group = struct {
+//    flavor: Flavors,
+//    list: CompList,
+//};
 
 pub const CompSet = struct {
     alloc: Allocator,
-    list: CompList,
+    /// Eventually groups should be dynamically allocated if it gets bigger
+    groups: [flavors_len]CompList,
+    group: *CompList,
+    group_index: usize = 0,
     index: usize = 0,
     // actually using most of orig_token is much danger, such UB
     // the pointers contained within are likely already invalid!
     //orig_token: ?*const Token = null,
     kind: tokenizer.Kind = undefined,
 
+    fn count(self: *const CompSet) usize {
+        var c: usize = 0;
+        for (self.groups) |grp| {
+            c += grp.items.len;
+        }
+        return c;
+    }
+
     /// true when there's a known completion [or the original]
     pub fn known(self: *CompSet) bool {
-        return self.list.items.len == 2;
-    }
-
-    /// Will attempt to provide the first completion option if
-    /// available, otherwise returns the original.
-    /// If token provided to complete() was null, this function is undefined
-    pub fn first(self: *CompSet) *const CompOption {
-        if (self.list.items.len > 1) return &self.list.items[1];
-        return &self.list.items[0];
-    }
-
-    pub fn skip(self: *CompSet) void {
-        self.index = (self.index + 1) % self.list.items.len;
+        return self.count() == 2;
     }
 
     pub fn reset(self: *CompSet) void {
         self.index = 0;
+        self.group_index = @enumToInt(Flavors.Original);
+        self.group = &self.groups[self.group_index];
+    }
+
+    pub fn first(self: *CompSet) *const CompOption {
+        self.reset();
+        return self.next();
     }
 
     pub fn next(self: *CompSet) *const CompOption {
+        std.debug.assert(self.count() > 0);
         defer self.skip();
-        return &self.list.items[self.index];
+        return &self.group.items[self.index];
     }
 
-    // caller owns ArrayList
-    pub fn optList(self: *const CompSet) ArrayList([]const u8) {
-        var list = ArrayList([]const u8).init(self.alloc);
-        for (self.list.items) |i| {
-            if (i.kind == .Original) {
-                if (i.kind.Original) continue;
-            }
-            list.append(i.name) catch break;
+    pub fn skip(self: *CompSet) void {
+        std.debug.assert(self.count() > 0);
+        self.index += 1;
+        if (self.group.items.len > self.index) {
+            return;
         }
-        return list;
+
+        while (self.index >= self.group.items.len) {
+            self.index = 0;
+            self.group_index = (self.group_index + 1) % self.groups.len;
+            self.group = &self.groups[self.group_index];
+        }
+    }
+
+    pub fn push(self: *CompSet, o: CompOption) !void {
+        var group = &self.groups[@enumToInt(o.kind)];
+        try group.append(o);
+    }
+
+    pub fn drawGroup(self: *const CompSet, f: Flavors, d: *Draw.Drawable, w: u32) !void {
+        var list = ArrayList(Draw.Lexeme).init(self.alloc);
+        var group = &self.groups[@enumToInt(f)];
+        var current_group = if (@enumToInt(f) == self.group_index) true else false;
+
+        if (group.items.len == 0) return;
+        for (group.items, 0..) |itm, i| {
+            const active = current_group and i == self.index;
+            const lex = itm.lexeme(active);
+            list.append(lex) catch break;
+        }
+        var trees = try Draw.Layout.tableLexeme(self.alloc, list.items, w);
+        for (trees) |tree| try Draw.drawAfter(d, tree);
+
+        for (list.items) |item| {
+            self.alloc.free(item.char);
+        }
+        list.clearAndFree();
+    }
+
+    pub fn drawAll(self: *CompSet, d: *Draw.Drawable, w: u32) !void {
+        // Yeah... I know
+        for (0..flavors_len) |flavor| {
+            // TOD Draw name
+            try self.drawGroup(@intToEnum(Flavors, flavor), d, w);
+        }
     }
 
     pub fn raze(self: *CompSet) void {
-        for (self.list.items) |opt| {
-            self.alloc.free(opt.full);
+        for (&self.groups) |*group| {
+            for (group.items) |opt| {
+                self.alloc.free(opt.full);
+            }
+            group.clearAndFree();
         }
-        self.list.clearAndFree();
     }
 };
 
@@ -110,7 +195,7 @@ fn completeDir(cwdi: *IterableDir) !void {
     var itr = cwdi.iterate();
     while (try itr.next()) |each| {
         const full = try compset.alloc.dupe(u8, each.name);
-        try compset.list.append(CompOption{
+        try compset.push(CompOption{
             .full = full,
             .name = full,
             .kind = Kind{
@@ -125,7 +210,7 @@ fn completeDirBase(cwdi: *IterableDir, base: []const u8) !void {
     while (try itr.next()) |each| {
         if (!std.mem.startsWith(u8, each.name, base)) continue;
         var full = try compset.alloc.dupe(u8, each.name);
-        try compset.list.append(CompOption{
+        try compset.push(CompOption{
             .full = full,
             .name = full,
             .kind = Kind{
@@ -155,7 +240,7 @@ fn completePath(h: *HSH, target: []const u8) !void {
         @memcpy(full[0..path.len], path);
         full[path.len] = '/';
         @memcpy(name, each.name);
-        try compset.list.append(CompOption{
+        try compset.push(CompOption{
             .full = full,
             .name = name,
             .kind = Kind{
@@ -173,7 +258,7 @@ pub fn complete(hsh: *HSH, t: *const Token) !*CompSet {
     compset.index = 0;
 
     const full = try compset.alloc.dupe(u8, t.cannon());
-    try compset.list.append(CompOption{
+    try compset.push(CompOption{
         .full = full,
         .name = full,
         .kind = Kind{ .Original = t.kind == .WhiteSpace },
@@ -185,13 +270,20 @@ pub fn complete(hsh: *HSH, t: *const Token) !*CompSet {
         .IoRedir => {},
         else => {},
     }
+    compset.reset();
     return &compset;
 }
 
 pub fn init(hsh: *HSH) !*CompSet {
     compset = CompSet{
         .alloc = hsh.alloc,
-        .list = CompList.init(hsh.alloc),
+        .group = undefined,
+        .groups = .{
+            CompList.init(hsh.alloc),
+            CompList.init(hsh.alloc),
+            CompList.init(hsh.alloc),
+        },
     };
+    compset.group = &compset.groups[0];
     return &compset;
 }

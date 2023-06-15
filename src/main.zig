@@ -26,7 +26,6 @@ const Exec = @import("exec.zig");
 const exec = Exec.exec;
 const Signals = @import("signals.zig");
 const History = @import("history.zig");
-const layoutTable = @import("draw/layout.zig").layoutTable;
 const jobs = @import("jobs.zig");
 const log = @import("log");
 
@@ -123,32 +122,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                 }
                 //for (comp.list.items) |c| std.debug.print("comp {}\n", .{c});
             } else {
-                var l = comp.optList();
-                defer l.clearAndFree();
-                var table = try layoutTable(hsh.alloc, l.items, @intCast(u32, hsh.draw.term_size.x));
-                // TODO draw warning after if unable to tab complete
-                defer hsh.alloc.free(table);
-                defer hsh.alloc.free(@ptrCast([]Draw.Lexeme, table[0].siblings));
-                for (table, 0..) |r, ri| {
-                    for (r.siblings, 0..) |*lex, li| {
-                        const i = ri * table[0].siblings.len + li;
-                        switch (comp.list.items[i].kind) {
-                            .FileSystem => |fs| {
-                                if (fs == .Dir) {
-                                    lex.*.fg = .Blue;
-                                    lex.*.attr = if (i == comp.index) .ReverseBold else .Bold;
-                                } else {
-                                    lex.*.attr = if (i == comp.index) .Reverse else .Reset;
-                                }
-                            },
-                            else => lex.*.attr = if (i == comp.index) .Reverse else .Reset,
-                        }
-                    }
-                    Draw.drawAfter(&hsh.draw, r) catch unreachable;
-                    for (r.siblings) |s| {
-                        hsh.alloc.free(s.char);
-                    }
-                }
+                try comp.drawAll(&hsh.draw, @intCast(u32, hsh.draw.term_size.x));
             }
 
             target = comp.next();

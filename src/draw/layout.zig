@@ -74,7 +74,7 @@ fn maxWidthLexem(lexs: []const Lexeme) u32 {
 /// *LexTree
 /// LexTree.siblings.Lexem,
 /// LexTree.siblings.Lexem[..].char must all be free'd
-pub fn layoutGrid(a: Allocator, items: []const []const u8, w: u32) Error![]LexTree {
+pub fn grid(a: Allocator, items: []const []const u8, w: u32) Error![]LexTree {
     // errdefer
     const largest = maxWidth(items);
     if (largest > w) return Error.SizeTooLarge;
@@ -108,7 +108,7 @@ fn sum(cs: []u16) u32 {
     return total;
 }
 
-pub fn layoutTableLex(a: Allocator, items: []Lexeme, w: u32) Error![]LexTree {
+pub fn tableLexeme(a: Allocator, items: []Lexeme, w: u32) Error![]LexTree {
     const largest = maxWidthLexem(items);
     if (largest > w) return Error.SizeTooLarge;
     var cols_w: []u16 = a.alloc(u16, w / largest) catch return Error.Memory;
@@ -151,9 +151,8 @@ pub fn layoutTableLex(a: Allocator, items: []Lexeme, w: u32) Error![]LexTree {
         };
         for (0..cols) |col| {
             if (col + row * cols >= items.len) break;
-            trees[row].siblings[col] = Lexeme{
-                .char = dupePadded(a, items[row * cols + col].char, cols_w[col]) catch return Error.Memory,
-            };
+            const old = items[row * cols + col].char;
+            trees[row].siblings[col].char = dupePadded(a, old, cols_w[col]) catch return Error.Memory;
         }
     }
 
@@ -165,7 +164,7 @@ pub fn layoutTableLex(a: Allocator, items: []Lexeme, w: u32) Error![]LexTree {
 /// LexTree.siblings.Lexem,
 /// LexTree.siblings.Lexem[..].char must all be free'd
 /// items are not reordered
-pub fn layoutTable(a: Allocator, items: []const []const u8, w: u32) Error![]LexTree {
+pub fn table(a: Allocator, items: []const []const u8, w: u32) Error![]LexTree {
     var lexes = a.alloc(Lexeme, items.len) catch return Error.Memory;
     errdefer a.free(lexes);
 
@@ -173,7 +172,7 @@ pub fn layoutTable(a: Allocator, items: []const []const u8, w: u32) Error![]LexT
         l.*.char = i;
     }
 
-    return layoutTableLex(a, lexes, w);
+    return tableLexeme(a, lexes, w);
 }
 
 test "count printable" {
@@ -201,7 +200,7 @@ const strs13 = strs12 ++ [_][]const u8{"extra4luck"};
 
 test "table" {
     var a = std.testing.allocator;
-    const rows = try layoutTable(a, &strs12, 50);
+    const rows = try table(a, &strs12, 50);
     //std.debug.print("rows {any}\n", .{rows});
     for (rows) |row| {
         //std.debug.print("  row {any}\n", .{row});
@@ -222,7 +221,7 @@ test "table" {
 test "grid 3*4" {
     var a = std.testing.allocator;
 
-    const rows = try layoutGrid(a, &strs12, 50);
+    const rows = try grid(a, &strs12, 50);
     //std.debug.print("rows {any}\n", .{rows});
     for (rows) |row| {
         //std.debug.print("  row {any}\n", .{row});
@@ -243,7 +242,7 @@ test "grid 3*4" {
 
 test "grid 3*4 + 1" {
     var a = std.testing.allocator;
-    const rows = try layoutGrid(a, &strs13, 50);
+    const rows = try grid(a, &strs13, 50);
     //std.debug.print("rows {any}\n", .{rows});
     for (rows) |row| {
         //std.debug.print("  row {any}\n", .{row});
