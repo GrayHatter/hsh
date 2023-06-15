@@ -196,6 +196,12 @@ pub const Parser = struct {
                     return token;
                 } else return token;
             },
+            .Path => {
+                if (token.cannon()[0] != '~') return token;
+
+                _ = token.upgrade(a) catch return Error.Unknown;
+                return try path(token);
+            },
             else => {
                 switch (token.raw[0]) {
                     '$' => return token,
@@ -229,6 +235,15 @@ pub const Parser = struct {
     fn variable(tkn: *Token) Error!*Token {
         if (Variables.get(tkn.cannon())) |v| {
             tkn.resolved = v;
+        }
+        return tkn;
+    }
+
+    fn path(tkn: *Token) Error!*Token {
+        if (Variables.get("HOME")) |v| {
+            tkn.backing.?.clearRetainingCapacity();
+            tkn.backing.?.appendSlice(v) catch return Error.Memory;
+            tkn.backing.?.appendSlice(tkn.raw[1..]) catch return Error.Memory;
         }
         return tkn;
     }
@@ -574,7 +589,6 @@ test "parse vars existing braces inline" {
 
     Variables.init(a);
     defer Variables.raze();
-
     try Variables.put("string", "value");
 
     try eqlStr("value", Variables.get("string").?);
@@ -596,4 +610,169 @@ test "parse vars existing braces inline" {
     try expect(itr.next().?.kind == .Var);
     try eqlStr("blerg", itr.next().?.cannon());
     try expect(itr.next() == null);
+}
+
+test "parse path" {
+    var a = std.testing.allocator;
+
+    var ti = TokenIterator{
+        .raw = "ls ~",
+    };
+
+    const slice = try ti.toSlice(a);
+    defer a.free(slice);
+    var itr = try Parser.parse(&a, slice);
+
+    var i: usize = 0;
+    while (itr.next()) |_| {
+        //std.debug.print("{}\n", .{t});
+        i += 1;
+    }
+    try expectEql(i, 2);
+    var first = itr.first().cannon();
+    try eqlStr("ls", first);
+
+    try std.testing.expect(itr.next().?.kind == .Path);
+    try std.testing.expect(itr.next() == null);
+
+    // Should be done by tokenizer, but ¯\_(ツ)_/¯
+    for (slice) |*s| {
+        if (s.backing) |*b| b.clearAndFree();
+    }
+}
+
+test "parse path ~" {
+    var a = std.testing.allocator;
+
+    var ti = TokenIterator{
+        .raw = "ls ~",
+    };
+
+    Variables.init(a);
+    defer Variables.raze();
+    try Variables.put("HOME", "/home/user");
+
+    const slice = try ti.toSlice(a);
+    defer a.free(slice);
+    var itr = try Parser.parse(&a, slice);
+
+    var i: usize = 0;
+    while (itr.next()) |_| {
+        //std.debug.print("{}\n", .{t});
+        i += 1;
+    }
+    try expectEql(i, 2);
+    var first = itr.first().cannon();
+    try eqlStr("ls", first);
+
+    try std.testing.expect(itr.peek().?.kind == .Path);
+    try eqlStr("/home/user", itr.next().?.cannon());
+    try std.testing.expect(itr.next() == null);
+
+    // Should be done by tokenizer, but ¯\_(ツ)_/¯
+    for (slice) |*s| {
+        if (s.backing) |*b| b.clearAndFree();
+    }
+}
+
+test "parse path ~/" {
+    var a = std.testing.allocator;
+
+    var ti = TokenIterator{
+        .raw = "ls ~/",
+    };
+
+    Variables.init(a);
+    defer Variables.raze();
+    try Variables.put("HOME", "/home/user");
+
+    const slice = try ti.toSlice(a);
+    defer a.free(slice);
+    var itr = try Parser.parse(&a, slice);
+
+    var i: usize = 0;
+    while (itr.next()) |_| {
+        //std.debug.print("{}\n", .{t});
+        i += 1;
+    }
+    try expectEql(i, 2);
+    var first = itr.first().cannon();
+    try eqlStr("ls", first);
+
+    try std.testing.expect(itr.peek().?.kind == .Path);
+    try eqlStr("/home/user/", itr.next().?.cannon());
+    try std.testing.expect(itr.next() == null);
+
+    // Should be done by tokenizer, but ¯\_(ツ)_/¯
+    for (slice) |*s| {
+        if (s.backing) |*b| b.clearAndFree();
+    }
+}
+
+test "parse path ~/place" {
+    var a = std.testing.allocator;
+
+    var ti = TokenIterator{
+        .raw = "ls ~/place",
+    };
+
+    Variables.init(a);
+    defer Variables.raze();
+    try Variables.put("HOME", "/home/user");
+
+    const slice = try ti.toSlice(a);
+    defer a.free(slice);
+    var itr = try Parser.parse(&a, slice);
+
+    var i: usize = 0;
+    while (itr.next()) |_| {
+        //std.debug.print("{}\n", .{t});
+        i += 1;
+    }
+    try expectEql(i, 2);
+    var first = itr.first().cannon();
+    try eqlStr("ls", first);
+
+    try std.testing.expect(itr.peek().?.kind == .Path);
+    try eqlStr("/home/user/place", itr.next().?.cannon());
+    try std.testing.expect(itr.next() == null);
+
+    // Should be done by tokenizer, but ¯\_(ツ)_/¯
+    for (slice) |*s| {
+        if (s.backing) |*b| b.clearAndFree();
+    }
+}
+
+test "parse path /~/otherplace" {
+    var a = std.testing.allocator;
+
+    var ti = TokenIterator{
+        .raw = "ls /~/otherplace",
+    };
+
+    Variables.init(a);
+    defer Variables.raze();
+    try Variables.put("HOME", "/home/user");
+
+    const slice = try ti.toSlice(a);
+    defer a.free(slice);
+    var itr = try Parser.parse(&a, slice);
+
+    var i: usize = 0;
+    while (itr.next()) |_| {
+        //std.debug.print("{}\n", .{t});
+        i += 1;
+    }
+    try expectEql(i, 2);
+    var first = itr.first().cannon();
+    try eqlStr("ls", first);
+
+    try std.testing.expect(itr.peek().?.kind == .Path);
+    try eqlStr("/~/otherplace", itr.next().?.cannon());
+    try std.testing.expect(itr.next() == null);
+
+    // Should be done by tokenizer, but ¯\_(ツ)_/¯
+    for (slice) |*s| {
+        if (s.backing) |*b| b.clearAndFree();
+    }
 }

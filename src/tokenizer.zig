@@ -197,7 +197,7 @@ pub const Token = struct {
 
         return switch (self.kind) {
             .Quote => return self.raw[1 .. self.raw.len - 1],
-            .IoRedir, .Var => return self.resolved orelse self.raw,
+            .IoRedir, .Var, .Path => return self.resolved orelse self.raw,
             else => self.raw,
         };
     }
