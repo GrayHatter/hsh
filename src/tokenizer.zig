@@ -402,9 +402,19 @@ pub const Tokenizer = struct {
     }
 
     pub fn vari(src: []const u8) Error!Token {
+        if (src.len <= 1) return Error.InvalidSrc;
         if (src[0] != '$') return Error.InvalidSrc;
 
-        // TODO accept {} in vars
+        if (src[1] == '{') {
+            if (std.mem.indexOf(u8, src, "}")) |end| {
+                var t = try word(src[2..end]);
+                t.resolved = t.raw;
+                t.raw = src[0 .. t.raw.len + 3];
+                t.kind = .Var;
+                return t;
+            } else return Error.InvalidSrc;
+        }
+
         var t = try word(src[1..]);
         t.resolved = t.raw;
         t.raw = src[0 .. t.raw.len + 1];
@@ -416,7 +426,7 @@ pub const Tokenizer = struct {
     // ASCII only :<
     pub fn word(src: []const u8) Error!Token {
         var i: usize = 0;
-        while (i < src.len and std.ascii.isAlphabetic(src[i])) : (i += 1) {}
+        while (i < src.len and (src[i] == '_' or std.ascii.isAlphabetic(src[i]))) : (i += 1) {}
         return Token{
             .raw = src[0..i],
             .kind = .String,
@@ -838,9 +848,9 @@ test "tokeniterator 0" {
         .raw = "one two three",
     };
 
-    try std.testing.expectEqualStrings("one", ti.first().cannon());
-    try std.testing.expectEqualStrings("two", ti.next().?.cannon());
-    try std.testing.expectEqualStrings("three", ti.next().?.cannon());
+    try eqlStr("one", ti.first().cannon());
+    try eqlStr("two", ti.next().?.cannon());
+    try eqlStr("three", ti.next().?.cannon());
     try std.testing.expect(ti.next() == null);
 }
 
@@ -849,11 +859,11 @@ test "tokeniterator 1" {
         .raw = "one two three",
     };
 
-    try std.testing.expectEqualStrings("one", ti.first().cannon());
+    try eqlStr("one", ti.first().cannon());
     _ = ti.nextAny();
-    try std.testing.expectEqualStrings("two", ti.nextAny().?.cannon());
+    try eqlStr("two", ti.nextAny().?.cannon());
     _ = ti.nextAny();
-    try std.testing.expectEqualStrings("three", ti.nextAny().?.cannon());
+    try eqlStr("three", ti.nextAny().?.cannon());
     try std.testing.expect(ti.nextAny() == null);
 }
 
@@ -864,7 +874,7 @@ test "tokeniterator 2" {
 
     var slice = try ti.toSlice(std.testing.allocator);
     try std.testing.expect(slice.len == 3);
-    try std.testing.expectEqualStrings("one", slice[0].cannon());
+    try eqlStr("one", slice[0].cannon());
     std.testing.allocator.free(slice);
 }
 
@@ -876,8 +886,8 @@ test "tokeniterator 3" {
     var slice = try ti.toSliceAny(std.testing.allocator);
     try std.testing.expect(slice.len == 5);
 
-    try std.testing.expectEqualStrings("one", slice[0].cannon());
-    try std.testing.expectEqualStrings(" ", slice[1].cannon());
+    try eqlStr("one", slice[0].cannon());
+    try eqlStr(" ", slice[1].cannon());
     std.testing.allocator.free(slice);
 }
 
@@ -899,19 +909,19 @@ test "token pipeline" {
     }
     try std.testing.expectEqual(len, 2);
 
-    try std.testing.expectEqualStrings(ti.next().?.cannon(), "|");
+    try eqlStr(ti.next().?.cannon(), "|");
     while (ti.nextExec()) |_| {
         len += 1;
     }
     try std.testing.expectEqual(len, 3);
 
-    try std.testing.expectEqualStrings(ti.next().?.cannon(), "|");
+    try eqlStr(ti.next().?.cannon(), "|");
     while (ti.nextExec()) |_| {
         len += 1;
     }
     try std.testing.expectEqual(len, 4);
 
-    try std.testing.expectEqualStrings(ti.next().?.cannon(), ";");
+    try eqlStr(ti.next().?.cannon(), ";");
     while (ti.nextExec()) |_| {
         len += 1;
     }
@@ -952,9 +962,9 @@ test "token pipeline slice" {
 
     slice = try ti.toSliceExec(std.testing.allocator);
     try std.testing.expectEqual(slice.len, 3);
-    try std.testing.expectEqualStrings("echo", slice[0].cannon());
-    try std.testing.expectEqualStrings("this", slice[1].cannon());
-    try std.testing.expectEqualStrings("works", slice[2].cannon());
+    try eqlStr("echo", slice[0].cannon());
+    try eqlStr("this", slice[1].cannon());
+    try eqlStr("works", slice[2].cannon());
     std.testing.allocator.free(slice);
 }
 
@@ -998,9 +1008,9 @@ test "token pipeline slice safe with next()" {
 
     slice = try ti.toSliceExec(std.testing.allocator);
     try std.testing.expectEqual(slice.len, 3);
-    try std.testing.expectEqualStrings("echo", slice[0].cannon());
-    try std.testing.expectEqualStrings("this", slice[1].cannon());
-    try std.testing.expectEqualStrings("works", slice[2].cannon());
+    try eqlStr("echo", slice[0].cannon());
+    try eqlStr("this", slice[1].cannon());
+    try eqlStr("works", slice[2].cannon());
     std.testing.allocator.free(slice);
 }
 
@@ -1015,9 +1025,9 @@ test "token > file" {
     }
     try std.testing.expectEqual(len, 2);
 
-    try std.testing.expectEqualStrings("ls", ti.first().cannon());
+    try eqlStr("ls", ti.first().cannon());
     var iot = ti.next().?;
-    try std.testing.expectEqualStrings("file.txt", iot.cannon());
+    try eqlStr("file.txt", iot.cannon());
     try std.testing.expect(iot.kind == .IoRedir);
     try std.testing.expect(iot.kindext.io == .Out);
 }
@@ -1033,8 +1043,8 @@ test "token > file extra ws" {
     }
     try std.testing.expectEqual(len, 2);
 
-    try std.testing.expectEqualStrings("ls", ti.first().cannon());
-    try std.testing.expectEqualStrings("file.txt", ti.next().?.cannon());
+    try eqlStr("ls", ti.first().cannon());
+    try eqlStr("file.txt", ti.next().?.cannon());
 }
 
 test "token > execSlice" {
@@ -1048,9 +1058,9 @@ test "token > execSlice" {
     }
     try std.testing.expectEqual(len, 2);
 
-    try std.testing.expectEqualStrings("ls", ti.first().cannon());
+    try eqlStr("ls", ti.first().cannon());
     var iot = ti.next().?;
-    try std.testing.expectEqualStrings("file.txt", iot.cannon());
+    try eqlStr("file.txt", iot.cannon());
     try std.testing.expect(iot.kind == .IoRedir);
     try std.testing.expect(iot.kindext.io == .Out);
 
@@ -1075,9 +1085,9 @@ test "token >> file" {
     }
     try std.testing.expectEqual(len, 2);
 
-    try std.testing.expectEqualStrings("ls", ti.first().cannon());
+    try eqlStr("ls", ti.first().cannon());
     var iot = ti.next().?;
-    try std.testing.expectEqualStrings("file.txt", iot.cannon());
+    try eqlStr("file.txt", iot.cannon());
     try std.testing.expect(iot.kind == .IoRedir);
     try std.testing.expect(iot.kindext.io == .Append);
 }
@@ -1093,8 +1103,8 @@ test "token < file" {
     }
     try std.testing.expectEqual(len, 2);
 
-    try std.testing.expectEqualStrings("ls", ti.first().cannon());
-    try std.testing.expectEqualStrings("file.txt", ti.next().?.cannon());
+    try eqlStr("ls", ti.first().cannon());
+    try eqlStr("file.txt", ti.next().?.cannon());
 }
 
 test "token < file extra ws" {
@@ -1108,8 +1118,8 @@ test "token < file extra ws" {
     }
     try std.testing.expectEqual(len, 2);
 
-    try std.testing.expectEqualStrings("ls", ti.first().cannon());
-    try std.testing.expectEqualStrings("file.txt", ti.next().?.cannon());
+    try eqlStr("ls", ti.first().cannon());
+    try eqlStr("file.txt", ti.next().?.cannon());
 }
 
 test "token &&" {
@@ -1123,14 +1133,16 @@ test "token &&" {
     }
     try std.testing.expectEqual(len, 3);
 
-    try std.testing.expectEqualStrings("ls", ti.first().cannon());
+    try eqlStr("ls", ti.first().cannon());
     const n = ti.next().?;
-    try std.testing.expectEqualStrings("&&", n.cannon());
+    try eqlStr("&&", n.cannon());
     try std.testing.expect(n.kind == .Operator);
     try std.testing.expect(n.kindext == .oper);
     try std.testing.expect(n.kindext.oper == .Success);
-    try std.testing.expectEqualStrings("success", ti.next().?.cannon());
+    try eqlStr("success", ti.next().?.cannon());
 }
+
+const eqlStr = std.testing.expectEqualStrings;
 
 test "token ||" {
     var ti = TokenIterator{
@@ -1143,43 +1155,57 @@ test "token ||" {
     }
     try std.testing.expectEqual(len, 3);
 
-    try std.testing.expectEqualStrings("ls", ti.first().cannon());
+    try eqlStr("ls", ti.first().cannon());
     const n = ti.next().?;
-    try std.testing.expectEqualStrings("||", n.cannon());
+    try eqlStr("||", n.cannon());
     try std.testing.expect(n.kind == .Operator);
     try std.testing.expect(n.kindext == .oper);
     try std.testing.expect(n.kindext.oper == .Fail);
-    try std.testing.expectEqualStrings("fail", ti.next().?.cannon());
+    try eqlStr("fail", ti.next().?.cannon());
 }
 
 test "token vari" {
     var t = try Tokenizer.vari("$string");
 
-    try std.testing.expectEqualStrings("string", t.cannon());
+    try eqlStr("string", t.cannon());
 }
 
 test "token vari words" {
     var t = try Tokenizer.vari("$string ");
-    try std.testing.expectEqualStrings("string", t.cannon());
+    try eqlStr("string", t.cannon());
 
     t = try Tokenizer.vari("$string993");
-    try std.testing.expectEqualStrings("string", t.cannon());
+    try eqlStr("string", t.cannon());
 
     t = try Tokenizer.vari("$string 993");
-    try std.testing.expectEqualStrings("string", t.cannon());
+    try eqlStr("string", t.cannon());
 
     t = try Tokenizer.vari("$string{} 993");
-    try std.testing.expectEqualStrings("string", t.cannon());
+    try eqlStr("string", t.cannon());
 
     t = try Tokenizer.vari("$string+");
-    try std.testing.expectEqualStrings("string", t.cannon());
+    try eqlStr("string", t.cannon());
 
     t = try Tokenizer.vari("$string:");
-    try std.testing.expectEqualStrings("string", t.cannon());
+    try eqlStr("string", t.cannon());
 
     t = try Tokenizer.vari("$string~");
-    try std.testing.expectEqualStrings("string", t.cannon());
+    try eqlStr("string", t.cannon());
 
     t = try Tokenizer.vari("$string-");
-    try std.testing.expectEqualStrings("string", t.cannon());
+    try eqlStr("string", t.cannon());
+}
+
+test "token vari braces" {
+    var t = try Tokenizer.any("$STRING");
+    try eqlStr("STRING", t.cannon());
+
+    t = try Tokenizer.any("${STRING}");
+    try eqlStr("STRING", t.cannon());
+
+    t = try Tokenizer.any("${STRING}extra");
+    try eqlStr("STRING", t.cannon());
+
+    t = try Tokenizer.any("${STR_ING}extra");
+    try eqlStr("STR_ING", t.cannon());
 }

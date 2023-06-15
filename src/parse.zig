@@ -529,3 +529,71 @@ test "parse vars existing" {
     try eqlStr("blerg", itr.next().?.cannon());
     try expect(itr.next() == null);
 }
+
+test "parse vars existing braces" {
+    var a = std.testing.allocator;
+
+    var ti = TokenIterator{
+        .raw = "echo ${string}extra blerg",
+    };
+
+    Variables.init(a);
+    defer Variables.raze();
+
+    try Variables.put("string", "value");
+
+    try eqlStr("value", Variables.get("string").?);
+
+    const slice = try ti.toSlice(a);
+    defer a.free(slice);
+    var itr = try Parser.parse(&a, slice);
+    var i: usize = 0;
+    while (itr.next()) |_| {
+        //std.debug.print("{}\n", .{t});
+        i += 1;
+    }
+    try expectEql(i, 4);
+    var first = itr.first().cannon();
+    try eqlStr("echo", first);
+
+    // the following is a bug, itr[1] should be "valueextra"
+    // It's possible I may disallow this outside of double quotes
+    try eqlStr("value", itr.peek().?.cannon());
+    try expect(itr.next().?.kind == .Var);
+    try eqlStr("extra", itr.next().?.cannon());
+    try eqlStr("blerg", itr.next().?.cannon());
+    try expect(itr.next() == null);
+}
+
+test "parse vars existing braces inline" {
+    var a = std.testing.allocator;
+
+    var ti = TokenIterator{
+        .raw = "echo extra${string} blerg",
+    };
+
+    Variables.init(a);
+    defer Variables.raze();
+
+    try Variables.put("string", "value");
+
+    try eqlStr("value", Variables.get("string").?);
+
+    const slice = try ti.toSlice(a);
+    defer a.free(slice);
+    var itr = try Parser.parse(&a, slice);
+    var i: usize = 0;
+    while (itr.next()) |_| {
+        //std.debug.print("{}\n", .{t});
+        i += 1;
+    }
+    try expectEql(i, 4);
+    var first = itr.first().cannon();
+    try eqlStr("echo", first);
+
+    try eqlStr("extra", itr.next().?.cannon());
+    try eqlStr("value", itr.peek().?.cannon());
+    try expect(itr.next().?.kind == .Var);
+    try eqlStr("blerg", itr.next().?.cannon());
+    try expect(itr.next() == null);
+}
