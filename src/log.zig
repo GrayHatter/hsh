@@ -13,7 +13,7 @@ pub const Level = enum(u4) {
     trace,
 };
 
-pub var verbosity: Level = .info;
+pub var verbosity: Level = .warning;
 
 /// TODO NO_COLOR support
 pub fn hshLogFn(

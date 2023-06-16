@@ -1,7 +1,9 @@
 # hsh
 ~~Don't use this, it's not ready!~~
-You probably don't want to use this yet, while I have started to dog food this
-as my shell... I'm crazy.
+You probably don't want to use this yet, but it's my current default shell (what
+could go wrong) so it might work for you if you're brave enough. I suspect you
+need `zig version` `0.11.0-dev.3061` or better to compile. 
+
 
 ## Goals
   - Support *modern* pttys
@@ -18,6 +20,8 @@ clone [hsh]<br>
 ~~`zig build run`~~<br>
 `zig build`<br>
 `./zig-out/bin/hsh`
+
+or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
 
 (`zig build run` does some magic that causes hsh to segv)
 
