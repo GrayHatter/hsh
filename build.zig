@@ -3,19 +3,11 @@ const std = @import("std");
 // near default build.zig from 0.11.0-dev.1908+06b263825a
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-
     const optimize = b.standardOptimizeOption(.{});
+    const src = .{ .path = "src/main.zig" };
 
-    const exe = b.addExecutable(.{
-        .name = "hsh",
-        .root_source_file = .{ .path = "src/main.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const exe_opt = b.addOptions();
-    exe.addOptions("hsh_build", exe_opt);
-    exe_opt.addOption(
+    const opts = b.addOptions();
+    opts.addOption(
         std.SemanticVersion,
         "version",
         std.SemanticVersion.parse(version(b)) catch unreachable,
@@ -25,25 +17,38 @@ pub fn build(b: *std.Build) void {
         .source_file = .{ .path = "src/log.zig" },
     });
 
-    exe.addModule("log", log);
-
-    b.installArtifact(exe);
-
-    const run_cmd = b.addRunArtifact(exe);
-
-    run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
-
-    const unit_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/main.zig" },
+    const exe = b.addExecutable(.{
+        .name = "hsh",
+        .root_source_file = src,
         .target = target,
         .optimize = optimize,
     });
-    unit_tests.addOptions("hsh_build", exe_opt);
+
+    exe.addModule("log", log);
+    exe.addOptions("hsh_build", opts);
+
+    b.installArtifact(exe);
+
+    // hsh doesn't like to be run from within zig build
+    //const run_cmd = b.addRunArtifact(exe);
+    //run_cmd.step.dependOn(b.getInstallStep());
+    //if (b.args) |args| {
+    //    run_cmd.addArgs(args);
+    //}
+    //const run_step = b.step("run", "Run the app");
+    //run_step.dependOn(&run_cmd.step);
+
+    // TODO enable sysinstall with keyword
+    //const install_step = b.step("sysinstall", "install to system");
+    //install_step.dependOn(&b.addInstallArtifact(exe).step);
+
+    // TESTS
+    const unit_tests = b.addTest(.{
+        .root_source_file = src,
+        .target = target,
+        .optimize = optimize,
+    });
+    unit_tests.addOptions("hsh_build", opts);
     unit_tests.addModule("log", log);
     const run_tests = b.addRunArtifact(unit_tests);
 
