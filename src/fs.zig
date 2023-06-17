@@ -3,12 +3,33 @@ const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 usingnamespace std.fs;
 
+pub const fs = @This();
+
+rc: ?std.fs.File = null,
+dirs: struct {
+    cwd: std.fs.IterableDir,
+    conf: ?std.fs.IterableDir = null,
+},
+names: struct {
+    cwd: []u8,
+    cwd_short: []u8,
+    home: ?[]const u8,
+    path: ?[]const u8,
+    paths: std.ArrayList([]const u8),
+},
+
 pub const Error = error{
     System,
     Missing,
     Perm,
     Other,
 };
+
+pub fn init() fs {
+    return .{};
+}
+
+pub fn raze() void {}
 
 pub fn openFileAt(dir: std.fs.Dir, name: []const u8, comptime create: bool) ?std.fs.File {
     if (create) {

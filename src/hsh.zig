@@ -189,20 +189,7 @@ pub const HSH = struct {
     alloc: Allocator,
     features: hshFeature,
     env: std.process.EnvMap,
-    hfs: struct {
-        rc: ?std.fs.File = null,
-        dirs: struct {
-            cwd: std.fs.IterableDir,
-            conf: ?std.fs.IterableDir = null,
-        },
-        names: struct {
-            cwd: []u8,
-            cwd_short: []u8,
-            home: ?[]const u8,
-            path: ?[]const u8,
-            paths: ArrayList([]const u8),
-        },
-    },
+    hfs: fs,
     pid: std.os.pid_t,
     pgrp: std.os.pid_t = -1,
     jobs: *jobs.Jobs,
