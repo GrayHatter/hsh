@@ -64,16 +64,16 @@ pub fn alias(h: *HSH, titr: *ParsedIterator) Err!u8 {
             .Operator => {},
             else => {
                 if (name) |_| {
-                    value = h.alloc.dupe(u8, t.cannon()) catch return Err.Memory;
+                    value = t.cannon();
                 } else {
                     if (std.mem.indexOf(u8, t.cannon(), "=")) |i| {
-                        name = h.alloc.dupe(u8, t.cannon()[0..i]) catch return Err.Memory;
+                        name = t.cannon()[0..i];
                         if (t.cannon().len > i + 1) {
-                            value = h.alloc.dupe(u8, t.cannon()[i + 1 ..]) catch return Err.Memory;
+                            value = t.cannon()[i + 1 ..];
                             break;
                         }
                     } else {
-                        name = h.alloc.dupe(u8, t.cannon()) catch return Err.Memory;
+                        name = t.cannon();
                     }
                 }
             },
@@ -84,20 +84,14 @@ pub fn alias(h: *HSH, titr: *ParsedIterator) Err!u8 {
 
     if (name) |n| {
         if (value) |v| {
-            if (find(n)) |*found| {
-                h.alloc.free(found.*.value);
-                found.*.value = v;
-                h.alloc.free(n);
-                return 0;
-            }
-            if (add(n, v)) return 0 else |err| return err;
+            if (try replace(h.alloc, n, v)) return 0;
+            if (add(h.alloc, n, v)) return 0 else |err| return err;
         }
         if (find(n)) |nn| {
             print("{}\n", .{nn}) catch return Err.Unknown;
         } else {
             print("no known alias for {s}\n", .{n}) catch return Err.Unknown;
         }
-        h.alloc.free(n);
         return 0;
     }
 
@@ -117,12 +111,23 @@ pub fn find(src: []const u8) ?*Alias {
 }
 
 // TODO might leak
-fn add(src: []const u8, dst: []const u8) Err!void {
+fn add(a: std.mem.Allocator, src: []const u8, dst: []const u8) Err!void {
+    log.debug("ALIAS adding {s} = '{s}\n'", .{ src, dst });
     if (dst.len == 0) return del(src);
     aliases.append(Alias{
-        .name = src,
-        .value = dst,
+        .name = a.dupe(u8, src) catch return Err.Memory,
+        .value = a.dupe(u8, dst) catch return Err.Memory,
     }) catch return Err.Memory;
+}
+
+/// Returns true IFF existing value is replaced
+fn replace(a: std.mem.Allocator, key: []const u8, val: []const u8) !bool {
+    if (find(key)) |*found| {
+        a.free(found.*.value);
+        found.*.value = a.dupe(u8, val) catch return Err.Memory;
+        return true;
+    }
+    return false;
 }
 
 fn del(src: []const u8) Err!void {
