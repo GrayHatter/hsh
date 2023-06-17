@@ -17,6 +17,7 @@ const History = @import("history.zig");
 const Context = @import("context.zig");
 const fs = @import("fs.zig");
 const Variables = @import("variables.zig");
+const log = @import("log");
 
 pub const Error = error{
     Unknown,
@@ -120,7 +121,10 @@ fn initHSH(hsh: *HSH) !void {
             tokenizer.consumes(line) catch continue;
             _ = tokenizer.tokenize() catch continue;
             var titr = Parser.parse(&a, tokenizer.tokens.items) catch continue;
-            if (titr.first().kind != .Builtin) continue;
+            if (titr.first().kind != .Builtin) {
+                log.warning("Unknown rc line \n    {s}\n", .{line});
+                continue;
+            }
 
             const bi_func = bi.strExec(titr.first().cannon());
             titr.restart();
@@ -246,7 +250,7 @@ pub const HSH = struct {
                     .paths = initPath(a, path) catch return E.Memory,
                 },
             },
-            .hist = if (conf[1]) |cfd| History{ .hist = cfd } else null,
+            .hist = if (conf[1]) |cfd| History{ .file = cfd } else null,
         };
 
         try initHSH(&hsh);
@@ -283,13 +287,14 @@ pub const HSH = struct {
     }
 
     pub fn raze(hsh: *HSH) void {
-        razeHSH(hsh);
         hsh.env.deinit();
         if (hsh.hist) |hist| hist.raze();
         if (hsh.hfs.rc) |rc| rc.seekTo(0) catch unreachable;
         writeState(hsh, savestates.items) catch {};
-
         if (hsh.hfs.rc) |rrc| rrc.close();
+
+        razeHSH(hsh);
+
         hsh.razeFs();
     }
 
