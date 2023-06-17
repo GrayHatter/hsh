@@ -103,7 +103,7 @@ fn cd(hsh: *HSH, titr: *ParsedIterator) Err!u8 {
     _ = titr.first();
     while (titr.next()) |t| {
         switch (t.kind) {
-            .String, .Quote, .Var => {
+            .String, .Quote, .Var, .Path => {
                 std.mem.copy(u8, &path, t.cannon());
                 path_len = t.cannon().len;
                 break;
