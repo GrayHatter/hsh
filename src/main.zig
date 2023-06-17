@@ -257,9 +257,9 @@ fn core(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !bool {
 }
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer if (gpa.detectLeaks()) std.debug.print("Leaked\n", .{});
+    var a = gpa.allocator();
 
     var hsh = try HSH.init(a);
     defer hsh.raze();

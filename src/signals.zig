@@ -54,6 +54,7 @@ pub fn get() ?Queue(Signal).Node {
     return node.*;
 }
 
+/// TODO change init to accept a GP allocator, and wrap *that* with arena
 pub fn init() !void {
     arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     alloc = arena.allocator();

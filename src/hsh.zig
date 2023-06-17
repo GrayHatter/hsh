@@ -73,6 +73,7 @@ fn readLine(a: *Allocator, r: std.fs.File.Reader) ![]u8 {
     errdefer a.free(buf);
     if (r.readUntilDelimiterOrEof(buf, '\n')) |line| {
         if (line) |l| {
+            if (!a.resize(buf, l.len)) @panic("resize\n");
             return l;
         } else {
             return Error.EOF;
@@ -88,14 +89,19 @@ fn getConfigs(A: Allocator, env: *std.process.EnvMap) !struct { ?std.fs.File, ?s
     return .{ rc, hs };
 }
 
-fn setupBuiltins(hsh: *HSH) !void {
+fn initBuiltins(hsh: *HSH) !void {
     savestates = ArrayList(State).init(hsh.alloc);
     bi.aliases.init(hsh.alloc);
     bi.Set.init(hsh.alloc);
 }
 
+fn razeBuiltins(h: *HSH) void {
+    bi.aliases.raze(h.alloc);
+    bi.Set.raze();
+}
+
 fn initHSH(hsh: *HSH) !void {
-    try setupBuiltins(hsh);
+    try initBuiltins(hsh);
 
     try Context.init(&hsh.alloc);
 
@@ -132,6 +138,11 @@ fn initHSH(hsh: *HSH) !void {
 
     Variables.init(hsh.alloc);
     Variables.load(hsh.env) catch return E.Memory;
+}
+
+fn razeHSH(h: *HSH) void {
+    Variables.raze();
+    razeBuiltins(h);
 }
 
 var savestates: ArrayList(State) = undefined;
@@ -272,20 +283,21 @@ pub const HSH = struct {
     }
 
     pub fn raze(hsh: *HSH) void {
+        razeHSH(hsh);
         hsh.env.deinit();
         if (hsh.hist) |hist| hist.raze();
-
         if (hsh.hfs.rc) |rc| rc.seekTo(0) catch unreachable;
         writeState(hsh, savestates.items) catch {};
 
         if (hsh.hfs.rc) |rrc| rrc.close();
+        hsh.razeFs();
     }
 
     fn razeFs(hsh: *HSH) void {
-        hsh.alloc.free(hsh.fs.cwd_name);
-        hsh.alloc.free(hsh.fs.cwd_short);
-        hsh.fs.paths.clearAndFree();
-        if (hsh.fs.path_env) |env| hsh.alloc.free(env);
+        hsh.alloc.free(hsh.hfs.names.cwd);
+        hsh.alloc.free(hsh.hfs.names.cwd_short);
+        hsh.hfs.names.paths.clearAndFree();
+        hsh.alloc.free(hsh.hfs.names.path.?);
     }
 
     pub fn find_confdir(_: HSH) []const u8 {}
