@@ -258,7 +258,10 @@ fn core(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !bool {
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer if (gpa.detectLeaks()) std.debug.print("Leaked\n", .{});
+    defer {
+        if (gpa.detectLeaks()) std.debug.print("Leaked\n", .{});
+        std.time.sleep(1000 * 1000 * 1000);
+    }
     var a = gpa.allocator();
 
     var hsh = try HSH.init(a);
