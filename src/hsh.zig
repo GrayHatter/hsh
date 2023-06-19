@@ -199,6 +199,7 @@ pub const HSH = struct {
     tkn: Tokenizer = undefined,
     input: i32 = 0,
     changes: []u8 = undefined,
+    waiting: bool = false,
 
     pub fn init(a: Allocator) Error!HSH {
         // I'm pulling all of env out at startup only because that's the first
@@ -313,9 +314,20 @@ pub const HSH = struct {
             hsh.doSignals();
             hsh.sleep();
         }
+        while (hsh.waiting) {
+            hsh.doSignals();
+            hsh.sleep();
+        }
     }
 
-    const SI_CODE = enum(u6) { EXITED = 1, KILLED, DUMPED, TRAPPED, STOPPED, CONTINUED };
+    const SI_CODE = enum(u6) {
+        EXITED = 1,
+        KILLED,
+        DUMPED,
+        TRAPPED,
+        STOPPED,
+        CONTINUED,
+    };
 
     fn doSignals(hsh: *HSH) void {
         while (Signals.get()) |node| {
@@ -358,8 +370,13 @@ pub const HSH = struct {
                         SI_CODE.CONTINUED => {
                             child.*.status = .Running;
                         },
-                        else => {
-                            std.debug.print("Unknown child event for {} {}\n", .{ sig.info.code, pid });
+                        SI_CODE.DUMPED,
+                        SI_CODE.TRAPPED,
+                        => {
+                            log.err("CHLD CRASH on {}\n", .{pid});
+                            child.*.status = .Crashed;
+                            const status = sig.info.fields.common.second.sigchld.status;
+                            child.*.exit_code = @bitCast(u8, @truncate(i8, status));
                         },
                     }
                 },
@@ -376,11 +393,12 @@ pub const HSH = struct {
                         }
                         child.*.status = .Waiting;
                     }
-                    std.debug.print("\n\rSIGNAL TSTP {} => ({any})", .{ pid, sig.info });
+                    log.err("SIGNAL TSTP {} => ({any})", .{ pid, sig.info });
                     //std.debug.print("\n{}\n", .{child});
                 },
                 std.os.SIG.CONT => {
-                    std.debug.print("\nUnexpected cont from pid({})\n", .{pid});
+                    log.warning("Unexpected cont from pid({})\n", .{pid});
+                    hsh.waiting = false;
                 },
                 std.os.SIG.WINCH => {
                     hsh.draw.term_size = hsh.tty.geom() catch unreachable;
@@ -388,7 +406,16 @@ pub const HSH = struct {
                 std.os.SIG.USR1 => {
                     hsh.stopChildren();
                     hsh.tty.pushRaw() catch unreachable;
-                    std.debug.print("\r\nAssuming control of TTY!\n", .{});
+                    log.err("Assuming control of TTY!\n", .{});
+                },
+                std.os.SIG.TTOU => {
+                    log.err("TTOU RIP us!\n", .{});
+                    //hsh.tty.pwnTTY();
+                },
+                std.os.SIG.TTIN => {
+                    log.err("TTIN RIP us! ({} -> {})\n", .{ hsh.pid, pid });
+                    hsh.waiting = true;
+                    //hsh.tty.pwnTTY();
                 },
                 else => {
                     std.debug.print("\n\rUnknown signal {} => ({})\n", .{ sig.signal, sig.info });

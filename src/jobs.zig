@@ -11,6 +11,7 @@ pub const Error = error{
 
 pub const Status = enum {
     RIP, // reaped (user notified)
+    Crashed, // SIGQUIT
     Ded, // zombie
     Paused, // SIGSTOP
     Waiting, // Stopped needs to output

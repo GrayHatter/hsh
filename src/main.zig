@@ -209,6 +209,26 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
     return .None;
 }
 
+fn read(fd: std.os.fd_t, buf: []u8) !usize {
+    const rc = std.os.linux.read(fd, buf.ptr, buf.len);
+    switch (std.os.linux.getErrno(rc)) {
+        .SUCCESS => return @intCast(usize, rc),
+        .INTR => return error.Interupted,
+        .AGAIN => return error.WouldBlock,
+        .BADF => return error.NotOpenForReading, // Can be a race condition.
+        .IO => return error.InputOutput,
+        .ISDIR => return error.IsDir,
+        .NOBUFS => return error.SystemResources,
+        .NOMEM => return error.SystemResources,
+        .CONNRESET => return error.ConnectionResetByPeer,
+        .TIMEDOUT => return error.ConnectionTimedOut,
+        else => |err| {
+            std.debug.print("unexpected read err {}\n", .{err});
+            @panic("unknown read error\n");
+        },
+    }
+}
+
 fn core(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !bool {
     defer hsh.tty.print("\n", .{}) catch {};
     defer hsh.draw.reset();
@@ -232,7 +252,7 @@ fn core(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !bool {
 
         // REALLY WISH I COULD BUILD ZIG, ARCH LINUX!!!
         @memcpy(&prev, &buffer);
-        const nbyte = try os.read(hsh.tty.tty, &buffer);
+        const nbyte = try read(hsh.tty.tty, &buffer);
         if (nbyte == 0) {
             continue;
         }

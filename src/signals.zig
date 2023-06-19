@@ -60,9 +60,10 @@ pub fn init() !void {
     arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     alloc = arena.allocator();
 
+    const SA = std.os.linux.SA;
     // zsh blocks and unblocks winch signals during most processing, collecting
     // them only when needed. It's likely something we should do as well
-    const signals = [_]u6{
+    const wanted = [_]u6{
         os.SIG.HUP,
         os.SIG.INT,
         os.SIG.USR1,
@@ -71,15 +72,28 @@ pub fn init() !void {
         os.SIG.CHLD,
         os.SIG.CONT,
         os.SIG.TSTP,
+        os.SIG.TTIN,
+        os.SIG.TTOU,
         os.SIG.WINCH,
     };
 
-    const SA = std.os.linux.SA;
-    for (signals) |sig| {
+    for (wanted) |sig| {
         try os.sigaction(sig, &os.Sigaction{
             .handler = .{ .sigaction = sig_cb },
             .mask = os.empty_sigset,
-            .flags = SA.SIGINFO | SA.NOCLDWAIT,
+            .flags = SA.SIGINFO | SA.NOCLDWAIT | SA.RESTART,
+        }, null);
+    }
+
+    const ignored = [_]u6{
+        os.SIG.TTIN,
+        os.SIG.TTOU,
+    };
+    for (ignored) |sig| {
+        try os.sigaction(sig, &os.Sigaction{
+            .handler = .{ .handler = os.SIG.IGN },
+            .mask = os.empty_sigset,
+            .flags = SA.SIGINFO | SA.NOCLDWAIT | SA.RESTART,
         }, null);
     }
 }

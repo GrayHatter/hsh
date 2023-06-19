@@ -107,20 +107,47 @@ pub const TTY = struct {
     pub fn pwnTTY(self: *TTY) void {
         const pid = std.os.linux.getpid();
         const ssid = custom_syscalls.getsid(0);
-        // std.debug.print("pwning {} and {} \n", .{ pid, ssid });
+        log.debug("pwning {} and {} \n", .{ pid, ssid });
         if (ssid != pid) {
             _ = custom_syscalls.setpgid(pid, pid);
         }
-        //std.debug.print("pwning tc \n", .{});
+        log.debug("pwning tc \n", .{});
         //_ = custom_syscalls.tcsetpgrp(self.tty, &pid);
         //var res = custom_syscalls.tcsetpgrp(self.tty, &pid);
-        _ = std.os.tcsetpgrp(self.tty, pid) catch unreachable;
-        //std.debug.print("tc pwnd {}\n", .{res});
-        //var pgrp: pid_t = undefined;
+        const res = std.os.tcsetpgrp(self.tty, pid) catch |err| {
+            log.err("Unable to tcsetpgrp to {}, error was: {}\n", .{ pid, err });
+            log.err("Will attempt to tcgetpgrp\n", .{});
+            const get = std.os.tcgetpgrp(self.tty) catch |err2| {
+                log.err("tcgetpgrp err {}\n", .{err2});
+                return;
+            };
+            log.err("tcgetpgrp reports {}\n", .{get});
+            unreachable;
+        };
+        log.debug("tc pwnd {}\n", .{res});
         //_ = custom_syscalls.tcgetpgrp(self.tty, &pgrp);
-        //std.debug.print("get {}\n", .{pgrp});
-        _ = std.os.tcgetpgrp(self.tty) catch unreachable;
-        //std.debug.print("get {} {}\n", .{ out, pgrp });
+        const pgrp = std.os.tcgetpgrp(self.tty) catch unreachable;
+        log.debug("get new pgrp {}\n", .{pgrp});
+    }
+
+    pub fn waitForFg(self: *TTY) void {
+        var pgid = custom_syscalls.getpgid(0);
+        var fg = std.os.tcgetpgrp(self.tty) catch |err| {
+            log.err("died waiting for fg {}\n", .{err});
+            @panic("panic carefully!");
+        };
+        while (pgid != fg) {
+            std.os.kill(-pgid, std.os.SIG.TTIN) catch {
+                @panic("unable to send TTIN");
+            };
+            pgid = custom_syscalls.getpgid(0);
+            std.os.tcsetpgrp(self.tty, pgid) catch {
+                @panic("died in loop");
+            };
+            fg = std.os.tcgetpgrp(self.tty) catch {
+                @panic("died in loop");
+            };
+        }
     }
 
     pub fn print(tty: TTY, comptime fmt: []const u8, args: anytype) !void {
