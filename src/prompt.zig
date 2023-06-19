@@ -39,10 +39,12 @@ fn userTextMultiline(hsh: *HSH, tkn: *Tokenizer) !void {
     const err = if (tkn.err_idx > 0) tkn.err_idx else tkn.raw.items.len;
     const good = tkn.raw.items[0..err];
     const bad = tkn.raw.items[err..];
-    try draw(&hsh.draw, LexTree{ .siblings = &[_]Lexeme{
-        .{ .char = good },
-        .{ .char = bad, .bg = .Red },
-    } });
+    try draw(&hsh.draw, LexTree{
+        .siblings = @constCast(&[_]Lexeme{
+            .{ .char = good },
+            .{ .char = bad, .bg = .Red },
+        }),
+    });
 }
 
 fn userText(hsh: *HSH, tkn: *Tokenizer) !void {
@@ -51,15 +53,17 @@ fn userText(hsh: *HSH, tkn: *Tokenizer) !void {
     const err = if (tkn.err_idx > 0) tkn.err_idx else tkn.raw.items.len;
     const good = tkn.raw.items[0..err];
     const bad = tkn.raw.items[err..];
-    try draw(&hsh.draw, LexTree{ .siblings = &[_]Lexeme{
-        .{ .char = good },
-        .{ .char = bad, .bg = .Red },
-    } });
+    try draw(&hsh.draw, LexTree{
+        .siblings = @constCast(&[_]Lexeme{
+            .{ .char = good },
+            .{ .char = bad, .bg = .Red },
+        }),
+    });
 }
 
 pub fn prompt(hsh: *HSH, tkn: *Tokenizer) !void {
     try draw(&hsh.draw, .{
-        .siblings = &[_]Lexeme{
+        .siblings = @constCast(&[_]Lexeme{
             .{
                 .char = hsh.env.get("USER") orelse "[username unknown]",
                 .attr = .Bold,
@@ -69,32 +73,35 @@ pub fn prompt(hsh: *HSH, tkn: *Tokenizer) !void {
             .{ .char = "host " },
             .{ .char = hsh.hfs.names.cwd_short },
             .{ .char = " $ " },
-        },
+        }),
     });
     try userText(hsh, tkn);
     var tokens: [16]u8 = undefined;
     if (!hsh.enabled(Feature.Debugging)) return;
 
-    try drawRight(&hsh.draw, .{ .siblings = &[_]Lexeme{
-        .{ .char = try std.fmt.bufPrint(&tokens, "({}) ({}) [{}]", .{
-            tkn.raw.items.len,
-            tkn.tokens.items.len,
-            tkn.c_tkn,
-        }) },
-    } });
+    try drawRight(&hsh.draw, .{
+        .siblings = @constCast(&[_]Lexeme{
+            .{ .char = try std.fmt.bufPrint(&tokens, "({}) ({}) [{}]", .{
+                tkn.raw.items.len,
+                tkn.tokens.items.len,
+                tkn.c_tkn,
+            }) },
+        }),
+    });
 }
 
 pub fn jobsContext(hsh: *HSH, jobs: []Job) !void {
     for (jobs) |j| {
-        try drawBefore(&hsh.draw, LexTree{
-            .siblings = &[_]Lexeme{
+        const lex = LexTree{
+            .siblings = @constCast(&[_]Lexeme{
                 .{ .char = "[ " },
                 if (j.status == .Background) spinner(.dots2t3) else .{ .char = "Z" },
                 .{ .char = " " },
                 .{ .char = j.name orelse "Unknown Job" },
                 .{ .char = " ]" },
-            },
-        });
+            }),
+        };
+        try drawBefore(&hsh.draw, lex);
     }
 }
 

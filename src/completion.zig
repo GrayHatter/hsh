@@ -31,12 +31,12 @@ pub const FSKind = enum {
 
     pub fn fromFsKind(k: std.fs.IterableDir.Entry.Kind) FSKind {
         return switch (k) {
-            .File => .File,
-            .Directory => .Dir,
-            .SymLink => .Link,
-            .NamedPipe => .Pipe,
-            .UnixDomainSocket => .Socket,
-            .BlockDevice, .CharacterDevice => .Device,
+            .file => .File,
+            .directory => .Dir,
+            .sym_link => .Link,
+            .named_pipe => .Pipe,
+            .unix_domain_socket => .Socket,
+            .block_device, .character_device => .Device,
             else => unreachable,
         };
     }
