@@ -591,6 +591,10 @@ pub const Tokenizer = struct {
     }
 
     pub fn push_line(self: *Tokenizer) void {
+        if (self.hist_z) |*hz| {
+            hz.clearAndFree();
+            self.hist_z = null;
+        }
         self.hist_z = self.raw;
         self.raw = ArrayList(u8).init(self.alloc);
         self.tokens.clearAndFree();
@@ -605,6 +609,7 @@ pub const Tokenizer = struct {
         self.clear();
         if (self.hist_z) |h| {
             self.raw = h;
+            self.hist_z = null;
         }
         _ = self.tokenize() catch {};
     }
