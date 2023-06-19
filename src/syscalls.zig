@@ -45,9 +45,16 @@ pub fn getsid(pid: pid_t) pid_t {
     ));
 }
 
+pub fn getpgid(pid: pid_t) pid_t {
+    return @bitCast(pid_t, @truncate(u32, std.os.linux.syscall1(
+        .getpgid,
+        @bitCast(usize, @as(isize, pid)),
+    )));
+}
+
 pub fn setpgid(pid: pid_t, pgid: pid_t) usize {
     return @bitCast(usize, @truncate(usize, std.os.linux.syscall2(
-        .getpgid,
+        .setpgid,
         @bitCast(usize, @as(isize, pid)),
         @bitCast(usize, @as(isize, pgid)),
     )));
