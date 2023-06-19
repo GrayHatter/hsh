@@ -53,6 +53,10 @@ pub fn debug(comptime format: []const u8, args: anytype) void {
     hshLogFn(.debug, .default, format, args);
 }
 
+pub fn trace(comptime format: []const u8, args: anytype) void {
+    hshLogFn(.trace, .default, format, args);
+}
+
 pub fn dump(args: anytype) void {
     hshLogFn(.critical, .default, "{}\n", .{args});
 }
