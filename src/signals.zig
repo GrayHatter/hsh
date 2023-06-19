@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const os = std.os;
 const Queue = std.atomic.Queue;
+const log = @import("log");
 
 const Self = @This();
 
@@ -22,7 +23,7 @@ var queue: Queue(Signal) = Queue(Signal).init();
 
 export fn sig_cb(sig: c_int, info: *const os.siginfo_t, _: ?*const anyopaque) callconv(.C) void {
     if (false) { // signal debugging
-        std.debug.print(
+        log.trace(
             \\
             \\ ===================
             \\ = Incoming Signal =

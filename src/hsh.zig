@@ -161,7 +161,7 @@ fn writeLine(f: std.fs.File, line: []const u8) !usize {
 }
 
 fn writeState(h: *HSH, saves: []State) !void {
-    const outf = h.hfs.rc orelse return E.FSysGeneric;
+    const outf = h.hfs.rc orelse return E.Other;
 
     for (saves) |*s| {
         const data: ?[][]const u8 = s.save(h);
@@ -181,8 +181,8 @@ fn writeState(h: *HSH, saves: []State) !void {
             _ = try writeLine(outf, " ] didn't provide any save data\n");
         }
     }
-    const cpos = outf.getPos() catch return E.FSysGeneric;
-    outf.setEndPos(cpos) catch return E.FSysGeneric;
+    const cpos = outf.getPos() catch return E.Other;
+    outf.setEndPos(cpos) catch return E.Other;
 }
 
 pub const HSH = struct {
@@ -396,6 +396,7 @@ pub const HSH = struct {
                     std.debug.print("\n\rpid = {}", .{sig.info.fields.common.first.piduid.pid});
                     std.debug.print("\n\ruid = {}", .{sig.info.fields.common.first.piduid.uid});
                     std.debug.print("\n", .{});
+                    @panic("unexpected signal");
                 },
             }
         }

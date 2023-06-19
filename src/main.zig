@@ -272,6 +272,8 @@ pub fn main() !void {
         log.info("arg: {s}\n", .{arg});
         if (std.mem.eql(u8, "debug", arg)) {
             log.verbosity = .debug;
+        } else if (std.mem.eql(u8, "debug-trace", arg)) {
+            log.verbosity = .trace;
         } else if (std.mem.eql(u8, "--version", arg)) {
             std.debug.print("version: {}\n", .{hsh_build.version});
             std.process.exit(0);
@@ -300,8 +302,10 @@ pub fn main() !void {
     hsh.draw.term_size = hsh.tty.geom() catch unreachable;
     hsh.input = hsh.tty.tty;
 
+    var inerr = false;
     while (true) {
         if (core(&hsh, &hsh.tkn, comp)) |l| {
+            inerr = false;
             if (l) {
                 var tokens = hsh.tkn.tokenize() catch continue;
                 if (tokens.len == 0) continue;
@@ -332,17 +336,35 @@ pub fn main() !void {
                 break;
             }
         } else |err| {
-            std.debug.print("unexpected error {}\n", .{err});
-            unreachable;
+            switch (err) {
+                error.Interupted => log.err("intr\n", .{}),
+                error.InputOutput => {
+                    hsh.tty.waitForFg();
+                    //@breakpoint();
+                    log.err("{} crash in main\n", .{err});
+                    if (!inerr) {
+                        inerr = true;
+                        continue;
+                    }
+                    @panic("too many errors");
+                },
+                else => {
+                    std.debug.print("unexpected error {}\n", .{err});
+                    unreachable;
+                },
+            }
         }
     }
 }
 
 pub fn panic(msg: []const u8, trace: ?*std.builtin.StackTrace, retaddr: ?usize) noreturn {
     @setCold(true);
+
     std.debug.print("Panic reached... your TTY is likely broken now.\n\n...sorry about that!\n", .{});
     if (TTY_.current_tty) |*t| {
+        TTY_.current_tty = null;
         t.raze();
     }
     std.builtin.default_panic(msg, trace, retaddr);
+    std.time.sleep(1000 * 1000 * 1000 * 30);
 }

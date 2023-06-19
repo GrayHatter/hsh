@@ -12,6 +12,7 @@ const Cord = @import("draw.zig").Cord;
 const custom_syscalls = @import("syscalls.zig");
 const pid_t = std.os.linux.pid_t;
 const fd_t = std.os.fd_t;
+const log = @import("log");
 
 pub const OpCodes = enum {
     EraseInLine,
@@ -89,12 +90,12 @@ pub const TTY = struct {
 
     pub fn popTTY(self: *TTY) !os.termios {
         // Not using assert, because this is *always* an dangerously invalid state!
-        if (self.attrs.items.len <= 1) unreachable;
+        if (self.attrs.items.len <= 1) @panic("popTTY");
         const old = try os.tcgetattr(self.tty);
         const tail = self.attrs.pop();
         os.tcsetattr(self.tty, .DRAIN, tail) catch |err| {
-            std.debug.print("\r\n\nTTY ERROR encountered, {} when popping.\r\n\n", .{err});
-            unreachable;
+            log.err("TTY ERROR encountered, {} when popping.\n", .{err});
+            return err;
         };
         return old;
     }

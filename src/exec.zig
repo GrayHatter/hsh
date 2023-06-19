@@ -220,13 +220,12 @@ fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
 
 fn execBuiltin(h: *HSH, b: *Builtin) Error!u8 {
     const bi_func = bi.strExec(b.builtin);
-    log.dump(bi_func);
-    log.dump(b.argv);
-    log.dump(b.argv.first());
-    return bi_func(h, &b.argv) catch |err| {
+    const res = bi_func(h, &b.argv) catch |err| {
         log.err("builtin error {}\n", .{err});
         return 255;
     };
+    while (b.argv.next()) |_| {}
+    return res;
 }
 
 fn execBin(e: Binary) Error!void {
