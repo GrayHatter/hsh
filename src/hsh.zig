@@ -50,24 +50,6 @@ comptime {
     }
 }
 
-test "fs" {
-    const a = std.testing.allocator;
-    var env = std.process.getEnvMap(a) catch return E.Unknown; // TODO err handling
-    //var p = try findPath(a, &env) orelse unreachable;
-    //var buf: [200]u8 = undefined;
-    //std.debug.print("path {s}\n", .{try p.realpath(".", &buf)});
-    _ = try openRcFile(a, &env);
-    defer env.deinit();
-}
-
-fn openRcFile(a: Allocator, env: *std.process.EnvMap) !?std.fs.File {
-    return try fs.findPath(a, env, ".hshrc", false);
-}
-
-fn openHistFile(a: Allocator, env: *std.process.EnvMap) !?std.fs.File {
-    return try fs.findPath(a, env, ".hsh_history", false);
-}
-
 /// caller owns memory
 fn readLine(a: *Allocator, r: std.fs.File.Reader) ![]u8 {
     var buf = a.alloc(u8, 1024) catch return Error.Memory;
@@ -80,14 +62,6 @@ fn readLine(a: *Allocator, r: std.fs.File.Reader) ![]u8 {
             return Error.EOF;
         }
     } else |err| return err;
-}
-
-fn getConfigs(A: Allocator, env: *std.process.EnvMap) !struct { ?std.fs.File, ?std.fs.File } {
-    var a = A;
-    var rc = openRcFile(a, env) catch null;
-    var hs = openHistFile(a, env) catch null;
-
-    return .{ rc, hs };
 }
 
 fn initBuiltins(hsh: *HSH) !void {
@@ -208,54 +182,22 @@ pub const HSH = struct {
         // it's a mistake to alter the env for a running process.
         var env = std.process.getEnvMap(a) catch return E.Unknown; // TODO err handling
 
-        const path = if (env.get("PATH")) |p| a.dupe(u8, p) catch null else null;
-        var cwd = std.fs.cwd().realpathAlloc(a, ".") catch return E.Memory;
-        var cwd_short = cwd;
-        if (env.get("HOME")) |home| {
-            if (std.mem.startsWith(u8, cwd, home)) {
-                cwd_short = a.dupe(u8, cwd[home.len - 1 ..]) catch return E.Memory;
-                cwd_short[0] = '~';
-            }
-        }
-
-        var conf = try getConfigs(a, &env);
+        var hfs = fs.init(a, env) catch return E.Memory; // TODO there's errors other
+        // than just mem here
         var hsh = HSH{
             .alloc = a,
             .features = .{},
             .env = env,
             .pid = std.os.linux.getpid(),
             .jobs = jobs.init(a),
-            .hfs = .{
-                .rc = conf[0],
-                .dirs = .{
-                    .cwd = std.fs.cwd().openIterableDir(".", .{}) catch return E.Memory,
-                },
-                .names = .{
-                    .cwd = cwd,
-                    .cwd_short = cwd_short,
-                    .home = env.get("HOME"),
-                    .path = path,
-                    .paths = initPath(a, path) catch return E.Memory,
-                },
-            },
-            .hist = if (conf[1]) |cfd| History{ .file = cfd } else null,
+            .hfs = hfs,
+            .hist = if (hfs.history) |hst| History{ .file = hst } else null,
         };
 
         try initHSH(&hsh);
         return hsh;
         //__hsh = hsh;
         //return hsh;
-    }
-
-    fn initPath(a: Allocator, path_env: ?[]const u8) !ArrayList([]const u8) {
-        var paths = ArrayList([]const u8).init(a);
-        if (path_env) |env| {
-            var mpaths = std.mem.tokenize(u8, env, ":");
-            while (mpaths.next()) |path| {
-                try paths.append(path);
-            }
-        }
-        return paths;
     }
 
     pub fn updateFs(hsh: *HSH) void {

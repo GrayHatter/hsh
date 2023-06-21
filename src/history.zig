@@ -8,6 +8,30 @@ pub fn atTop(self: *History) bool {
     return 0 == self.hist.getPos() catch 0;
 }
 
+pub fn readLine(self: *History, buffer: *std.ArrayList(u8)) !void {
+    var hist = self.file;
+    try hist.reader().readUntilDelimiterArrayList(buffer, '\n', 1 << 16);
+    return try hist.getPos() == 0;
+}
+
+pub fn readLinePrevious(self: *History, buffer: *std.ArrayList(u8)) !bool {
+    var hist = self.file;
+    var row = self.cnt;
+    try hist.seekFromEnd(-1);
+    var cursor = try hist.getEndPos();
+    var buf: [1]u8 = undefined;
+    while (row > 0 and cursor > 0) {
+        hist.seekBy(-2) catch {
+            hist.seekBy(-1) catch break;
+            break;
+        };
+        _ = try hist.read(&buf);
+        if (buf[0] == '\n') row -= 1;
+        cursor = try hist.getPos();
+    }
+    return self.readLine(buffer);
+}
+
 pub fn readAt(self: *History, buffer: *std.ArrayList(u8)) !bool {
     var hist = self.file;
     var row = self.cnt;

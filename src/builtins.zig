@@ -3,6 +3,7 @@ const Token = @import("tokenizer.zig").Token;
 const HSH = @import("hsh.zig").HSH;
 const jobs_ = @import("jobs.zig");
 const ParsedIterator = @import("parse.zig").ParsedIterator;
+const log = @import("log");
 
 pub const State = @import("state.zig");
 pub const aliases = @import("builtins/alias.zig");
@@ -97,33 +98,25 @@ fn bg(_: *HSH, _: *ParsedIterator) Err!u8 {
 /// Someone should add some sane input sanitzation to this
 fn cd(hsh: *HSH, titr: *ParsedIterator) Err!u8 {
     // TODO pushd and popd
-    var path: [1 << 10]u8 = undefined;
-    var path_len: usize = 0;
+    std.debug.assert(std.mem.eql(u8, "cd", titr.first().cannon()));
 
-    _ = titr.first();
     while (titr.next()) |t| {
         switch (t.kind) {
             .String, .Quote, .Var, .Path => {
-                std.mem.copy(u8, &path, t.cannon());
-                path_len = t.cannon().len;
-                break;
+                hsh.hfs.cd(t.cannon()) catch |err| {
+                    log.err("Unable to change directory because {}\n", .{err});
+                    return 1;
+                };
+                return 0;
             },
             else => return Err.InvalidToken,
         }
     } else {
-        if (hsh.hfs.names.home) |home| {
-            std.mem.copy(u8, &path, home);
-            path_len = home.len;
+        if (hsh.hfs.names.home) |_| {
+            hsh.hfs.cd("") catch @panic("CD $HOME should never fail");
+            return 0;
         } else return Err.InvalidCommand;
     }
-
-    // std.debug.print("cd path {s} default {s}\n", .{ &path, hsh.fs.home_name });
-    const dir = hsh.hfs.dirs.cwd.dir.openDir(path[0..path_len], .{}) catch return Err.FileSysErr;
-    dir.setAsCwd() catch |e| {
-        std.debug.print("cwd failed! {}", .{e});
-        return Err.FileSysErr;
-    };
-    return 0;
 }
 
 pub fn die(_: *HSH, _: *ParsedIterator) Err!u8 {
