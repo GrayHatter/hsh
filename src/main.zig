@@ -65,7 +65,11 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                             if (hist.cnt == 0) tkn.push_line();
                             tkn.clear();
                             hist.cnt += 1;
-                            _ = hist.readAt(&tkn.raw) catch unreachable;
+                            if (tkn.hist_z) |hz| {
+                                _ = hist.readAtFiltered(&tkn.raw, hz.items) catch unreachable;
+                            } else {
+                                _ = hist.readAtFiltered(&tkn.raw, tkn.raw.items) catch unreachable;
+                            }
                             tkn.push_hist();
                         },
                         .Down => {
@@ -73,7 +77,11 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                             if (hist.cnt > 1) {
                                 hist.cnt -= 1;
                                 tkn.clear();
-                                _ = hist.readAt(&tkn.raw) catch unreachable;
+                                if (tkn.hist_z) |hz| {
+                                    _ = hist.readAtFiltered(&tkn.raw, hz.items) catch unreachable;
+                                } else {
+                                    _ = hist.readAtFiltered(&tkn.raw, tkn.raw.items) catch unreachable;
+                                }
                                 tkn.push_hist();
                             } else if (hist.cnt == 1) {
                                 hist.cnt -= 1;

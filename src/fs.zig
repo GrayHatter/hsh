@@ -12,6 +12,7 @@ const Names = struct {
     path: ?[]const u8,
     paths: std.ArrayList([]const u8),
 
+    /// TODO still Leaks
     fn update(self: *Names, a: mem.Allocator) !void {
         self.cwd = try std.fs.cwd().realpathAlloc(a, ".");
         self.cwd_short = self.cwd;

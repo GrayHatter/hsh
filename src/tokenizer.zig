@@ -612,10 +612,12 @@ pub const Tokenizer = struct {
             self.hist_z = null;
         }
         _ = self.tokenize() catch {};
+        self.c_idx = self.raw.items.len;
     }
 
     pub fn reset(self: *Tokenizer) void {
         self.clear();
+        if (self.hist_z) |*hz| hz.clearAndFree();
         self.hist_z = null;
     }
 
