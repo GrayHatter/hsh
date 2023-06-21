@@ -17,7 +17,6 @@ pub const Signal = struct {
     info: os.siginfo_t,
 };
 
-var arena: std.heap.ArenaAllocator = undefined;
 var alloc: Allocator = undefined;
 var queue: Queue(Signal) = Queue(Signal).init();
 
@@ -56,9 +55,8 @@ pub fn get() ?Queue(Signal).Node {
 }
 
 /// TODO change init to accept a GP allocator, and wrap *that* with arena
-pub fn init() !void {
-    arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    alloc = arena.allocator();
+pub fn init(a: Allocator) !void {
+    alloc = a;
 
     const SA = std.os.linux.SA;
     // zsh blocks and unblocks winch signals during most processing, collecting
@@ -99,5 +97,5 @@ pub fn init() !void {
 }
 
 pub fn raze() void {
-    arena.deinit();
+    //arena.deinit();
 }
