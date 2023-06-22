@@ -226,15 +226,7 @@ pub const HSH = struct {
 
         razeHSH(hsh);
 
-        hsh.razeFs();
         jobs.raze(hsh.alloc);
-    }
-
-    fn razeFs(hsh: *HSH) void {
-        hsh.alloc.free(hsh.hfs.names.cwd);
-        hsh.alloc.free(hsh.hfs.names.cwd_short);
-        hsh.hfs.names.paths.clearAndFree();
-        hsh.alloc.free(hsh.hfs.names.path.?);
     }
 
     pub fn find_confdir(_: HSH) []const u8 {}
