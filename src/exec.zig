@@ -124,9 +124,8 @@ pub fn makeAbsExecutable(a: Allocator, str: []const u8) Error![]u8 {
     for (paths) |path| {
         next = std.mem.join(a, "/", &[2][]const u8{ path, str }) catch return Error.Memory;
         if (validPathAbs(next)) return next;
+        a.free(next);
     }
-    std.debug.assert(paths.len > 0);
-    a.free(next);
     return Error.ExeNotFound;
 }
 
@@ -348,6 +347,15 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!void {
             .pid = fpid,
             .name = h.alloc.dupe(u8, name) catch return Error.Memory,
         }) catch return Error.Memory;
+        switch (s.callable) {
+            .builtin => {},
+            .exec => |e| {
+                // TODO validate this clears all pointers correctly
+                for (e.argv) |*p| {
+                    h.alloc.free(std.mem.sliceTo(p.*.?, 0));
+                }
+            },
+        }
         if (s.stdio.in != std.os.STDIN_FILENO) std.os.close(s.stdio.in);
         if (s.stdio.out != std.os.STDOUT_FILENO) std.os.close(s.stdio.out);
         if (s.stdio.err != std.os.STDERR_FILENO) std.os.close(s.stdio.err);
