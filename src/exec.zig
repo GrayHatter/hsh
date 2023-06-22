@@ -67,14 +67,27 @@ const CallableStack = struct {
 var paths: []const []const u8 = undefined;
 
 pub fn executable(h: *HSH, str: []const u8) bool {
-    paths = h.hfs.names.paths.items;
     if (bi.exists(str)) return true;
+    paths = h.hfs.names.paths.items;
     var plsfree = makeAbsExecutable(h.alloc, str) catch return false;
-    plsfree.clearAndFree();
+    h.alloc.free(plsfree);
     return true;
 }
 
-fn executablePath(path: []const u8) bool {
+fn validPath(path: []const u8) bool {
+    const file = fs.openFile(path, false) orelse return false;
+    defer file.close();
+    const md = file.metadata() catch return false;
+    if (md.kind() != .file) return false;
+    const perm = md.permissions().inner;
+    if (perm.unixHas(
+        std.fs.File.PermissionsUnix.Class.other,
+        std.fs.File.PermissionsUnix.Permission.execute,
+    )) return true;
+    return false;
+}
+
+fn validPathAbs(path: []const u8) bool {
     const file = std.fs.openFileAbsolute(path, .{}) catch return false;
     defer file.close();
     const md = file.metadata() catch return false;
@@ -90,30 +103,41 @@ fn executablePath(path: []const u8) bool {
 /// Caller must cleanAndFree() memory
 /// TODO BUG arg should be absolute but argv[0] should only be absolute IFF
 /// there was a / is the original token.
-pub fn makeAbsExecutable(a: Allocator, str: []const u8) Error!ArrayList(u8) {
-    var exe = ArrayList(u8).init(a);
+pub fn makeAbsExecutable(a: Allocator, str: []const u8) Error![]u8 {
     if (str[0] == '/') {
-        if (!executablePath(str)) return Error.ExeNotFound;
-        exe.appendSlice(str) catch return Error.Memory;
-        return exe;
+        if (!validPathAbs(str)) return Error.ExeNotFound;
+        return a.dupe(u8, str) catch return Error.Memory;
+    } else if (std.mem.indexOf(u8, str, "/")) |_| {
+        if (!validPath(str)) return Error.ExeNotFound;
+        var cwd: [2048]u8 = undefined;
+        return std.mem.join(
+            a,
+            "/",
+            &[2][]const u8{
+                std.fs.cwd().realpath(".", &cwd) catch return Error.NotFound,
+                str,
+            },
+        ) catch return Error.Memory;
     }
+
+    var next: []u8 = "";
     for (paths) |path| {
-        exe.clearAndFree();
-        exe.appendSlice(path) catch return Error.Memory;
-        exe.append('/') catch return Error.Memory;
-        exe.appendSlice(str) catch return Error.Memory;
-        if (executablePath(exe.items)) break else continue;
-    } else {
-        exe.clearAndFree();
-        return Error.ExeNotFound;
+        next = std.mem.join(a, "/", &[2][]const u8{ path, str }) catch return Error.Memory;
+        if (validPathAbs(next)) return next;
     }
-    return exe;
+    std.debug.assert(paths.len > 0);
+    a.free(next);
+    return Error.ExeNotFound;
 }
 
 /// Caller will own memory
 fn makeExeZ(a: Allocator, str: []const u8) Error!ARG {
-    var exe = makeAbsExecutable(a, str) catch |e| return e;
-    return exe.toOwnedSliceSentinel(0) catch return Error.Memory;
+    var exe = try makeAbsExecutable(a, str);
+    if (!a.resize(exe, exe.len + 1)) {
+        exe = a.realloc(exe, exe.len + 1) catch return Error.Memory;
+    } else exe.len += 1;
+    exe[exe.len - 1] = 0;
+    return exe[0 .. exe.len - 1 :0];
 }
 
 fn builtin(a: Allocator, parsed: ParsedIterator) Error!Builtin {
@@ -234,6 +258,7 @@ fn execBin(e: Binary) Error!void {
     switch (res) {
         error.FileNotFound => {
             // we validate exes internally now this should be impossible
+            log.err("exe not found {s}\n", .{e.arg});
             unreachable;
         },
         else => log.err("exec error {}\n", .{res}),

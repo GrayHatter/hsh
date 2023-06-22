@@ -94,16 +94,38 @@ pub fn cd(self: *fs, trgt: []const u8) !void {
     try self.dirs.update();
 }
 
-pub fn openFileAt(dir: std.fs.Dir, name: []const u8, comptime create: bool) ?std.fs.File {
+fn fileAt(
+    dir: std.fs.Dir,
+    name: []const u8,
+    comptime create: bool,
+    comptime rw: bool,
+) ?std.fs.File {
     if (create) {
-        return dir.createFile(name, .{ .read = true, .truncate = false }) catch return null;
+        return dir.createFile(
+            name,
+            .{ .read = true, .truncate = false },
+        ) catch return null;
     } else {
-        return dir.openFile(name, .{ .mode = .read_write }) catch return null;
+        return dir.openFile(
+            name,
+            .{ .mode = if (rw) .read_write else .read_only },
+        ) catch return null;
     }
+}
+pub fn writeFileAt(dir: std.fs.Dir, name: []const u8, comptime create: bool) ?std.fs.File {
+    return fileAt(dir, name, create, true);
+}
+
+pub fn writeFile(name: []const u8, comptime create: bool) ?std.fs.File {
+    return fileAt(std.fs.cwd(), name, create, true);
+}
+
+pub fn openFileAt(dir: std.fs.Dir, name: []const u8, comptime create: bool) ?std.fs.File {
+    return fileAt(dir, name, create, false);
 }
 
 pub fn openFile(name: []const u8, comptime create: bool) ?std.fs.File {
-    return openFileAt(std.fs.cwd(), name, create);
+    return fileAt(std.fs.cwd(), name, create, false);
 }
 
 /// Caller owns returned file
@@ -113,7 +135,7 @@ pub fn findPath(a: Allocator, env: *const std.process.EnvMap, name: []const u8, 
         out = try mem.concatPath(a, out, "hsh");
         defer a.free(out);
         if (std.fs.openDirAbsolute(out, .{})) |d| {
-            if (openFileAt(d, name, create)) |file| return file;
+            if (writeFileAt(d, name, create)) |file| return file;
         } else |_| {
             std.debug.print("unable to open {s}\n", .{out});
         }
@@ -123,13 +145,13 @@ pub fn findPath(a: Allocator, env: *const std.process.EnvMap, name: []const u8, 
         if (std.fs.openDirAbsolute(home, .{})) |h| {
             if (h.openDir(".config", .{})) |hc| {
                 if (hc.openDir("hsh", .{})) |hch| {
-                    if (openFileAt(hch, name[1..], create)) |file| {
+                    if (writeFileAt(hch, name[1..], create)) |file| {
                         return file;
                     }
                 } else |e| std.debug.print("unable to open {s} {}\n", .{ "hsh", e });
                 //return hc;
             } else |e| std.debug.print("unable to open {s} {}\n", .{ "conf", e });
-            if (openFileAt(h, name, create)) |file| {
+            if (writeFileAt(h, name, create)) |file| {
                 return file;
             }
         } else |e| std.debug.print("unable to open {s} {}\n", .{ "home", e });
