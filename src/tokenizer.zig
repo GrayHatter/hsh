@@ -1216,3 +1216,14 @@ test "token vari braces" {
     t = try Tokenizer.any("${STR_ING}extra");
     try eqlStr("STR_ING", t.cannon());
 }
+
+test "all execs" {
+    var tt = TokenIterator{ .raw = "ls -with -some -params && files || thing | pipeline ; othercmd & screenshot && some/rel/exec" };
+    var count: usize = 0;
+    while (tt.next()) |_| {
+        while (tt.nextExec()) |_| {}
+        _ = tt.next();
+        count += 1;
+    }
+    try std.testing.expect(7 == count);
+}

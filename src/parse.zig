@@ -141,11 +141,16 @@ pub const ParsedIterator = struct {
         if (self.resolved.len > 0) {
             self.alloc.free(self.resolved);
         }
-        self.resolved = self.alloc.alloc([]u8, 0) catch unreachable;
+        self.resolved = self.alloc.alloc([]u8, 0) catch @panic("Alloc 0 can't fail");
         if (self.subtokens) |ts| {
             self.alloc.free(ts);
             self.subtokens = null;
         }
+    }
+
+    /// Alias for restart to free stored memory
+    pub fn close(self: *Self) void {
+        self.restart();
     }
 };
 

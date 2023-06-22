@@ -4,9 +4,10 @@ const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const TTY = TTY_.TTY;
 const TTY_ = @import("tty.zig");
-const Tokenizer = @import("tokenizer.zig").Tokenizer;
-const TokenErr = @import("tokenizer.zig").Error;
-const TokenKind = @import("tokenizer.zig").TokenKind;
+const tokenizer = @import("tokenizer.zig");
+const Tokenizer = tokenizer.Tokenizer;
+const TokenErr = tokenizer.Error;
+const TokenKind = tokenizer.Kind;
 const parser = @import("parse.zig");
 const Parser = parser.Parser;
 const mem = std.mem;
@@ -331,35 +332,41 @@ pub fn main() !void {
     hsh.input = hsh.tty.tty;
 
     var inerr = false;
-    while (true) {
+    root: while (true) {
         if (core(&hsh, &hsh.tkn, comp)) |l| {
             inerr = false;
             if (l) {
-                var tokens = hsh.tkn.tokenize() catch continue;
-                if (tokens.len == 0) continue;
-                var titr = Parser.parse(&hsh.tkn.alloc, tokens) catch continue;
-                if (true)
-                    while (titr.next()) |t| log.debug("{}\n", .{t});
+                if (hsh.tkn.raw.items.len == 0) continue;
+                // debugging data
+                var titr = Parser.parse(&hsh.tkn.alloc, try hsh.tkn.tokenize()) catch continue;
+                while (titr.next()) |t| log.debug("{}\n", .{t});
 
                 titr.restart();
                 if (hsh.hist) |*hist| try hist.push(hsh.tkn.raw.items);
-                if (titr.peek()) |peek| {
-                    if (!Exec.executable(&hsh, peek.cannon())) {
-                        std.debug.print("Unable to find {s}\n", .{peek.cannon()});
-                        continue;
+                var itr = hsh.tkn.iterator();
+                while (itr.next()) |exe_t| {
+                    // TODO add a "list" version of Exec.executable() for this code
+                    var ts = [_]tokenizer.Token{exe_t.*};
+                    var ps = try Parser.parse(&hsh.tkn.alloc, &ts);
+                    const first = ps.first().cannon();
+                    defer ps.close();
+                    if (!Exec.executable(&hsh, first)) {
+                        std.debug.print("Unable to find {s}\n", .{first});
+                        continue :root;
                     }
-
-                    var itr = hsh.tkn.iterator();
-                    exec(&hsh, &itr) catch |err| {
-                        if (err == Exec.Error.ExeNotFound) {
-                            std.debug.print("exe pipe error {}\n", .{err});
-                        }
-                        std.debug.print("Exec error {}\n", .{err});
-                        unreachable;
-                    };
-                    hsh.tkn.reset();
-                    continue;
+                    while (itr.nextExec()) |_| {}
+                    _ = itr.next();
                 }
+
+                exec(&hsh, &itr) catch |err| {
+                    if (err == Exec.Error.ExeNotFound) {
+                        std.debug.print("exe pipe error {}\n", .{err});
+                    }
+                    std.debug.print("Exec error {}\n", .{err});
+                    unreachable;
+                };
+                hsh.tkn.reset();
+                continue;
             } else {
                 break;
             }
