@@ -149,6 +149,7 @@ fn writeState(h: *HSH, saves: []State) !void {
                 h.alloc.free(line);
             }
             _ = try writeLine(outf, "\n\n");
+            h.alloc.free(dd);
         } else {
             _ = try writeLine(outf, "# [ ");
             _ = try writeLine(outf, s.name);
@@ -226,6 +227,7 @@ pub const HSH = struct {
         razeHSH(hsh);
 
         hsh.razeFs();
+        jobs.raze(hsh.alloc);
     }
 
     fn razeFs(hsh: *HSH) void {

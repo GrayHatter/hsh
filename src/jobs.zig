@@ -70,6 +70,13 @@ pub fn init(a: Allocator) *Jobs {
     return &jobs;
 }
 
+pub fn raze(a: Allocator) void {
+    for (jobs.items) |*job| {
+        a.free(job.*.name.?);
+    }
+    jobs.clearAndFree();
+}
+
 pub fn get(jid: std.os.pid_t) Error!*Job {
     for (jobs.items) |*j| {
         if (j.*.pid == jid) {
