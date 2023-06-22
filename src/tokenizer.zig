@@ -7,7 +7,7 @@ const mem = std.mem;
 const std = @import("std");
 const CompOption = @import("completion.zig").CompOption;
 
-const breaking_tokens = " \t\"'`${|><#;:";
+const breaking_tokens = " \t\"'`${|><#;";
 
 pub const Kind = enum(u8) {
     WhiteSpace,
