@@ -208,6 +208,7 @@ pub const TTY = struct {
                 .{err},
             );
         };
+        self.attrs.clearAndFree();
     }
 };
 
