@@ -264,6 +264,19 @@ fn execBin(e: Binary) Error!void {
     }
 }
 
+fn free(a: Allocator, s: *CallableStack) void {
+    // TODO implement
+    switch (s.callable) {
+        .builtin => {},
+        .exec => |e| {
+            // TODO validate this clears all pointers correctly
+            for (e.argv) |*p| {
+                a.free(std.mem.sliceTo(p.*.?, 0));
+            }
+        },
+    }
+}
+
 pub fn exec(h: *HSH, titr: *TokenIterator) Error!void {
     // HACK I don't like it either, but LOOK OVER THERE!!!
     paths = h.hfs.names.paths.items;
@@ -291,12 +304,14 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!void {
             switch (cond) {
                 .After => _ = jobs.waitFor(h, fpid) catch {},
                 .Failure => {
-                    if (jobs.waitFor(h, fpid) catch continue) {
+                    if (jobs.waitFor(h, fpid) catch true) {
+                        free(h.alloc, s);
                         continue;
                     }
                 },
                 .Success => {
                     if (!(jobs.waitFor(h, fpid) catch return Error.PipelineError)) {
+                        free(h.alloc, s);
                         continue;
                     }
                 },
@@ -347,18 +362,10 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!void {
             .pid = fpid,
             .name = h.alloc.dupe(u8, name) catch return Error.Memory,
         }) catch return Error.Memory;
-        switch (s.callable) {
-            .builtin => {},
-            .exec => |e| {
-                // TODO validate this clears all pointers correctly
-                for (e.argv) |*p| {
-                    h.alloc.free(std.mem.sliceTo(p.*.?, 0));
-                }
-            },
-        }
         if (s.stdio.in != std.os.STDIN_FILENO) std.os.close(s.stdio.in);
         if (s.stdio.out != std.os.STDOUT_FILENO) std.os.close(s.stdio.out);
         if (s.stdio.err != std.os.STDERR_FILENO) std.os.close(s.stdio.err);
+        free(h.alloc, s);
     }
 }
 
