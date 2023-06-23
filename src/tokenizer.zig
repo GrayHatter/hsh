@@ -156,6 +156,17 @@ pub const TokenIterator = struct {
         return list.toOwnedSlice();
     }
 
+    /// Returns a Tokenizer error, or toSlice() with index = 0
+    pub fn toSliceError(self: *Self, a: Allocator) Error![]Token {
+        var i: usize = 0;
+        while (i < self.raw.len) {
+            const t = try Tokenizer.any(self.raw[i..]);
+            i += t.raw.len;
+        }
+        self.index = 0;
+        return self.toSlice(a) catch return Error.Memory;
+    }
+
     pub fn peek(self: *Self) ?*const Token {
         const old = self.index;
         defer self.index = old;
@@ -214,17 +225,9 @@ pub const Token = struct {
     }
 };
 
-pub fn tokenPos(comptime t: Kind, hs: []const Token) ?usize {
-    for (hs, 0..) |tk, i| {
-        if (t == tk.kind) return i;
-    }
-    return null;
-}
-
 pub const Tokenizer = struct {
     alloc: Allocator,
     raw: ArrayList(u8),
-    tokens: ArrayList(Token),
     hist_z: ?ArrayList(u8) = null,
     c_idx: usize = 0,
     c_tkn: usize = 0, // cursor is over this token
@@ -234,7 +237,6 @@ pub const Tokenizer = struct {
         return Tokenizer{
             .alloc = a,
             .raw = ArrayList(u8).init(a),
-            .tokens = ArrayList(Token).init(a),
         };
     }
 
@@ -242,31 +244,24 @@ pub const Tokenizer = struct {
         self.reset();
     }
 
-    /// Increment the cursor over to current token position
-    fn ctinc(self: *Tokenizer) void {
-        var seek: usize = 0;
-        for (self.tokens.items, 0..) |t, i| {
-            self.c_tkn = i;
-            seek += t.raw.len;
-            if (seek >= self.c_idx) break;
-        }
-    }
-
     pub fn cinc(self: *Tokenizer, i: isize) void {
         self.c_idx = @intCast(usize, @max(0, @addWithOverflow(@intCast(isize, self.c_idx), i)[0]));
         if (self.c_idx > self.raw.items.len) {
             self.c_idx = self.raw.items.len;
         }
-        self.ctinc();
     }
 
-    /// Warning no safety checks made before access!
-    /// Also, Tokeninzer continues to own memory, and may invalidate it whenever
-    /// it sees fit.
-    /// TODO safety checks
-    pub fn cursor_token(self: *Tokenizer) !*const Token {
-        self.ctinc();
-        return &self.tokens.items[self.c_tkn];
+    pub fn cursor_token(self: *Tokenizer) !Token {
+        var i: usize = 0;
+        self.c_tkn = 0;
+        while (i < self.raw.items.len) {
+            var t = try any(self.raw.items[i..]);
+            if (t.raw.len == 0) return Error.TokenizeFailed;
+            i += t.raw.len;
+            self.c_tkn += 1;
+            if (i >= self.c_idx) return t;
+        }
+        return Error.TokenizeFailed;
     }
 
     // Cursor adjustment to send to tty
@@ -276,34 +271,6 @@ pub const Tokenizer = struct {
 
     pub fn iterator(self: *Tokenizer) TokenIterator {
         return TokenIterator{ .raw = self.raw.items };
-    }
-
-    /// Return a slice of the current tokens;
-    /// Tokenizer owns memory, and makes no guarantee it'll be valid by the time
-    /// it's used.
-    pub fn tokenize(self: *Tokenizer) Error![]Token {
-        self.tokens.clearAndFree();
-        var start: usize = 0;
-        const src = self.raw.items;
-        if (self.raw.items.len == 0) return Error.Empty;
-        while (start < src.len) {
-            const token = Tokenizer.any(src[start..]) catch |err| {
-                if (err == Error.InvalidSrc) {
-                    if (std.mem.indexOfAny(u8, src[start..], "\"'(")) |_| return Error.OpenGroup;
-                    self.err_idx = start;
-                }
-                return err;
-            };
-            if (token.raw.len == 0) {
-                self.err_idx = start;
-                return Error.Unknown;
-            }
-            self.tokens.append(token) catch return Error.Memory;
-            start += token.raw.len;
-        }
-        self.err_idx = 0;
-        if (self.err_idx != 0) return Error.TokenizeFailed;
-        return self.tokens.items;
     }
 
     pub fn any(src: []const u8) Error!Token {
@@ -484,30 +451,21 @@ pub const Tokenizer = struct {
         return t;
     }
 
-    pub fn dump_tokens(self: Tokenizer, ws: bool) !void {
-        std.debug.print("\n", .{});
-        for (self.tokens.items) |i| {
-            if (!ws and i.kind == .WhiteSpace) continue;
-            std.debug.print("{}\n", .{i});
-        }
-    }
-
-    pub fn tab(self: *const Tokenizer) bool {
-        if (self.tokens.items.len > 0) {
-            return true;
-        }
-        return false;
-    }
-
     /// This function edits user text, so extra care must be taken to ensure
     /// it's something the user asked for!
-    pub fn replaceToken(self: *Tokenizer, old: *const Token, new: *const CompOption) !void {
-        var sum: usize = 0;
-        for (self.tokens.items) |*t| {
-            if (t == old) break;
-            sum += t.raw.len;
+    pub fn replaceToken(self: *Tokenizer, new: *const CompOption) !void {
+        _ = try self.cursor_token();
+        var i: usize = 0;
+        var tokens_rem = self.c_tkn;
+        var old: Token = undefined;
+        while (tokens_rem > 0) {
+            tokens_rem -= 1;
+            old = try any(self.raw.items[i..]);
+            if (old.raw.len == 0) return Error.Unknown;
+            i += old.raw.len;
         }
-        self.c_idx = sum + old.raw.len;
+
+        self.c_idx = i;
         if (old.kind != .WhiteSpace) try self.popRange(old.raw.len);
         if (new.kind == .Original and mem.eql(u8, new.full, " ")) return;
 
@@ -587,7 +545,6 @@ pub const Tokenizer = struct {
     pub fn consumec(self: *Tokenizer, c: u8) Error!void {
         self.raw.insert(@bitCast(usize, self.c_idx), c) catch return Error.Unknown;
         self.c_idx += 1;
-        if (self.err_idx > 0) _ = self.tokenize() catch {};
     }
 
     pub fn push_line(self: *Tokenizer) void {
@@ -597,12 +554,10 @@ pub const Tokenizer = struct {
         }
         self.hist_z = self.raw;
         self.raw = ArrayList(u8).init(self.alloc);
-        self.tokens.clearAndFree();
     }
 
     pub fn push_hist(self: *Tokenizer) void {
         self.c_idx = self.raw.items.len;
-        _ = self.tokenize() catch {};
     }
 
     pub fn pop_line(self: *Tokenizer) void {
@@ -611,7 +566,6 @@ pub const Tokenizer = struct {
             self.raw = h;
             self.hist_z = null;
         }
-        _ = self.tokenize() catch {};
         self.c_idx = self.raw.items.len;
     }
 
@@ -623,12 +577,6 @@ pub const Tokenizer = struct {
 
     pub fn clear(self: *Tokenizer) void {
         self.raw.clearAndFree();
-        for (self.tokens.items) |*tkn| {
-            if (tkn.backing) |*bk| {
-                bk.clearAndFree();
-            }
-        }
-        self.tokens.clearAndFree();
         self.c_idx = 0;
         self.err_idx = 0;
         self.c_tkn = 0;
@@ -698,62 +646,75 @@ test "quotes" {
 }
 
 test "quotes tokened" {
+    var a = std.testing.allocator;
     var t: Tokenizer = Tokenizer.init(std.testing.allocator);
     defer t.reset();
 
     try t.consumes("\"\"");
-    _ = try t.tokenize();
+    var titr = t.iterator();
+    var tokens = try titr.toSlice(a);
     try expectEql(t.raw.items.len, 2);
-    try expectEql(t.tokens.items.len, 1);
+    try expectEql(tokens.len, 1);
 
     t.reset();
     try t.consumes("\"a\"");
-    _ = try t.tokenize();
+    titr = t.iterator();
+    a.free(tokens);
+    tokens = try titr.toSlice(a);
     try expectEql(t.raw.items.len, 3);
     try expect(std.mem.eql(u8, t.raw.items, "\"a\""));
-    try expectEql(t.tokens.items[0].cannon().len, 1);
-    try expect(std.mem.eql(u8, t.tokens.items[0].cannon(), "a"));
+    try expectEql(tokens[0].cannon().len, 1);
+    try expect(std.mem.eql(u8, tokens[0].cannon(), "a"));
 
     var terr = Tokenizer.quote("\"this is invalid");
     try expectError(Error.InvalidSrc, terr);
 
     t.reset();
     try t.consumes("\"this is some text\" more text");
-    _ = try t.tokenize();
+    titr = t.iterator();
+    a.free(tokens);
+    tokens = try titr.toSlice(a);
     try expectEql(t.raw.items.len, 29);
-    try expectEql(t.tokens.items[0].cannon().len, 17);
-    try expect(std.mem.eql(u8, t.tokens.items[0].raw, "\"this is some text\""));
-    try expect(std.mem.eql(u8, t.tokens.items[0].cannon(), "this is some text"));
+    try expectEql(tokens[0].cannon().len, 17);
+    try expect(std.mem.eql(u8, tokens[0].raw, "\"this is some text\""));
+    try expect(std.mem.eql(u8, tokens[0].cannon(), "this is some text"));
 
     t.reset();
     try t.consumes("`this is some text` more text");
-    _ = try t.tokenize();
+    titr = t.iterator();
+    a.free(tokens);
+    tokens = try titr.toSlice(a);
     try expectEql(t.raw.items.len, 29);
-    try expectEql(t.tokens.items[0].cannon().len, 17);
-    try expect(std.mem.eql(u8, t.tokens.items[0].raw, "`this is some text`"));
-    try expect(std.mem.eql(u8, t.tokens.items[0].cannon(), "this is some text"));
+    try expectEql(tokens[0].cannon().len, 17);
+    try expect(std.mem.eql(u8, tokens[0].raw, "`this is some text`"));
+    try expect(std.mem.eql(u8, tokens[0].cannon(), "this is some text"));
 
     t.reset();
     try t.consumes("\"this is some text\" more text");
-    _ = try t.tokenize();
+    a.free(tokens);
+    titr = t.iterator();
+    tokens = try titr.toSlice(a);
     try expectEql(t.raw.items.len, 29);
-    try expectEql(t.tokens.items[0].cannon().len, 17);
-    try expect(std.mem.eql(u8, t.tokens.items[0].raw, "\"this is some text\""));
-    try expect(std.mem.eql(u8, t.tokens.items[0].cannon(), "this is some text"));
+    try expectEql(tokens[0].cannon().len, 17);
+    try expect(std.mem.eql(u8, tokens[0].raw, "\"this is some text\""));
+    try expect(std.mem.eql(u8, tokens[0].cannon(), "this is some text"));
 
     terr = Tokenizer.quote("\"this is some text\\\" more text");
     try expectError(Error.InvalidSrc, terr);
 
     t.reset();
     try t.consumes("\"this is some text\\\" more text\"");
-    _ = try t.tokenize();
+    a.free(tokens);
+    titr = t.iterator();
+    tokens = try titr.toSlice(a);
     try expectEql(t.raw.items.len, 31);
-    try expect(std.mem.eql(u8, t.tokens.items[0].raw, "\"this is some text\\\" more text\""));
+    try expect(std.mem.eql(u8, tokens[0].raw, "\"this is some text\\\" more text\""));
 
-    try expectEql("this is some text\\\" more text".len, t.tokens.items[0].cannon().len);
-    try expectEql(t.tokens.items[0].cannon().len, 29);
-    try expect(!t.tokens.items[0].parsed);
-    try expect(std.mem.eql(u8, t.tokens.items[0].cannon(), "this is some text\\\" more text"));
+    try expectEql("this is some text\\\" more text".len, tokens[0].cannon().len);
+    try expectEql(tokens[0].cannon().len, 29);
+    try expect(!tokens[0].parsed);
+    try expect(std.mem.eql(u8, tokens[0].cannon(), "this is some text\\\" more text"));
+    a.free(tokens);
 }
 
 test "alloc" {
@@ -762,12 +723,15 @@ test "alloc" {
 }
 
 test "tokens" {
+    var a = std.testing.allocator;
     var t = Tokenizer.init(std.testing.allocator);
     defer t.reset();
     for ("token") |c| {
         try t.consumec(c);
     }
-    _ = try t.tokenize();
+    var titr = t.iterator();
+    var tokens = try titr.toSlice(a);
+    defer a.free(tokens);
     try expect(std.mem.eql(u8, t.raw.items, "token"));
 }
 
@@ -782,6 +746,7 @@ test "tokenize string" {
 }
 
 test "tokenize path" {
+    var a = std.testing.allocator;
     const token = try Tokenizer.path("blerg");
     try expect(eql(u8, token.raw, "blerg"));
 
@@ -789,65 +754,83 @@ test "tokenize path" {
     defer t.reset();
 
     try t.consumes("blerg ~/dir");
-    _ = try t.tokenize();
+    var titr = t.iterator();
+    var tokens = try titr.toSliceAny(a);
     try expectEql(t.raw.items.len, "blerg ~/dir".len);
-    try expectEql(t.tokens.items.len, 3);
-    try expect(t.tokens.items[2].kind == Kind.Path);
-    try expect(eql(u8, t.tokens.items[2].raw, "~/dir"));
-    t.reset();
+    try expectEql(tokens.len, 3);
+    try expect(tokens[2].kind == Kind.Path);
+    try expect(eql(u8, tokens[2].raw, "~/dir"));
+    a.free(tokens);
 
+    t.reset();
     try t.consumes("blerg /home/user/something");
-    _ = try t.tokenize();
+    titr = t.iterator();
+    tokens = try titr.toSliceAny(a);
     try expectEql(t.raw.items.len, "blerg /home/user/something".len);
-    try expectEql(t.tokens.items.len, 3);
-    try expect(t.tokens.items[2].kind == Kind.Path);
-    try expect(eql(u8, t.tokens.items[2].raw, "/home/user/something"));
+    try expectEql(tokens.len, 3);
+    try expect(tokens[2].kind == Kind.Path);
+    try expect(eql(u8, tokens[2].raw, "/home/user/something"));
+    a.free(tokens);
 }
 
 test "replace token" {
+    var a = std.testing.allocator;
     var t = Tokenizer.init(std.testing.allocator);
     defer t.reset();
     try expect(std.mem.eql(u8, t.raw.items, ""));
 
     try t.consumes("one two three");
-    _ = try t.tokenize();
-    try expect(t.tokens.items.len == 5);
+    var titr = t.iterator();
+    var tokens = try titr.toSliceAny(a);
+    try expect(tokens.len == 5);
 
-    try expect(eql(u8, t.tokens.items[2].cannon(), "two"));
+    try expect(eql(u8, tokens[2].cannon(), "two"));
+    t.c_idx = 5;
 
-    try t.replaceToken(&t.tokens.items[2], &CompOption{
+    try t.replaceToken(&CompOption{
         .full = "TWO",
         .name = "TWO",
     });
-    _ = try t.tokenize();
+    titr = t.iterator();
+    a.free(tokens);
+    tokens = try titr.toSliceAny(a);
 
-    try expect(t.tokens.items.len == 5);
-    try expect(eql(u8, t.tokens.items[2].cannon(), "TWO"));
+    try expect(tokens.len == 5);
+    try expect(eql(u8, tokens[2].cannon(), "TWO"));
     try expect(eql(u8, t.raw.items, "one TWO three"));
 
-    try t.replaceToken(&t.tokens.items[2], &CompOption{
+    try t.replaceToken(&CompOption{
         .full = "TWO THREE",
         .name = "TWO THREE",
     });
-    _ = try t.tokenize();
+    titr = t.iterator();
+    a.free(tokens);
+    tokens = try titr.toSliceAny(a);
 
-    for (t.tokens.items) |tkn| {
+    for (tokens) |tkn| {
         _ = tkn;
         //std.debug.print("--- {}\n", .{tkn});
     }
 
-    try expect(t.tokens.items.len == 5);
-    try expect(eql(u8, t.tokens.items[2].cannon(), "TWO THREE"));
+    try expect(tokens.len == 5);
+    try expect(eql(u8, tokens[2].cannon(), "TWO THREE"));
     try expect(eql(u8, t.raw.items, "one 'TWO THREE' three"));
+    a.free(tokens);
 }
 
 test "breaking" {
+    var a = std.testing.allocator;
     var t = Tokenizer.init(std.testing.allocator);
     defer t.reset();
 
     try t.consumes("alias la='ls -la'");
-    _ = try t.tokenize();
-    try expect(t.tokens.items.len == 4);
+    var titr = t.iterator();
+    var tokens = try titr.toSliceAny(a);
+    try expect(tokens.len == 4);
+    a.free(tokens);
+    tokens = try titr.toSlice(a);
+    try expect(tokens.len == 3);
+    a.free(tokens);
 }
 
 test "tokeniterator 0" {

@@ -111,10 +111,13 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
         '\x08' => try hsh.tty.print("\r\ninput: backspace\r\n", .{}),
         '\x09' => |b| { // \t
             // Tab is best effort, it shouldn't be able to crash hsh
-            var tkns = tkn.tokenize() catch return .Prompt;
+            var titr = tkn.iterator();
+            var tkns = titr.toSlice(hsh.alloc) catch return .Prompt;
+
+            defer hsh.alloc.free(tkns);
             _ = Parser.parse(&tkn.alloc, tkns) catch return .Prompt;
 
-            if (!tkn.tab()) {
+            if (tkn.raw.items.len == 0) {
                 try tkn.consumec(b);
                 return .Prompt;
             }
@@ -122,11 +125,11 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
             // Should be unreachable given tokenize() above
             var target: *const complete.CompOption = undefined;
             if (b != prev) {
-                comp = try complete.complete(hsh, ctkn);
+                comp = try complete.complete(hsh, &ctkn);
                 if (comp.known()) {
                     // original and single, complete now
                     target = comp.first();
-                    try tkn.replaceToken(ctkn, target);
+                    try tkn.replaceToken(target);
                     return .Prompt;
                 }
                 //for (comp.list.items) |c| std.debug.print("comp {}\n", .{c});
@@ -135,7 +138,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
             }
 
             target = comp.next();
-            try tkn.replaceToken(ctkn, target);
+            try tkn.replaceToken(target);
             return .Redraw;
         },
         '\x0C' => {
@@ -186,7 +189,9 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
         },
         '\n', '\r' => |b| {
             hsh.draw.cursor = 0;
-            const tkns = tkn.tokenize() catch |e| {
+            var titr = tkn.iterator();
+
+            const tkns = titr.toSliceError(hsh.alloc) catch |e| {
                 switch (e) {
                     TokenErr.Empty => {
                         try hsh.tty.print("\n", .{});
@@ -195,7 +200,6 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                     TokenErr.OpenGroup => try tkn.consumec(b),
                     TokenErr.TokenizeFailed => {
                         std.debug.print("tokenize Error {}\n", .{e});
-                        try tkn.dump_tokens(true);
                         try tkn.consumec(b);
                     },
                     else => return .ExpectedError,
@@ -204,8 +208,8 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
             };
             var run = Parser.parse(&tkn.alloc, tkns);
             //Draw.clearCtx(&hsh.draw);
-            if (run) |titr| {
-                if (titr.tokens.len > 0) return .Exec;
+            if (run) |pitr| {
+                if (pitr.tokens.len > 0) return .Exec;
                 return .Redraw;
             } else |_| {}
             return .Redraw;
@@ -338,10 +342,14 @@ pub fn main() !void {
             if (l) {
                 if (hsh.tkn.raw.items.len == 0) continue;
                 // debugging data
-                var titr = Parser.parse(&hsh.tkn.alloc, try hsh.tkn.tokenize()) catch continue;
-                while (titr.next()) |t| log.debug("{}\n", .{t});
 
-                titr.restart();
+                var titr = hsh.tkn.iterator();
+                var tokens = try titr.toSlice(hsh.alloc);
+                defer hsh.alloc.free(tokens);
+                var pitr = Parser.parse(&hsh.tkn.alloc, tokens) catch continue;
+                while (pitr.next()) |t| log.debug("{}\n", .{t});
+                pitr.restart();
+
                 if (hsh.hist) |*hist| try hist.push(hsh.tkn.raw.items);
                 var itr = hsh.tkn.iterator();
                 while (itr.next()) |exe_t| {

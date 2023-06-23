@@ -92,19 +92,22 @@ fn initHSH(hsh: *HSH) !void {
                 continue;
             }
             defer tokenizer.reset();
-            tokenizer.consumes(line) catch continue;
-            _ = tokenizer.tokenize() catch continue;
-            var titr = Parser.parse(&a, tokenizer.tokens.items) catch continue;
-            if (titr.first().kind != .Builtin) {
+            tokenizer.consumes(line) catch return E.Memory;
+            var titr = tokenizer.iterator();
+            var tokens = titr.toSlice(a) catch return E.Memory;
+            defer a.free(tokens);
+            var pitr = Parser.parse(&a, tokens) catch continue;
+
+            if (pitr.first().kind != .Builtin) {
                 log.warning("Unknown rc line \n    {s}\n", .{line});
                 continue;
             }
 
             const bi_func = bi.strExec(titr.first().cannon());
-            titr.restart();
-            _ = bi_func(hsh, &titr) catch |err| {
+            _ = bi_func(hsh, &pitr) catch |err| {
                 std.debug.print("rc parse error {}\n", .{err});
             };
+            pitr.close();
             //std.debug.print("tokens {any}\n", .{tokenizer.tokens.items});
         } else |err| {
             if (err != Error.EOF) {

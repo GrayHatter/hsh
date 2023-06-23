@@ -76,18 +76,15 @@ pub fn prompt(hsh: *HSH, tkn: *Tokenizer) !void {
         }),
     });
     try userText(hsh, tkn);
-    var tokens: [16]u8 = undefined;
-    if (!hsh.enabled(Feature.Debugging)) return;
-
-    try drawRight(&hsh.draw, .{
-        .siblings = @constCast(&[_]Lexeme{
-            .{ .char = try std.fmt.bufPrint(&tokens, "({}) ({}) [{}]", .{
-                tkn.raw.items.len,
-                tkn.tokens.items.len,
-                tkn.c_tkn,
-            }) },
-        }),
-    });
+    // try drawRight(&hsh.draw, .{
+    //     .siblings = @constCast(&[_]Lexeme{
+    //         .{ .char = try std.fmt.bufPrint(&tokens, "({}) ({}) [{}]", .{
+    //             tkn.raw.items.len,
+    //             tkn.tokens.items.len,
+    //             tkn.c_tkn,
+    //         }) },
+    //     }),
+    // });
 }
 
 pub fn jobsContext(hsh: *HSH, jobs: []Job) !void {

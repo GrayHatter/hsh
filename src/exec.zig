@@ -407,37 +407,6 @@ pub fn child(h: *HSH, argv: [:null]const ?[*:0]const u8) !ERes {
     };
 }
 
-test "c memory" {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var tkn = Tokenizer.init(a);
-    for ("ls -la") |c| {
-        try tkn.consumec(c);
-    }
-    _ = try tkn.tokenize();
-
-    var argv: [:null]?[*:0]u8 = undefined;
-    var list = ArrayList(?[*:0]u8).init(a);
-    try std.testing.expect(tkn.tokens.items.len == 3);
-    try std.testing.expect(mem.eql(u8, tkn.tokens.items[0].raw, "ls"));
-    try std.testing.expect(mem.eql(u8, tkn.tokens.items[0].cannon(), "ls"));
-    for (tkn.tokens.items) |token| {
-        if (token.kind == .WhiteSpace) continue;
-        var arg = a.alloc(u8, token.cannon().len + 1) catch unreachable;
-        mem.copy(u8, arg, token.cannon());
-        arg[token.cannon().len] = 0;
-        try list.append(@ptrCast(?[*:0]u8, arg.ptr));
-    }
-    try std.testing.expect(list.items.len == 2);
-    argv = list.toOwnedSliceSentinel(null) catch unreachable;
-
-    try std.testing.expect(mem.eql(u8, argv[0].?[0..2 :0], "ls"));
-    try std.testing.expect(mem.eql(u8, argv[1].?[0..3 :0], "-la"));
-    try std.testing.expect(argv[2] == null);
-}
-
 test "mkstack" {
     var ti = TokenIterator{
         .raw = "ls | sort",

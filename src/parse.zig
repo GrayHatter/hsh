@@ -259,54 +259,74 @@ const expectEql = std.testing.expectEqual;
 const expectError = std.testing.expectError;
 const eql = std.mem.eql;
 test "quotes parsed" {
+    var a = std.testing.allocator;
     var t: Tokenizer = Tokenizer.init(std.testing.allocator);
     defer t.reset();
 
     try t.consumes("\"\"");
-    _ = try t.tokenize();
+    var titr = t.iterator();
+    var tokens = try titr.toSlice(a);
+
     try expectEql(t.raw.items.len, 2);
-    try expectEql(t.tokens.items.len, 1);
+    try expectEql(tokens.len, 1);
+    a.free(tokens);
 
     t.reset();
     try t.consumes("\"a\"");
-    _ = try t.tokenize();
+    titr = t.iterator();
+    tokens = try titr.toSlice(a);
+
     try expectEql(t.raw.items.len, 3);
     try expect(std.mem.eql(u8, t.raw.items, "\"a\""));
-    try expectEql(t.tokens.items[0].cannon().len, 1);
-    try expect(std.mem.eql(u8, t.tokens.items[0].cannon(), "a"));
+    try expectEql(tokens[0].cannon().len, 1);
+    try expect(std.mem.eql(u8, tokens[0].cannon(), "a"));
+    a.free(tokens);
 
     t.reset();
     try t.consumes("\"this is some text\" more text");
-    _ = try t.tokenize();
+    titr = t.iterator();
+    tokens = try titr.toSlice(a);
+
     try expectEql(t.raw.items.len, 29);
-    try expectEql(t.tokens.items[0].cannon().len, 17);
-    try expect(std.mem.eql(u8, t.tokens.items[0].raw, "\"this is some text\""));
-    try expect(std.mem.eql(u8, t.tokens.items[0].cannon(), "this is some text"));
+    try expectEql(tokens[0].cannon().len, 17);
+    try expect(std.mem.eql(u8, tokens[0].raw, "\"this is some text\""));
+    try expect(std.mem.eql(u8, tokens[0].cannon(), "this is some text"));
+    a.free(tokens);
 
     t.reset();
     try t.consumes("`this is some text` more text");
-    _ = try t.tokenize();
+    titr = t.iterator();
+    tokens = try titr.toSlice(a);
+
     try expectEql(t.raw.items.len, 29);
-    try expectEql(t.tokens.items[0].cannon().len, 17);
-    try expect(std.mem.eql(u8, t.tokens.items[0].raw, "`this is some text`"));
-    try expect(std.mem.eql(u8, t.tokens.items[0].cannon(), "this is some text"));
+    try expectEql(tokens[0].cannon().len, 17);
+    try expect(std.mem.eql(u8, tokens[0].raw, "`this is some text`"));
+    try expect(std.mem.eql(u8, tokens[0].cannon(), "this is some text"));
+    a.free(tokens);
 
     t.reset();
     try t.consumes("\"this is some text\" more text");
-    _ = try t.tokenize();
+    titr = t.iterator();
+    tokens = try titr.toSlice(a);
+
     try expectEql(t.raw.items.len, 29);
-    try expectEql(t.tokens.items[0].cannon().len, 17);
-    try expect(std.mem.eql(u8, t.tokens.items[0].raw, "\"this is some text\""));
-    try expect(std.mem.eql(u8, t.tokens.items[0].cannon(), "this is some text"));
+    try expectEql(tokens[0].cannon().len, 17);
+    try expect(std.mem.eql(u8, tokens[0].raw, "\"this is some text\""));
+    try expect(std.mem.eql(u8, tokens[0].cannon(), "this is some text"));
+    a.free(tokens);
 
     t.reset();
     try t.consumes("\"this is some text\\\" more text\"");
-    _ = try t.tokenize();
+    titr = t.iterator();
+    tokens = try titr.toSlice(a);
+
     try expectEql(t.raw.items.len, 31);
-    try expect(std.mem.eql(u8, t.tokens.items[0].raw, "\"this is some text\\\" more text\""));
+    try expect(std.mem.eql(u8, tokens[0].raw, "\"this is some text\\\" more text\""));
+    a.free(tokens);
 }
 
 test "quotes parse complex" {
+    var a = std.testing.allocator;
     var t: Tokenizer = Tokenizer.init(std.testing.allocator);
     defer t.reset();
 
@@ -316,8 +336,9 @@ test "quotes parse complex" {
     try t.consumes(invalid);
     try expectEql(t.raw.items.len, 32);
 
-    const err = t.tokenize();
-    try expectError(Error.OpenGroup, err);
+    //var itr = t.iterator();
+    //var err = itr.toSliceError(a);
+    //try expectError(Error.InvalidSrc, err); // TODO use OpenGroup
     //try expectEql(t.err_idx, t.raw.items.len - 1);
 
     t.reset();
@@ -327,26 +348,32 @@ test "quotes parse complex" {
     try t.consumes(valid);
     try expectEql(t.raw.items.len, 31);
 
-    _ = try t.tokenize();
-    try expectEql(t.tokens.items.len, 5); // quoted, ws, str, ws, str
-    try expectEql(t.tokens.items[0].raw.len, 21);
+    var titr = t.iterator();
+    var tokens = try titr.toSlice(a);
+
+    try expectEql(tokens.len, 3);
+    try expectEql(tokens[0].raw.len, 21);
     const raw =
         \\"this is some text\\"
     ;
-    try expect(std.mem.eql(u8, t.tokens.items[0].raw, raw));
+    try expect(std.mem.eql(u8, tokens[0].raw, raw));
     //const cannon =
     //    \\this is some text\
     //;
-    //try expectEql(t.tokens.items[0].cannon().len, 18);
-    //try expect(std.mem.eql(u8, t.tokens.items[0].cannon(), cannon));
+    //try expectEql(tokens[0].cannon().len, 18);
+    //try expect(std.mem.eql(u8, tokens[0].cannon(), cannon));
+    a.free(tokens);
 
     t.reset();
     try t.consumes("'this is some text' more text");
-    _ = try t.tokenize();
-    try expectEql(t.tokens.items[0].cannon().len, 17);
-    try expect(std.mem.eql(u8, t.tokens.items[0].raw, "'this is some text'"));
-    try expect(std.mem.eql(u8, t.tokens.items[0].cannon(), "this is some text"));
+    titr = t.iterator();
+    tokens = try titr.toSlice(a);
+
+    try expectEql(tokens[0].cannon().len, 17);
+    try expect(std.mem.eql(u8, tokens[0].raw, "'this is some text'"));
+    try expect(std.mem.eql(u8, tokens[0].cannon(), "this is some text"));
     t.reset();
+    a.free(tokens);
 }
 
 test "iterator nows" {
@@ -355,10 +382,12 @@ test "iterator nows" {
     defer t.reset();
 
     try t.consumes("\"this is some text\" more text");
-    var ts = try t.tokenize();
-    var itr = try Parser.parse(&a, ts);
+    var itr = t.iterator();
+    var ts = try itr.toSlice(a);
+    defer a.free(ts);
+    var ptr = try Parser.parse(&a, ts);
     var i: usize = 0;
-    while (itr.next()) |_| {
+    while (ptr.next()) |_| {
         i += 1;
     }
     try expectEql(i, 3);

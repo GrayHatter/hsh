@@ -91,7 +91,7 @@ pub fn raze(self: *fs, a: mem.Allocator) void {
     self.dirs.raze();
     self.names.raze(a);
     if (self.rc) |rc| rc.close();
-    if (self.history) |h| h.close();
+    // don't close self.history, it's not owned by us
 }
 
 pub fn cd(self: *fs, trgt: []const u8) !void {
