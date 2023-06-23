@@ -201,10 +201,6 @@ pub const HSH = struct {
         //return hsh;
     }
 
-    pub fn updateFs(hsh: *HSH) void {
-        hsh.razeFs();
-    }
-
     pub fn enabled(hsh: *const HSH, comptime f: Features) bool {
         return switch (f) {
             .Debugging => if (hsh.features.Debugging) true else false,
