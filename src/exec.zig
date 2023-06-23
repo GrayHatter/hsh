@@ -100,7 +100,6 @@ fn validPathAbs(path: []const u8) bool {
     return false;
 }
 
-/// Caller must cleanAndFree() memory
 /// TODO BUG arg should be absolute but argv[0] should only be absolute IFF
 /// there was a / is the original token.
 pub fn makeAbsExecutable(a: Allocator, str: []const u8) Error![]u8 {

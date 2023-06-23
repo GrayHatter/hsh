@@ -66,12 +66,12 @@ fn readLine(a: *Allocator, r: std.fs.File.Reader) ![]u8 {
 
 fn initBuiltins(hsh: *HSH) !void {
     savestates = ArrayList(State).init(hsh.alloc);
-    bi.aliases.init(hsh.alloc);
+    bi.Aliases.init(hsh.alloc);
     bi.Set.init(hsh.alloc);
 }
 
 fn razeBuiltins(h: *HSH) void {
-    bi.aliases.raze(h.alloc);
+    bi.Aliases.raze(h.alloc);
     bi.Set.raze();
 }
 

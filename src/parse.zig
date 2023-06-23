@@ -7,7 +7,7 @@ const Tokenizer = tokenizer.Tokenizer;
 const Token = tokenizer.Token;
 const TokenIterator = tokenizer.TokenIterator;
 const Builtins = @import("builtins.zig");
-const Aliases = Builtins.aliases;
+const Aliases = Builtins.Aliases;
 const Variables = @import("variables.zig");
 
 pub const Error = error{

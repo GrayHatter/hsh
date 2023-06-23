@@ -101,6 +101,7 @@ pub fn alias(h: *HSH, titr: *ParsedIterator) Err!u8 {
     return 0;
 }
 
+/// alias retains ownership of all memory, and memory lifetime is undefined
 pub fn find(src: []const u8) ?*Alias {
     for (aliases.items) |*a| {
         if (std.mem.eql(u8, src, a.name)) {

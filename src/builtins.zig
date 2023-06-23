@@ -5,14 +5,17 @@ const jobs_ = @import("jobs.zig");
 const ParsedIterator = @import("parse.zig").ParsedIterator;
 const log = @import("log");
 
+// files should be lowercased, but #YOLO
 pub const State = @import("state.zig");
-pub const aliases = @import("builtins/alias.zig");
+pub const Aliases = @import("builtins/alias.zig");
 pub const Set = @import("builtins/set.zig");
 pub const Pipeline = @import("builtins/pipeline.zig");
+pub const Which = @import("builtins/which.zig");
 
-const alias = aliases.alias;
+const alias = Aliases.alias;
 const pipeline = Pipeline.pipeline;
 const set = Set.set;
+const which = Which.which;
 
 var Self = @This();
 
@@ -20,6 +23,7 @@ pub const Err = error{
     Unknown,
     Memory,
     IO,
+    StdOut,
     InvalidToken,
     InvalidCommand,
     FileSysErr,
@@ -85,9 +89,15 @@ pub fn exists(str: []const u8) bool {
 pub fn print(
     comptime format: []const u8,
     args: anytype,
-) !void {
+) Err!void {
     const stdout = std.io.getStdOut().writer();
-    try stdout.print(format, args);
+    stdout.print(format, args) catch |err| {
+        log.err(
+            "Builtin unable to write to stdout: {}\n    but stderr will work right?\n",
+            .{err},
+        );
+        return Err.StdOut;
+    };
 }
 
 fn bg(_: *HSH, _: *ParsedIterator) Err!u8 {
@@ -168,13 +178,9 @@ fn jobs(hsh: *HSH, _: *ParsedIterator) Err!u8 {
     return 0;
 }
 
-/// TODO implement real version
-fn which(h: *HSH, i: *ParsedIterator) Err!u8 {
-    return noimpl(h, i);
-}
-
 fn noimpl(_: *HSH, i: *ParsedIterator) Err!u8 {
     print("{s} not yet implemented\n", .{i.first().cannon()}) catch return Err.Unknown;
+    while (i.next()) |_| {}
     return 0;
 }
 
