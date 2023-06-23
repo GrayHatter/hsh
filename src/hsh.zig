@@ -214,15 +214,16 @@ pub const HSH = struct {
     }
 
     pub fn raze(hsh: *HSH) void {
-        hsh.env.deinit();
         if (hsh.hist) |hist| hist.raze();
-        if (hsh.hfs.rc) |rc| rc.seekTo(0) catch unreachable;
-        writeState(hsh, savestates.items) catch {};
-        if (hsh.hfs.rc) |rrc| rrc.close();
+        if (hsh.hfs.rc) |rc| {
+            rc.seekTo(0) catch @panic("unable to seek rc");
+            writeState(hsh, savestates.items) catch {};
+        }
 
         razeHSH(hsh);
-
+        hsh.env.deinit();
         jobs.raze(hsh.alloc);
+        hsh.hfs.raze(hsh.alloc);
     }
 
     pub fn find_confdir(_: HSH) []const u8 {}

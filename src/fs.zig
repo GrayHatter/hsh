@@ -23,13 +23,24 @@ const Names = struct {
             }
         }
     }
+
+    fn raze(self: *Names, a: mem.Allocator) void {
+        a.free(self.cwd);
+        if (self.cwd.ptr != self.cwd_short.ptr) {
+            a.free(self.cwd_short);
+        }
+    }
 };
 const Dirs = struct {
     cwd: std.fs.IterableDir,
     conf: ?std.fs.IterableDir = null,
 
-    pub fn update(self: *Dirs) !void {
+    fn update(self: *Dirs) !void {
         self.cwd = try std.fs.cwd().openIterableDir(".", .{});
+    }
+
+    fn raze(self: *Dirs) void {
+        self.cwd.close();
     }
 };
 
@@ -76,7 +87,12 @@ pub fn init(a: mem.Allocator, env: std.process.EnvMap) !fs {
     return self;
 }
 
-pub fn raze() void {}
+pub fn raze(self: *fs, a: mem.Allocator) void {
+    self.dirs.raze();
+    self.names.raze(a);
+    if (self.rc) |rc| rc.close();
+    if (self.history) |h| h.close();
+}
 
 pub fn cd(self: *fs, trgt: []const u8) !void {
     // std.debug.print("cd path {s} default {s}\n", .{ &path, hsh.fs.home_name });
