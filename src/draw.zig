@@ -68,7 +68,7 @@ pub const LexTree = union(enum) {
 
 var colorize: bool = true;
 
-var movebuf = [_:0]u8{0} ** 32;
+var movebuf: [32]u8 = undefined;
 const Direction = enum {
     Up,
     Down,
@@ -121,10 +121,10 @@ pub const Drawable = struct {
     }
 
     pub fn clear(d: *Drawable) void {
-        d.before.clearAndFree();
-        d.after.clearAndFree();
-        d.right.clearAndFree();
-        d.b.clearAndFree();
+        d.before.clearRetainingCapacity();
+        d.after.clearRetainingCapacity();
+        d.right.clearRetainingCapacity();
+        d.b.clearRetainingCapacity();
     }
 
     pub fn reset(d: *Drawable) void {
@@ -132,7 +132,12 @@ pub const Drawable = struct {
         d.lines = 0;
     }
 
-    pub fn raze(_: *Drawable) void {}
+    pub fn raze(d: *Drawable) void {
+        d.before.clearAndFree();
+        d.after.clearAndFree();
+        d.right.clearAndFree();
+        d.b.clearAndFree();
+    }
 };
 
 fn setAttr(buf: *DrawBuf, attr: ?Attr) Err!void {
@@ -234,12 +239,6 @@ pub fn render(d: *Drawable) Err!void {
     d.lines = 0;
     var cntx: usize = 0;
     // TODO vert position
-    if (d.cursor_reposition) {
-        var move = d.cursor;
-        while (move > 0) : (move -= 1) {
-            d.b.appendSlice("\x1B[D") catch return Err.Memory;
-        }
-    }
 
     if (d.before.items.len > 0) {
         cntx += try d.write(d.before.items);
@@ -267,6 +266,7 @@ pub fn render(d: *Drawable) Err!void {
     if (cntx == 0) _ = try d.write("\r\x1B[K");
     _ = try d.write("\r");
     _ = try d.write(d.b.items);
+    _ = try d.write(d.move(.Left, @truncate(u16, d.cursor)));
     // TODO save backtrack line count?
     d.lines += countLines(d.b.items);
 }
