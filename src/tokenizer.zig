@@ -1210,3 +1210,18 @@ test "all execs" {
     }
     try std.testing.expect(7 == count);
 }
+
+test "pop" {
+    var a = std.testing.allocator;
+    var t = Tokenizer.init(a);
+    const str = "this is a string";
+    for (str) |c| {
+        try t.consumec(c);
+    }
+
+    for (str) |_| {
+        try t.pop();
+    }
+    try std.testing.expectError(Error.Empty, t.pop());
+    t.reset();
+}
