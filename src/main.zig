@@ -93,6 +93,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                         .Right => tkn.cinc(1),
                         .Home => tkn.cinc(-@intCast(isize, tkn.raw.items.len)),
                         .End => tkn.cinc(@intCast(isize, tkn.raw.items.len)),
+                        .Delete => tkn.delc(),
                         else => {}, // unable to use range on Key :<
                     }
                 },

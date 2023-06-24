@@ -524,12 +524,17 @@ pub const Tokenizer = struct {
     pub fn pop(self: *Tokenizer) Error!void {
         if (self.raw.items.len == 0 or self.c_idx == 0) return Error.Empty;
         self.c_idx -|= 1;
-        _ = self.raw.orderedRemove(@bitCast(usize, self.c_idx));
+        _ = self.raw.orderedRemove(self.c_idx);
         self.err_idx = @min(self.c_idx, self.err_idx);
     }
 
-    pub fn rpop(self: *Tokenizer) Error!void {
-        _ = self;
+    pub fn bsc(self: *Tokenizer) void {
+        return self.pop() catch {};
+    }
+
+    pub fn delc(self: *Tokenizer) void {
+        if (self.raw.items.len == 0 or self.c_idx == self.raw.items.len) return;
+        _ = self.raw.orderedRemove(self.c_idx);
     }
 
     pub fn popRange(self: *Tokenizer, count: usize) Error!void {
