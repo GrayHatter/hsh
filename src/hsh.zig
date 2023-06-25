@@ -71,16 +71,12 @@ fn initBuiltins(hsh: *HSH) !void {
 }
 
 fn razeBuiltins(h: *HSH) void {
-    bi.Aliases.raze(h.alloc);
     bi.Set.raze();
+    bi.Aliases.raze(h.alloc);
+    savestates.clearAndFree();
 }
 
-fn initHSH(hsh: *HSH) !void {
-    try initBuiltins(hsh);
-
-    try Context.init(&hsh.alloc);
-
-    // Include hshrc
+fn readFromRC(hsh: *HSH) !void {
     if (hsh.hfs.rc) |rc_| {
         var r = rc_.reader();
         var a = hsh.alloc;
@@ -116,6 +112,12 @@ fn initHSH(hsh: *HSH) !void {
             }
         }
     }
+}
+
+fn initHSH(hsh: *HSH) !void {
+    try initBuiltins(hsh);
+    try Context.init(&hsh.alloc);
+    try readFromRC(hsh);
 
     Variables.init(hsh.alloc);
     Variables.load(hsh.env) catch return E.Memory;
@@ -123,6 +125,7 @@ fn initHSH(hsh: *HSH) !void {
 
 fn razeHSH(h: *HSH) void {
     Variables.raze();
+    Context.raze();
     razeBuiltins(h);
 }
 
@@ -186,8 +189,8 @@ pub const HSH = struct {
         // it's a mistake to alter the env for a running process.
         var env = std.process.getEnvMap(a) catch return E.Unknown; // TODO err handling
 
-        var hfs = fs.init(a, env) catch return E.Memory; // TODO there's errors other
-        // than just mem here
+        var hfs = fs.init(a, env) catch return E.Memory;
+        // TODO there's errors other than just mem here
         var hsh = HSH{
             .alloc = a,
             .features = .{},
@@ -200,8 +203,6 @@ pub const HSH = struct {
 
         try initHSH(&hsh);
         return hsh;
-        //__hsh = hsh;
-        //return hsh;
     }
 
     pub fn enabled(hsh: *const HSH, comptime f: Features) bool {
@@ -210,10 +211,6 @@ pub const HSH = struct {
             .TabComplete => hsh.feature.TabComplete,
             .Colorize => hsh.features.Colorize orelse true,
         };
-    }
-
-    fn hshState(_: *HSH, _: *HSH) ?[][]const u8 {
-        return null;
     }
 
     pub fn raze(hsh: *HSH) void {
@@ -228,8 +225,6 @@ pub const HSH = struct {
         jobs.raze(hsh.alloc);
         hsh.hfs.raze(hsh.alloc);
     }
-
-    pub fn find_confdir(_: HSH) []const u8 {}
 
     fn stopChildren(hsh: *HSH) void {
         for (hsh.jobs.items) |*j| {

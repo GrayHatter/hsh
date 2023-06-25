@@ -34,6 +34,7 @@ const Priority = enum {
 };
 
 const Init = *const fn () Error!void;
+const Raze = *const fn () void;
 const Update = *const fn (*HSH) Error!void;
 const Fetch = *const fn (*const HSH) Error!Lexeme;
 
@@ -43,6 +44,7 @@ pub const Ctx = struct {
     // unstable
     kind: Contexts = .state,
     init: Init,
+    raze: Raze,
     fetch: Fetch,
     update: Update,
 };
@@ -56,6 +58,13 @@ pub fn init(a: *std.mem.Allocator) Error!void {
     for (a_contexts.items) |c| {
         try c.init();
     }
+}
+
+pub fn raze() void {
+    for (a_contexts.items) |c| {
+        c.raze();
+    }
+    a_contexts.clearAndFree();
 }
 
 pub fn available(hsh: *const HSH) ![]Contexts {

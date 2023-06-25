@@ -13,6 +13,7 @@ pub const ctx: context.Ctx = .{
     .name = "git",
     .kind = .git,
     .init = init,
+    .raze = raze,
     .fetch = fetch,
     .update = update,
 };
@@ -40,3 +41,5 @@ fn update(h: *HSH) Error!void {
     }
     next = std.fmt.bufPrint(&buffer, "{} changed files", .{result.stdout.len}) catch return Error.Memory;
 }
+
+fn raze() void {}
