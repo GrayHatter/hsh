@@ -290,17 +290,11 @@ fn core(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !bool {
     }
 }
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer {
-        if (gpa.detectLeaks()) std.debug.print("Leaked\n", .{});
-        std.time.sleep(1000 * 1000 * 1000);
-    }
-    var a = gpa.allocator();
+fn usage() void {
+    std.debug.print("hsh usage:\n", .{});
+}
 
-    var hsh = try HSH.init(a);
-    defer hsh.raze();
-
+fn readArgs() ?u8 {
     var args = std.process.args();
     while (args.next()) |arg| {
         log.info("arg: {s}\n", .{arg});
@@ -310,10 +304,34 @@ pub fn main() !void {
             log.verbosity = .trace;
         } else if (std.mem.eql(u8, "--version", arg)) {
             std.debug.print("version: {}\n", .{hsh_build.version});
-            std.process.exit(0);
+            return 0;
+        } else if (std.mem.eql(u8, "--help", arg)) {
+            usage();
+            return 0;
+        } else if (std.mem.eql(u8, "--config", arg)) {
+            // IFF --config=file use `file` exclusively for instance
+            // ELSE print config search locations
+            // and print the config file[s] that would be sourced or updated
+            @panic("Not Implemented");
         }
     }
+    return null;
+}
 
+pub fn main() !void {
+    if (readArgs()) |err| {
+        std.process.exit(err);
+    }
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer {
+        if (gpa.detectLeaks()) std.debug.print("Leaked\n", .{});
+        std.time.sleep(1000 * 1000 * 1000);
+    }
+    var a = gpa.allocator();
+
+    var hsh = try HSH.init(a);
+    defer hsh.raze();
     hsh.tkn = Tokenizer.init(a);
     defer hsh.tkn.raze();
 
