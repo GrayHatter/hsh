@@ -225,6 +225,15 @@ pub const Token = struct {
     }
 };
 
+pub const CursorMotion = enum(u8) {
+    home,
+    end,
+    back,
+    word,
+    inc,
+    dec,
+};
+
 pub const Tokenizer = struct {
     alloc: Allocator,
     raw: ArrayList(u8),
@@ -244,11 +253,44 @@ pub const Tokenizer = struct {
         self.reset();
     }
 
-    pub fn cinc(self: *Tokenizer, i: isize) void {
-        self.c_idx = @intCast(usize, @max(0, @addWithOverflow(@intCast(isize, self.c_idx), i)[0]));
-        if (self.c_idx > self.raw.items.len) {
-            self.c_idx = self.raw.items.len;
+    fn cChar(self: *Tokenizer) ?u8 {
+        if (self.raw.items.len == 0) return null;
+        if (self.c_idx == self.raw.items.len) return self.raw.items[self.c_idx - 1];
+        return self.raw.items[self.c_idx];
+    }
+
+    fn cToBoundry(self: *Tokenizer, comptime forward: bool) void {
+        std.debug.assert(self.raw.items.len > 0);
+        const move = if (forward) .inc else .dec;
+        self.cPos(move);
+
+        while (std.ascii.isWhitespace(self.cChar().?) and
+            self.c_idx > 0 and
+            self.c_idx < self.raw.items.len)
+        {
+            self.cPos(move);
         }
+
+        while (!std.ascii.isWhitespace(self.cChar().?) and
+            self.c_idx != 0 and
+            self.c_idx < self.raw.items.len)
+        {
+            self.cPos(move);
+        }
+        if (!forward and self.c_idx != 0) self.cPos(.inc);
+    }
+
+    pub fn cPos(self: *Tokenizer, motion: CursorMotion) void {
+        if (self.raw.items.len == 0) return;
+        switch (motion) {
+            .home => self.c_idx = 0,
+            .end => self.c_idx = self.raw.items.len,
+            .back => self.cToBoundry(false),
+            .word => self.cToBoundry(true),
+            .inc => self.c_idx +|= 1,
+            .dec => self.c_idx -|= 1,
+        }
+        self.c_idx = @min(self.c_idx, self.raw.items.len);
     }
 
     pub fn cursor_token(self: *Tokenizer) !Token {

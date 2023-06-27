@@ -89,10 +89,10 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                                 tkn.pop_line();
                             } else {}
                         },
-                        .Left => tkn.cinc(-1),
-                        .Right => tkn.cinc(1),
-                        .Home => tkn.cinc(-@intCast(isize, tkn.raw.items.len)),
-                        .End => tkn.cinc(@intCast(isize, tkn.raw.items.len)),
+                        .Left => tkn.cPos(.dec),
+                        .Right => tkn.cPos(.inc),
+                        .Home => tkn.cPos(.home),
+                        .End => tkn.cPos(.end),
                         .Delete => tkn.delc(),
                         else => {}, // unable to use range on Key :<
                     }
@@ -105,11 +105,13 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                         .ctrl => {
                             switch (mk.key) {
                                 .Left => {
-                                    log.err("ctrl left\n", .{});
+                                    tkn.cPos(.back);
                                 },
                                 .Right => {
-                                    log.err("ctrl right\n", .{});
+                                    tkn.cPos(.word);
                                 },
+                                .Home => tkn.cPos(.home),
+                                .End => tkn.cPos(.end),
                                 else => {},
                             }
                         },

@@ -195,9 +195,11 @@ pub const TTY = struct {
     }
 
     pub fn raze(self: *TTY) void {
+        if (self.attrs.items.len == 0) return;
         while (self.attrs.items.len > 1) {
             _ = self.popTTY() catch continue;
         }
+        std.debug.assert(self.attrs.items.len == 1);
         const last = self.attrs.pop();
         os.tcsetattr(self.tty, .NOW, last) catch |err| {
             std.debug.print(
