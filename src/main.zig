@@ -98,6 +98,24 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                     }
                 },
                 .ModKey => |mk| {
+                    switch (mk.mods) {
+                        .none => {},
+                        .shift => {},
+                        .alt => {},
+                        .ctrl => {
+                            switch (mk.key) {
+                                .Left => {
+                                    log.err("ctrl left\n", .{});
+                                },
+                                .Right => {
+                                    log.err("ctrl right\n", .{});
+                                },
+                                else => {},
+                            }
+                        },
+                        .meta => {},
+                        _ => {},
+                    }
                     switch (mk.key) {
                         .Left => {},
                         .Right => {},

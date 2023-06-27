@@ -1,6 +1,7 @@
 const std = @import("std");
 const os = std.os;
 const HSH = @import("hsh.zig").HSH;
+const log = @import("log");
 
 const KeyEvent = enum {
     Unknown,
@@ -24,21 +25,23 @@ const Key = enum(u8) {
     F5, F6, F7, F8,
     F9, F10, F11, F12,
     F13, F14, F15, F16,
-    F17, F18, F19, F20
+    F17, F18, F19, F20,
+    _,
 };
 // zig fmt: on
 
 const Modifiers = enum(u4) {
-    None = 0,
-    Shift = 1,
-    Alt = 2, // Left only?
+    none = 0,
+    shift = 1,
+    alt = 2, // Left only?
     // Right alt?
-    Ctrl = 4,
-    Meta = 8,
+    ctrl = 4,
+    meta = 8,
+    _,
 };
 
 const ModKey = struct {
-    mods: Modifiers = .None,
+    mods: Modifiers = .none,
     key: Key,
 };
 
@@ -76,7 +79,13 @@ pub fn esc(hsh: *HSH) !KeyPress {
             }
         },
         'O' => return sst(hsh),
-        else => std.debug.print("\r\ninput: escape {s} {}\n", .{ buffer, buffer[0] }),
+        else => {
+            log.debug("\n\nunknown input: escape {s} {}\n", .{ buffer, buffer[0] });
+            return .{ .ModKey = .{
+                .key = @intToEnum(Key, buffer[0]),
+                .mods = .alt,
+            } };
+        },
     }
     return KeyPress.Unknown;
 }
@@ -96,9 +105,10 @@ fn sst(hsh: *HSH) !KeyPress {
 
 /// Control Sequence Introducer
 fn csi(hsh: *HSH) !KeyPress {
-    var buffer: [16]u8 = undefined;
+    var buffer: [32]u8 = undefined;
     var i: usize = 0;
-    while (i < 16) : (i += 1) {
+    // Iterate byte by byte to terminate as early as possible
+    while (i < buffer.len) : (i += 1) {
         const len = try os.read(hsh.input, buffer[i .. i + 1]);
         if (len == 0) return KeyPress.Unknown;
         switch (buffer[i]) {
@@ -106,6 +116,7 @@ fn csi(hsh: *HSH) !KeyPress {
             else => continue,
         }
     }
+    std.debug.assert(i != buffer.len);
     switch (buffer[i]) {
         '~' => return csi_vt(buffer[0..i]), // intentionally dropping ~
         'a'...'z', 'A'...'Z' => return csi_xterm(buffer[0 .. i + 1]),
@@ -126,26 +137,27 @@ fn csi_xterm(buffer: []const u8) KeyPress {
         'I' => return KeyPress{ .Mouse = .In },
         'O' => return KeyPress{ .Mouse = .Out },
         '0'...'9' => {
-            const key = csi_xterm(buffer[buffer.len - 1 .. buffer.len]);
-            std.debug.print("\n\n{s} [{any}] key {}\n\n", .{ buffer, buffer, key });
-            if (key == KeyPress.Unknown) unreachable;
-
-            if (std.mem.count(u8, buffer, ";") != 1) unreachable;
+            const key = csi_xterm(buffer[buffer.len - 1 .. buffer.len]).Key;
+            log.debug("\n\n{s} [{any}] key {}\n\n", .{ buffer, buffer, key });
+            std.debug.assert(std.mem.count(u8, buffer, ";") == 1);
 
             var mods = std.mem.split(u8, buffer, ";");
             // Yes, I know hacky af, but I don't know all the other combos I
             // care about yet. :/
-            if (!std.mem.eql(u8, "1", mods.first())) unreachable;
+            if (!std.mem.eql(u8, "1", mods.first())) @panic("xterm is unable to parse given string");
+
             const rest = mods.rest();
-            if (std.mem.eql(u8, "5D", rest)) {
-                return KeyPress{ .ModKey = ModKey{ .key = .Left } };
-            } else if (std.mem.eql(u8, "5C", rest)) {
-                return KeyPress{ .ModKey = ModKey{ .key = .Right } };
-            } else unreachable;
-            return KeyPress.Unknown;
+            const mod_bits = (std.fmt.parseInt(u8, rest[0 .. rest.len - 1], 10) catch 1) -% 1;
+            const mod_keys = @intToEnum(Modifiers, mod_bits);
+            return KeyPress{
+                .ModKey = .{
+                    .key = key,
+                    .mods = mod_keys,
+                },
+            };
         },
         else => |unk| {
-            std.debug.print("\n\n{c}\n\n", .{unk});
+            log.err("\n\n{c}\n\n", .{unk});
             unreachable;
         },
     }

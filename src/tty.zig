@@ -14,15 +14,11 @@ const pid_t = std.os.linux.pid_t;
 const fd_t = std.os.fd_t;
 const log = @import("log");
 
-pub const OpCodes = enum {
-    EraseInLine,
+pub const VTCmds = enum {
     CurPosGet,
     CurPosSet,
-    CurMvUp,
-    CurMvDn,
-    CurMvLe,
-    CurMvRi,
-    CurHorzAbs,
+    ModOtherKeys,
+    ReqMouseEvents,
 };
 
 pub var current_tty: ?TTY = undefined;
@@ -75,12 +71,14 @@ pub const TTY = struct {
 
     pub fn pushOrig(self: *TTY) !void {
         try self.pushTTY(self.attrs.items[0]);
-        _ = try self.out.write("\x1B[?1004l");
+        try self.command(.ReqMouseEvents, false);
+        try self.command(.ModOtherKeys, false);
     }
 
     pub fn pushRaw(self: *TTY) !void {
         try self.pushTTY(makeRaw(self.attrs.items[0]));
-        _ = try self.out.write("\x1B[?1004h");
+        try self.command(.ReqMouseEvents, true);
+        try self.command(.ModOtherKeys, true);
     }
 
     pub fn pushTTY(self: *TTY, tios: os.termios) !void {
@@ -154,18 +152,17 @@ pub const TTY = struct {
         try tty.out.print(fmt, args);
     }
 
-    pub fn opcode(tty: TTY, comptime code: OpCodes, args: anytype) !void {
+    pub fn command(tty: TTY, comptime code: VTCmds, comptime enable: ?bool) !void {
         // TODO fetch info back out :/
-        _ = args;
         switch (code) {
-            OpCodes.EraseInLine => try tty.writeAll("\x1B[K"),
-            OpCodes.CurPosGet => try tty.print("\x1B[6n"),
-            OpCodes.CurMvUp => try tty.writeAll("\x1B[A"),
-            OpCodes.CurMvDn => try tty.writeAll("\x1B[B"),
-            OpCodes.CurMvLe => try tty.writeAll("\x1B[D"),
-            OpCodes.CurMvRi => try tty.writeAll("\x1B[C"),
-            OpCodes.CurHorzAbs => try tty.writeAll("\x1B[G"),
-            else => unreachable,
+            VTCmds.CurPosGet => try tty.print("\x1B[6n", .{}),
+            VTCmds.CurPosSet => @panic("not implemented"),
+            VTCmds.ModOtherKeys => {
+                try tty.print(if (enable.?) "\x1B[>4;2m" else "\x1b[>4m", .{});
+            },
+            VTCmds.ReqMouseEvents => {
+                try tty.print(if (enable.?) "\x1B[?1004h" else "\x1B[?1004h", .{});
+            },
         }
     }
 
