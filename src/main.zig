@@ -284,7 +284,7 @@ fn core(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !bool {
 
         // REALLY WISH I COULD BUILD ZIG, ARCH LINUX!!!
         @memcpy(&prev, &buffer);
-        const nbyte = try read(hsh.tty.tty, &buffer);
+        const nbyte = try read(hsh.input, &buffer);
         if (nbyte == 0) {
             continue;
         }
@@ -370,7 +370,7 @@ pub fn main() !void {
     hsh.draw = Drawable.init(&hsh) catch unreachable;
     defer hsh.draw.raze();
     hsh.draw.term_size = hsh.tty.geom() catch unreachable;
-    hsh.input = hsh.tty.tty;
+    hsh.input = hsh.tty.dev;
 
     var inerr = false;
     root: while (true) {

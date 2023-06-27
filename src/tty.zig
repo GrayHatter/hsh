@@ -25,7 +25,7 @@ pub var current_tty: ?TTY = undefined;
 
 pub const TTY = struct {
     alloc: Allocator,
-    tty: i32,
+    dev: i32,
     in: Reader,
     out: Writer,
     attrs: ArrayList(os.termios),
@@ -37,7 +37,7 @@ pub const TTY = struct {
 
         var self = TTY{
             .alloc = a,
-            .tty = tty,
+            .dev = tty,
             .in = std.io.getStdIn().reader(),
             .out = std.io.getStdOut().writer(),
             .attrs = ArrayList(os.termios).init(a),
@@ -54,7 +54,7 @@ pub const TTY = struct {
     }
 
     fn getAttr(self: *TTY) os.termios {
-        return os.tcgetattr(self.tty) catch unreachable;
+        return os.tcgetattr(self.dev) catch unreachable;
     }
 
     fn makeRaw(orig: os.termios) os.termios {
@@ -83,15 +83,15 @@ pub const TTY = struct {
 
     pub fn pushTTY(self: *TTY, tios: os.termios) !void {
         try self.attrs.append(self.getAttr());
-        try os.tcsetattr(self.tty, .DRAIN, tios);
+        try os.tcsetattr(self.dev, .DRAIN, tios);
     }
 
     pub fn popTTY(self: *TTY) !os.termios {
         // Not using assert, because this is *always* an dangerously invalid state!
         if (self.attrs.items.len <= 1) @panic("popTTY");
-        const old = try os.tcgetattr(self.tty);
+        const old = try os.tcgetattr(self.dev);
         const tail = self.attrs.pop();
-        os.tcsetattr(self.tty, .DRAIN, tail) catch |err| {
+        os.tcsetattr(self.dev, .DRAIN, tail) catch |err| {
             log.err("TTY ERROR encountered, {} when popping.\n", .{err});
             return err;
         };
@@ -99,7 +99,7 @@ pub const TTY = struct {
     }
 
     pub fn setOwner(self: *TTY, pgrp: std.os.pid_t) !void {
-        _ = try std.os.tcsetpgrp(self.tty, pgrp);
+        _ = try std.os.tcsetpgrp(self.dev, pgrp);
     }
 
     pub fn pwnTTY(self: *TTY) void {
@@ -110,12 +110,12 @@ pub const TTY = struct {
             _ = custom_syscalls.setpgid(pid, pid);
         }
         log.debug("pwning tc \n", .{});
-        //_ = custom_syscalls.tcsetpgrp(self.tty, &pid);
-        //var res = custom_syscalls.tcsetpgrp(self.tty, &pid);
-        const res = std.os.tcsetpgrp(self.tty, pid) catch |err| {
+        //_ = custom_syscalls.tcsetpgrp(self.dev, &pid);
+        //var res = custom_syscalls.tcsetpgrp(self.dev, &pid);
+        const res = std.os.tcsetpgrp(self.dev, pid) catch |err| {
             log.err("Unable to tcsetpgrp to {}, error was: {}\n", .{ pid, err });
             log.err("Will attempt to tcgetpgrp\n", .{});
-            const get = std.os.tcgetpgrp(self.tty) catch |err2| {
+            const get = std.os.tcgetpgrp(self.dev) catch |err2| {
                 log.err("tcgetpgrp err {}\n", .{err2});
                 return;
             };
@@ -123,14 +123,14 @@ pub const TTY = struct {
             unreachable;
         };
         log.debug("tc pwnd {}\n", .{res});
-        //_ = custom_syscalls.tcgetpgrp(self.tty, &pgrp);
-        const pgrp = std.os.tcgetpgrp(self.tty) catch unreachable;
+        //_ = custom_syscalls.tcgetpgrp(self.dev, &pgrp);
+        const pgrp = std.os.tcgetpgrp(self.dev) catch unreachable;
         log.debug("get new pgrp {}\n", .{pgrp});
     }
 
     pub fn waitForFg(self: *TTY) void {
         var pgid = custom_syscalls.getpgid(0);
-        var fg = std.os.tcgetpgrp(self.tty) catch |err| {
+        var fg = std.os.tcgetpgrp(self.dev) catch |err| {
             log.err("died waiting for fg {}\n", .{err});
             @panic("panic carefully!");
         };
@@ -139,10 +139,10 @@ pub const TTY = struct {
                 @panic("unable to send TTIN");
             };
             pgid = custom_syscalls.getpgid(0);
-            std.os.tcsetpgrp(self.tty, pgid) catch {
+            std.os.tcsetpgrp(self.dev, pgid) catch {
                 @panic("died in loop");
             };
-            fg = std.os.tcgetpgrp(self.tty) catch {
+            fg = std.os.tcgetpgrp(self.dev) catch {
                 @panic("died in loop");
             };
         }
@@ -184,7 +184,7 @@ pub const TTY = struct {
 
     pub fn geom(self: *TTY) !Cord {
         var size: os.linux.winsize = mem.zeroes(os.linux.winsize);
-        const err = os.system.ioctl(self.tty, os.linux.T.IOCGWINSZ, @ptrToInt(&size));
+        const err = os.system.ioctl(self.dev, os.linux.T.IOCGWINSZ, @ptrToInt(&size));
         if (os.errno(err) != .SUCCESS) {
             return os.unexpectedErrno(@intToEnum(os.system.E, err));
         }
@@ -201,7 +201,7 @@ pub const TTY = struct {
         }
         std.debug.assert(self.attrs.items.len == 1);
         const last = self.attrs.pop();
-        os.tcsetattr(self.tty, .NOW, last) catch |err| {
+        os.tcsetattr(self.dev, .NOW, last) catch |err| {
             std.debug.print(
                 "\r\n\nTTY ERROR RAZE encountered, {} when attempting to raze.\r\n\n",
                 .{err},
