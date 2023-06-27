@@ -132,7 +132,6 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
             // Tab is best effort, it shouldn't be able to crash hsh
             var titr = tkn.iterator();
             var tkns = titr.toSlice(hsh.alloc) catch return .Prompt;
-
             defer hsh.alloc.free(tkns);
             _ = Parser.parse(&tkn.alloc, tkns) catch return .Prompt;
 
@@ -145,10 +144,9 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
             var target: *const complete.CompOption = undefined;
             if (b != prev) {
                 comp = try complete.complete(hsh, &ctkn);
-                if (comp.known()) {
+                if (comp.known()) |only| {
                     // original and single, complete now
-                    target = comp.first();
-                    try tkn.replaceToken(target);
+                    try tkn.replaceToken(only);
                     return .Prompt;
                 }
                 //for (comp.list.items) |c| std.debug.print("comp {}\n", .{c});

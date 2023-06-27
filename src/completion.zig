@@ -6,6 +6,7 @@ const IterableDir = std.fs.IterableDir;
 const tokenizer = @import("tokenizer.zig");
 const Token = tokenizer.Token;
 const Draw = @import("draw.zig");
+const log = @import("log");
 
 const Self = @This();
 
@@ -112,9 +113,15 @@ pub const CompSet = struct {
         return c;
     }
 
-    /// true when there's a known completion [or the original]
-    pub fn known(self: *CompSet) bool {
-        return self.count() == 2;
+    /// Returns the "only" completion if there's a single option known completion,
+    /// ignoring the original. If there's multiple or only the original, null.
+    pub fn known(self: *CompSet) ?*const CompOption {
+        if (self.count() == 2) {
+            self.reset();
+            _ = self.next();
+            return self.next();
+        }
+        return null;
     }
 
     pub fn reset(self: *CompSet) void {
