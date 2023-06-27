@@ -161,7 +161,7 @@ pub const TTY = struct {
                 try tty.print(if (enable.?) "\x1B[>4;2m" else "\x1b[>4m", .{});
             },
             VTCmds.ReqMouseEvents => {
-                try tty.print(if (enable.?) "\x1B[?1004h" else "\x1B[?1004h", .{});
+                try tty.print(if (enable.?) "\x1B[?1004h" else "\x1B[?1004l", .{});
             },
         }
     }
