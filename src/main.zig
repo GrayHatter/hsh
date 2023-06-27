@@ -354,6 +354,7 @@ pub fn main() !void {
     defer hsh.tkn.raze();
 
     var comp: *complete.CompSet = try complete.init(&hsh);
+    defer comp.raze();
 
     try Signals.init(a);
     defer Signals.raze();

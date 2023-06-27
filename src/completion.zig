@@ -177,6 +177,7 @@ pub const CompSet = struct {
         for (list.items) |item| {
             self.alloc.free(item.char);
         }
+        self.alloc.free(trees);
         list.clearAndFree();
     }
 
