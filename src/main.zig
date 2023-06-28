@@ -101,7 +101,17 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                     switch (mk.mods) {
                         .none => {},
                         .shift => {},
-                        .alt => {},
+                        .alt => {
+                            switch (mk.key) {
+                                else => |k| {
+                                    const key: u8 = @enumToInt(k);
+                                    switch (key) {
+                                        '.' => log.err("<A-.> not yet implemented\n", .{}),
+                                        else => {},
+                                    }
+                                },
+                            }
+                        },
                         .ctrl => {
                             switch (mk.key) {
                                 .Left => {
