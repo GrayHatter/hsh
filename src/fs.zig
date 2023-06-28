@@ -44,11 +44,17 @@ const Dirs = struct {
     }
 };
 
+const Watching = struct {
+    in_fd: ?i32,
+    wdes: [1]?i32,
+};
+
 alloc: mem.Allocator = undefined,
 rc: ?std.fs.File = null,
 history: ?std.fs.File = null,
 dirs: Dirs,
 names: Names,
+watches: Watching,
 
 pub const Error = error{
     System,
@@ -66,11 +72,13 @@ pub fn init(a: mem.Allocator, env: std.process.EnvMap) !fs {
             try paths.append(mpath);
         }
     }
+
+    const inotify_fd = std.os.inotify_init1(std.os.linux.IN.CLOEXEC | std.os.linux.IN.NONBLOCK) catch null;
+
     var self = fs{
         .alloc = a,
         .rc = conf[0],
         .history = conf[1],
-
         .dirs = .{
             .cwd = try std.fs.cwd().openIterableDir(".", .{}),
         },
@@ -81,10 +89,51 @@ pub fn init(a: mem.Allocator, env: std.process.EnvMap) !fs {
             .path = env.get("PATH"),
             .paths = paths,
         },
+        .watches = .{
+            .in_fd = inotify_fd,
+            .wdes = [_]?i32{
+                null,
+            },
+        },
     };
 
     try self.names.update(self.alloc);
+    if (env.get("HOME")) |home| {
+        if (a.alloc(u8, home.len + "/.config/hsh/hshrc".len)) |path| {
+            @memcpy(path[0..home.len], home);
+            @memcpy(path[home.len..], "/.config/hsh/hshrc");
+            try self.watchAdd(path, std.os.linux.IN.ALL_EVENTS);
+            a.free(path);
+        } else |err| return err;
+    }
     return self;
+}
+
+pub fn watchAdd(self: *fs, name: []const u8, mask: u32) !void {
+    if (self.watches.in_fd) |fd| {
+        self.watches.wdes[0] = std.os.inotify_add_watch(fd, name, mask) catch null;
+    }
+}
+
+pub fn watchDel(_: *fs, _: i32) void {}
+
+pub fn watchCheck(self: *fs) ?[]u8 {
+    if (self.watches.in_fd) |fd| {
+        var buf: [4096]u8 align(@alignOf(std.os.linux.inotify_event)) = undefined;
+        const rcount = std.os.read(fd, &buf) catch return null;
+        if (rcount > 0) {
+            if (rcount < @sizeOf(std.os.linux.inotify_event)) {
+                log.err(
+                    "inotify read size too small @{} expected {}\n",
+                    .{ rcount, @sizeOf(std.os.linux.inotify_event) },
+                );
+                return null;
+            }
+            var event = @ptrCast(*const std.os.linux.inotify_event, &buf);
+            log.debug("inotify event {any}\n", .{event});
+        }
+    }
+    return null;
 }
 
 pub fn raze(self: *fs, a: mem.Allocator) void {
@@ -145,6 +194,7 @@ pub fn openFile(name: []const u8, comptime create: bool) ?std.fs.File {
 }
 
 /// Caller owns returned file
+/// TODO remove allocator
 pub fn findPath(a: Allocator, env: *const std.process.EnvMap, name: []const u8, comptime create: bool) !std.fs.File {
     if (env.get("XDG_CONFIG_HOME")) |xdg| {
         var out = try a.dupe(u8, xdg);
@@ -176,6 +226,7 @@ pub fn findPath(a: Allocator, env: *const std.process.EnvMap, name: []const u8, 
     return Error.Missing;
 }
 
+/// TODO fix this API, it's awful
 fn getConfigs(A: Allocator, env: *const std.process.EnvMap) !struct { ?std.fs.File, ?std.fs.File } {
     var a = A;
     var rc = openRcFile(a, env) catch null;

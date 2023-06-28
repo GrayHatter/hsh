@@ -249,6 +249,7 @@ pub const HSH = struct {
             hsh.doSignals();
             hsh.sleep();
         }
+        _ = hsh.hfs.watchCheck();
     }
 
     const SI_CODE = enum(u6) {
