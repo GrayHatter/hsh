@@ -467,7 +467,7 @@ pub const Tokenizer = struct {
             if (s == subt and !(src[i - 1] == BSLH and src[i - 2] != BSLH)) break;
         }
 
-        if (src[end - 1] != subt) return Error.InvalidSrc;
+        if (src[end - 1] != subt) return Error.OpenGroup;
 
         return Token{
             .raw = src[0..end],
@@ -651,7 +651,7 @@ test "quotes" {
     try expect(std.mem.eql(u8, t.cannon(), "a"));
 
     var terr = Tokenizer.quote("\"this is invalid");
-    try expectError(Error.InvalidSrc, terr);
+    try expectError(Error.OpenGroup, terr);
 
     t = try Tokenizer.quote("\"this is some text\" more text");
     try expectEql(t.raw.len, 19);
@@ -671,8 +671,10 @@ test "quotes" {
     try expect(std.mem.eql(u8, t.raw, "\"this is some text\""));
     try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
 
-    terr = Tokenizer.quote("\"this is some text\\\" more text");
-    try expectError(Error.InvalidSrc, terr);
+    terr = Tokenizer.quote(
+        \\"this is some text\" more text
+    );
+    try expectError(Error.OpenGroup, terr);
 
     t = try Tokenizer.quote("\"this is some text\\\" more text\"");
     try expectEql(t.raw.len, 31);
@@ -714,8 +716,10 @@ test "quotes tokened" {
     try expectEql(tokens[0].cannon().len, 1);
     try expect(std.mem.eql(u8, tokens[0].cannon(), "a"));
 
-    var terr = Tokenizer.quote("\"this is invalid");
-    try expectError(Error.InvalidSrc, terr);
+    var terr = Tokenizer.quote(
+        \\"this is invalid
+    );
+    try expectError(Error.OpenGroup, terr);
 
     t.reset();
     try t.consumes("\"this is some text\" more text");
@@ -747,8 +751,10 @@ test "quotes tokened" {
     try expect(std.mem.eql(u8, tokens[0].raw, "\"this is some text\""));
     try expect(std.mem.eql(u8, tokens[0].cannon(), "this is some text"));
 
-    terr = Tokenizer.quote("\"this is some text\\\" more text");
-    try expectError(Error.InvalidSrc, terr);
+    terr = Tokenizer.quote(
+        \\"this is some text\" more text
+    );
+    try expectError(Error.OpenGroup, terr);
 
     t.reset();
     try t.consumes("\"this is some text\\\" more text\"");
