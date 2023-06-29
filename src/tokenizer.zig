@@ -7,7 +7,7 @@ const mem = std.mem;
 const std = @import("std");
 const CompOption = @import("completion.zig").CompOption;
 
-const breaking_tokens = " \t\"'`${|><#;";
+const BREAKING_TOKENS = " \t\"'`${|><#;";
 
 pub const Kind = enum(u8) {
     WhiteSpace,
@@ -329,11 +329,11 @@ pub const Tokenizer = struct {
     }
 
     pub fn string(src: []const u8) Error!Token {
-        if (mem.indexOfAny(u8, src[0..1], breaking_tokens)) |_| return Error.InvalidSrc;
+        if (mem.indexOfAny(u8, src[0..1], BREAKING_TOKENS)) |_| return Error.InvalidSrc;
         var end: usize = 0;
         for (src, 0..) |_, i| {
             end = i;
-            if (mem.indexOfAny(u8, src[i .. i + 1], breaking_tokens)) |_| break else continue;
+            if (mem.indexOfAny(u8, src[i .. i + 1], BREAKING_TOKENS)) |_| break else continue;
         } else end += 1;
         return Token{
             .raw = src[0..end],
@@ -527,7 +527,7 @@ pub const Tokenizer = struct {
     }
 
     fn consumeSafeish(self: *Tokenizer, str: []const u8) Error!void {
-        if (mem.indexOfAny(u8, str, breaking_tokens)) |_| {} else {
+        if (mem.indexOfAny(u8, str, BREAKING_TOKENS)) |_| {} else {
             for (str) |s| try self.consumec(s);
             return;
         }
