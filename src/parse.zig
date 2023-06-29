@@ -399,27 +399,6 @@ test "iterator nows" {
     try expectEql(i, 3);
 }
 
-// test "iterator tree" {
-//     var a = std.testing.allocator;
-//
-//     var ts = [_]Token{
-//         Token{ .kind = .Tree, .raw = "ls -la" },
-//         Token{ .kind = .WhiteSpace, .raw = " " },
-//         Token{ .kind = .String, .raw = "src" },
-//     };
-//
-//     var itr = try Parser.parse(&a, &ts);
-//     var i: usize = 0;
-//     while (itr.next()) |_| {
-//         i += 1;
-//     }
-//     try expectEql(i, 3);
-//     try expect(eql(u8, itr.first().cannon(), "ls"));
-//     try expect(eql(u8, itr.next().?.cannon(), "-la"));
-//     try expect(eql(u8, itr.next().?.cannon(), "src"));
-//     try expect(itr.next() == null);
-// }
-
 test "iterator alias is builtin" {
     var a = std.testing.allocator;
 
