@@ -45,10 +45,8 @@ pub const ParsedIterator = struct {
     pub fn next(self: *Self) ?*const Token {
         const i = self.index orelse return null;
         if (i >= self.tokens.len) {
+            self.restart();
             self.index = null;
-            self.alloc.free(self.resolved);
-            self.resolved.len = 0;
-            std.debug.assert(self.resolved.len == 0);
             return null;
         }
 
@@ -112,7 +110,11 @@ pub const ParsedIterator = struct {
     }
 
     fn resolve(self: *Self, token: *const Token) void {
-        return self.resolveAlias(token);
+        if (self.index) |index| {
+            if (index == 0) {
+                return self.resolveAlias(token);
+            } else unreachable;
+        }
     }
 
     fn resolveAlias(self: *Self, token: *const Token) void {
@@ -164,7 +166,7 @@ pub const Parser = struct {
     pub fn parse(a: *Allocator, tokens: []Token) Error!ParsedIterator {
         if (tokens.len == 0) return Error.Empty;
         for (tokens) |*tk| {
-            _ = parseToken(a, tk) catch unreachable;
+            _ = single(a, tk) catch unreachable;
         }
         _ = builtin(&tokens[0]) catch {};
         return ParsedIterator{
@@ -176,7 +178,7 @@ pub const Parser = struct {
         };
     }
 
-    fn parseToken(a: *Allocator, token: *Token) Error!*Token {
+    fn single(a: *Allocator, token: *Token) Error!*Token {
         if (token.raw.len == 0) return token;
 
         switch (token.kind) {

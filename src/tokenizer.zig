@@ -10,6 +10,7 @@ const CompOption = @import("completion.zig").CompOption;
 const BREAKING_TOKENS = " \t\"'`${|><#;";
 const BSLH = '\\';
 
+/// Deprecated, use KindExt. Eventually KindExt will replace Kind by name.
 pub const Kind = enum(u8) {
     WhiteSpace,
     String,
