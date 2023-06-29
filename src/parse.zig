@@ -72,6 +72,16 @@ pub const ParsedIterator = struct {
         return token;
     }
 
+    fn dropSubtoken(self: *Self) void {
+        if (self.subtokens) |subtkns| {
+            const l = subtkns.len;
+            for (subtkns[0 .. l - 1], subtkns[1..]) |*dst, src| {
+                dst.* = src;
+            }
+            self.subtokens = self.alloc.realloc(subtkns, subtkns.len - 1) catch unreachable;
+        }
+    }
+
     fn nextSubtoken(self: *Self, token: *const Token) ?*const Token {
         if (self.subtokens) |subtkns| {
             if (subtkns.len == 0) {
@@ -83,17 +93,7 @@ pub const ParsedIterator = struct {
             if (subtkns[0].next()) |n| {
                 return n;
             } else {
-                if (subtkns.len == 1) {
-                    self.alloc.free(self.subtokens.?);
-                    self.subtokens = null;
-                    self.index.? += 1;
-                    return self.next();
-                }
-                const l = subtkns.len;
-                for (subtkns[0 .. l - 1], subtkns[1..]) |*dst, src| {
-                    dst.* = src;
-                }
-                self.subtokens = self.alloc.realloc(subtkns, subtkns.len - 1) catch unreachable;
+                self.dropSubtoken();
                 return self.nextSubtoken(token);
             }
         } else {
@@ -106,18 +106,22 @@ pub const ParsedIterator = struct {
         }
     }
 
-    fn setResolved(self: *Self, str: []const u8) void {
+    fn resolvedAdd(self: *Self, str: []const u8) void {
         self.resolved = self.alloc.realloc(self.resolved, self.resolved.len + 1) catch unreachable;
         self.resolved[self.resolved.len - 1] = str;
     }
 
     fn resolve(self: *Self, token: *const Token) void {
+        return self.resolveAlias(token);
+    }
+
+    fn resolveAlias(self: *Self, token: *const Token) void {
         for (self.resolved) |res| {
             if (std.mem.eql(u8, token.cannon(), res)) {
                 return;
             }
         }
-        self.setResolved(token.cannon());
+        self.resolvedAdd(token.cannon());
         if (Parser.alias(token)) |als| {
             if (self.subtokens) |sub| {
                 self.subtokens = self.alloc.realloc(sub, sub.len + 1) catch unreachable;
