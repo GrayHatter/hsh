@@ -318,8 +318,8 @@ pub const Tokenizer = struct {
 
     pub fn any(src: []const u8) Error!Token {
         return switch (src[0]) {
-            '\'', '"' => Tokenizer.quote(src),
-            '`' => Tokenizer.quote(src), // TODO magic
+            '\'', '"' => Tokenizer.group(src),
+            '`' => Tokenizer.group(src), // TODO magic
             ' ' => Tokenizer.space(src),
             '~', '/' => Tokenizer.path(src),
             '>', '<' => Tokenizer.ioredir(src),
@@ -451,6 +451,43 @@ pub const Tokenizer = struct {
             },
             else => return Error.InvalidSrc,
         }
+    }
+
+    pub fn group(src: []const u8) Error!Token {
+        std.debug.assert(src.len > 1);
+        return switch (src[0]) {
+            '\'' => quoteSingle(src),
+            '"' => quoteDouble(src),
+            '(' => paren(src),
+            '[' => bracket(src),
+            '{' => bracketCurly(src),
+            '`' => backtick(src),
+            else => Error.InvalidSrc,
+        };
+    }
+
+    pub fn quoteSingle(src: []const u8) Error!Token {
+        return quote(src);
+    }
+
+    pub fn quoteDouble(src: []const u8) Error!Token {
+        return quote(src);
+    }
+
+    pub fn paren(src: []const u8) Error!Token {
+        return quote(src);
+    }
+
+    pub fn bracket(src: []const u8) Error!Token {
+        return quote(src);
+    }
+
+    pub fn bracketCurly(src: []const u8) Error!Token {
+        return quote(src);
+    }
+
+    pub fn backtick(src: []const u8) Error!Token {
+        return quote(src);
     }
 
     /// Callers must ensure that src[0] is in (', ")
