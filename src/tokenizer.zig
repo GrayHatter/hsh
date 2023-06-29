@@ -8,6 +8,7 @@ const std = @import("std");
 const CompOption = @import("completion.zig").CompOption;
 
 const BREAKING_TOKENS = " \t\"'`${|><#;";
+const BSLH = '\\';
 
 pub const Kind = enum(u8) {
     WhiteSpace,
@@ -455,7 +456,7 @@ pub const Tokenizer = struct {
     /// Callers must ensure that src[0] is in (', ")
     pub fn quote(src: []const u8) Error!Token {
         // TODO posix says a ' cannot appear within 'string'
-        if (src.len <= 1 or src[0] == '\\') {
+        if (src.len <= 1 or src[0] == BSLH) {
             return Error.InvalidSrc;
         }
         const subt = src[0];
@@ -463,7 +464,7 @@ pub const Tokenizer = struct {
         var end: usize = 1;
         for (src[1..], 1..) |s, i| {
             end += 1;
-            if (s == subt and !(src[i - 1] == '\\' and src[i - 2] != '\\')) break;
+            if (s == subt and !(src[i - 1] == BSLH and src[i - 2] != BSLH)) break;
         }
 
         if (src[end - 1] != subt) return Error.InvalidSrc;
