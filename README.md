@@ -53,12 +53,13 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
     - [x] alias
     - [ ] bg
     - [x] cd
+      - [ ] popd
     - [ ] colon
     - [ ] date
     - [x] die
     - [ ] disown
     - [ ] dot
-    - [ ] echo
+    - [x] echo
     - [ ] eval
     - [ ] exec
     - [ ] exit

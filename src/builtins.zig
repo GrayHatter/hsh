@@ -11,11 +11,13 @@ pub const Aliases = @import("builtins/alias.zig");
 pub const Set = @import("builtins/set.zig");
 pub const Pipeline = @import("builtins/pipeline.zig");
 pub const Which = @import("builtins/which.zig");
+pub const Echo = @import("builtins/echo.zig");
 
 const alias = Aliases.alias;
 const pipeline = Pipeline.pipeline;
 const set = Set.set;
 const which = Which.which;
+const echo = Echo.echo;
 
 var Self = @This();
 
@@ -139,11 +141,6 @@ test "fs" {
     const ndir = try c.openDir("/home/grayhatter", .{});
     //std.debug.print("test {}\n", .{ndir});
     try ndir.setAsCwd();
-}
-
-fn echo(_: *HSH, _: *ParsedIterator) Err!u8 {
-    print("echo not yet implemented\n", .{}) catch return Err.Unknown;
-    return 0;
 }
 
 /// TODO implement real version of exit
