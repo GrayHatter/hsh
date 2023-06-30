@@ -193,6 +193,40 @@ pub fn openFile(name: []const u8, comptime create: bool) ?std.fs.File {
     return fileAt(std.fs.cwd(), name, create, false);
 }
 
+pub fn globCwd(a: Allocator, search: []const u8) ![][]u8 {
+    var dir = try std.fs.cwd().openIterableDir(".", .{});
+    defer dir.close();
+    return globAt(a, dir, search);
+}
+
+pub fn globAt(a: Allocator, dir: std.fs.IterableDir, search: []const u8) ![][]u8 {
+    // TODO multi space glob
+    std.debug.assert(std.mem.count(u8, search, "*") == 1);
+    var split = std.mem.splitScalar(u8, search, '*');
+    const before = split.first();
+    const after = split.rest();
+    var itr = dir.iterate();
+
+    var names = try a.alloc([]u8, 10);
+    errdefer a.free(names);
+
+    // TODO leaks if error in the middle of iteration
+    var count: usize = 0;
+    while (try itr.next()) |entry| {
+        if (!std.mem.startsWith(u8, entry.name, before)) continue;
+        if (!std.mem.endsWith(u8, entry.name, after)) continue;
+        names[count] = try a.dupe(u8, entry.name);
+        count +|= 1;
+        if (count >= names.len) {
+            if (!a.resize(names, names.len * 2)) {
+                names = try a.realloc(names, names.len * 2);
+            } else names.len *|= 2;
+        }
+    }
+    if (!a.resize(names, count)) @panic("unable to downsize names");
+    return names[0..count];
+}
+
 /// Caller owns returned file
 /// TODO remove allocator
 pub fn findPath(a: Allocator, env: *const std.process.EnvMap, name: []const u8, comptime create: bool) !std.fs.File {

@@ -84,6 +84,9 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
     - [ ] state
     - [ ] status
   - [ ] globs
+    - [x] simple globs
+    - [ ] recursive globs
+    - [ ] enumerated globs (name.{ext,exe,md,txt})
   - [ ] script support?
     - [ ] logic (if, else, elif, case)
     - [ ] loops (for, while)

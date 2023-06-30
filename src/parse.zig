@@ -9,6 +9,7 @@ const TokenIterator = tokenizer.TokenIterator;
 const Builtins = @import("builtins.zig");
 const Aliases = Builtins.Aliases;
 const Variables = @import("variables.zig");
+const fs = @import("fs.zig");
 
 pub const Error = error{
     Unknown,
@@ -63,6 +64,9 @@ pub const ParsedIterator = struct {
                     self.index.? += 1;
                     return self.next();
                 },
+                .String => {
+                    if (self.nextSubtoken(token)) |tk| return tk;
+                },
                 else => {},
             }
         }
@@ -70,14 +74,29 @@ pub const ParsedIterator = struct {
         return token;
     }
 
-    fn dropSubtoken(self: *Self) void {
+    fn subtokensDel(self: *Self) void {
         if (self.subtokens) |subtkns| {
             const l = subtkns.len;
+            self.alloc.free(subtkns[0].raw);
             for (subtkns[0 .. l - 1], subtkns[1..]) |*dst, src| {
                 dst.* = src;
             }
             self.subtokens = self.alloc.realloc(subtkns, subtkns.len - 1) catch unreachable;
         }
+    }
+
+    fn subtokensDupe(self: *Self, str: []const u8) !void {
+        const raw = try self.alloc.dupe(u8, str);
+        return self.subtokensAdd(raw);
+    }
+
+    fn subtokensAdd(self: *Self, str: []u8) !void {
+        if (self.subtokens) |sub| {
+            self.subtokens = try self.alloc.realloc(sub, sub.len + 1);
+        } else {
+            self.subtokens = try self.alloc.alloc(TokenIterator, 1);
+        }
+        self.subtokens.?[self.subtokens.?.len - 1] = TokenIterator{ .raw = str };
     }
 
     fn nextSubtoken(self: *Self, token: *const Token) ?*const Token {
@@ -91,7 +110,7 @@ pub const ParsedIterator = struct {
             if (subtkns[0].next()) |n| {
                 return n;
             } else {
-                self.dropSubtoken();
+                self.subtokensDel();
                 return self.nextSubtoken(token);
             }
         } else {
@@ -113,7 +132,9 @@ pub const ParsedIterator = struct {
         if (self.index) |index| {
             if (index == 0) {
                 return self.resolveAlias(token);
-            } else unreachable;
+            } else {
+                return self.resolveGlob(token);
+            }
         }
     }
 
@@ -125,14 +146,31 @@ pub const ParsedIterator = struct {
         }
         self.resolvedAdd(token.cannon());
         if (Parser.alias(token)) |als| {
-            if (self.subtokens) |sub| {
-                self.subtokens = self.alloc.realloc(sub, sub.len + 1) catch unreachable;
-            } else {
-                self.subtokens = self.alloc.alloc(TokenIterator, 1) catch unreachable;
-            }
-            self.subtokens.?[self.subtokens.?.len - 1] = als;
+            self.subtokensDupe(als) catch unreachable;
             var owned = &self.subtokens.?[self.subtokens.?.len - 1];
             self.resolve(owned.*.first());
+        } else |e| {
+            if (e != Error.Empty) {
+                std.debug.print("alias errr {}\n", .{e});
+                unreachable;
+            }
+        }
+    }
+
+    fn resolveGlob(self: *Self, token: *const Token) void {
+        if (std.mem.indexOf(u8, token.cannon(), "*")) |_| {} else return;
+        if (Parser.glob(self.alloc, token)) |names| {
+            for (names) |name| {
+                if (!std.mem.startsWith(u8, token.cannon(), ".") and
+                    std.mem.startsWith(u8, name, "."))
+                {
+                    self.alloc.free(name);
+                    continue;
+                }
+                // as long as we own this memory, this cast is safe
+                self.subtokensAdd(@constCast(name)) catch unreachable;
+            }
+            self.alloc.free(names);
         } else |e| {
             if (e != Error.Empty) {
                 std.debug.print("alias errr {}\n", .{e});
@@ -228,11 +266,22 @@ pub const Parser = struct {
         return token;
     }
 
-    fn alias(token: *const Token) Error!TokenIterator {
+    fn alias(token: *const Token) Error![]const u8 {
         if (Aliases.find(token.cannon())) |a| {
-            return TokenIterator{ .raw = a.value };
+            return a.value;
         }
         return Error.Empty;
+    }
+
+    /// Caller owns memory for both list of names, and each name
+    fn globAt(a: *Allocator, dir: std.fs.IterableDir, token: *const Token) Error![][]const u8 {
+        return fs.globAt(a.*, dir, token.cannon()) catch @panic("this error not implemented");
+    }
+
+    /// Caller owns memory for both list of names, and each name
+    fn glob(a: *Allocator, token: *const Token) Error![][]const u8 {
+        std.debug.assert(std.mem.eql(u8, token.cannon(), "*"));
+        return fs.globCwd(a.*, token.cannon()) catch @panic("this error not implemented");
     }
 
     fn builtin(tkn: *Token) Error!*Token {
@@ -794,4 +843,54 @@ test "parse path /~/otherplace" {
     for (slice) |*s| {
         if (s.backing) |*b| b.clearAndFree();
     }
+}
+
+test "glob" {
+    var a = std.testing.allocator;
+
+    var cwd = try std.fs.cwd().openIterableDir(".", .{});
+    var di = cwd.iterate();
+    var names = std.ArrayList([]u8).init(a);
+
+    while (try di.next()) |each| {
+        if (each.name[0] == '.') continue;
+        try names.append(try a.dupe(u8, each.name));
+        //try names.insert(0, try a.dupe(u8, each.name));
+    }
+    try std.testing.expectEqual(@as(usize, 6), names.items.len);
+
+    var ti = TokenIterator{
+        .raw = "echo *",
+    };
+
+    const slice = try ti.toSlice(a);
+    defer a.free(slice);
+    var itr = try Parser.parse(&a, slice);
+
+    var count: usize = 0;
+    while (itr.next()) |next| {
+        count += 1;
+        _ = next;
+    }
+    try std.testing.expectEqual(@as(usize, 7), count);
+
+    try std.testing.expectEqualStrings("echo", itr.first().cannon());
+    found: while (itr.next()) |next| {
+        if (names.items.len == 0) return error.TestingSizeMismatch;
+        for (names.items, 0..) |name, i| {
+            if (std.mem.eql(u8, name, next.cannon())) {
+                a.free(names.swapRemove(i));
+                continue :found;
+            }
+        } else return error.TestingUnmatchedName;
+    }
+    // try std.testing.expectEqualStrings("README.md", itr.next().?.cannon());
+    // try std.testing.expectEqualStrings("build.zig", itr.next().?.cannon());
+    // try std.testing.expectEqualStrings("test.zig", itr.next().?.cannon());
+    // try std.testing.expectEqualStrings("zig-out", itr.next().?.cannon());
+    // try std.testing.expectEqualStrings("zig-cache", itr.next().?.cannon());
+    // try std.testing.expectEqualStrings("src", itr.next().?.cannon());
+    try std.testing.expect(names.items.len == 0);
+    try std.testing.expect(itr.next() == null);
+    names.clearAndFree();
 }
