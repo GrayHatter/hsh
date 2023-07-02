@@ -83,7 +83,7 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
     - [ ] show
     - [ ] state
     - [ ] status
-  - [ ] globs
+  - [-] globs
     - [x] simple globs
     - [ ] recursive globs
     - [ ] enumerated globs (name.{ext,exe,md,txt})
