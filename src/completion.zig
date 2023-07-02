@@ -199,7 +199,7 @@ pub const CompSet = struct {
     }
 };
 
-fn completeDir(cwdi: *IterableDir) !void {
+fn completeDir(cwdi: IterableDir) !void {
     var itr = cwdi.iterate();
     while (try itr.next()) |each| {
         const full = try compset.alloc.dupe(u8, each.name);
@@ -213,7 +213,7 @@ fn completeDir(cwdi: *IterableDir) !void {
     }
 }
 
-fn completeDirBase(cwdi: *IterableDir, base: []const u8) !void {
+fn completeDirBase(cwdi: IterableDir, base: []const u8) !void {
     var itr = cwdi.iterate();
     while (try itr.next()) |each| {
         if (!std.mem.startsWith(u8, each.name, base)) continue;
@@ -228,7 +228,7 @@ fn completeDirBase(cwdi: *IterableDir, base: []const u8) !void {
     }
 }
 
-fn completePath(h: *HSH, target: []const u8) !void {
+fn completePath(_: *HSH, target: []const u8) !void {
     if (target.len < 1) return;
 
     if (target[0] == '/') {}
@@ -236,7 +236,7 @@ fn completePath(h: *HSH, target: []const u8) !void {
     var whole = std.mem.splitBackwards(u8, target, "/");
     var base = whole.first();
     var path = whole.rest();
-    var dir = h.hfs.dirs.cwd.dir.openIterableDir(path, .{}) catch return;
+    var dir = std.fs.cwd().openIterableDir(path, .{}) catch return;
 
     var itr = dir.iterate();
     while (try itr.next()) |each| {
@@ -272,9 +272,14 @@ pub fn complete(hsh: *HSH, t: *const Token) !*CompSet {
         .kind = Kind{ .Original = t.kind == .WhiteSpace },
     });
     switch (t.kind) {
-        .WhiteSpace => try completeDir(&hsh.hfs.dirs.cwd),
-        .String => try completeDirBase(&hsh.hfs.dirs.cwd, t.cannon()),
-        .Path => try completePath(hsh, t.cannon()),
+        .WhiteSpace => try completeDir(try std.fs.cwd().openIterableDir(".", .{})),
+        .String, .Path => {
+            if (std.mem.indexOfScalar(u8, t.cannon(), '/')) |_| {
+                try completePath(hsh, t.cannon());
+            } else {
+                try completeDirBase(try std.fs.cwd().openIterableDir(".", .{}), t.cannon());
+            }
+        },
         .IoRedir => {},
         else => {},
     }
