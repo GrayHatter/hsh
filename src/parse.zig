@@ -280,7 +280,6 @@ pub const Parser = struct {
 
     /// Caller owns memory for both list of names, and each name
     fn glob(a: *Allocator, token: *const Token) Error![][]const u8 {
-        std.debug.assert(std.mem.eql(u8, token.cannon(), "*"));
         return fs.globCwd(a.*, token.cannon()) catch @panic("this error not implemented");
     }
 
@@ -855,7 +854,6 @@ test "glob" {
     while (try di.next()) |each| {
         if (each.name[0] == '.') continue;
         try names.append(try a.dupe(u8, each.name));
-        //try names.insert(0, try a.dupe(u8, each.name));
     }
     try std.testing.expectEqual(@as(usize, 6), names.items.len);
 
@@ -884,12 +882,48 @@ test "glob" {
             }
         } else return error.TestingUnmatchedName;
     }
-    // try std.testing.expectEqualStrings("README.md", itr.next().?.cannon());
-    // try std.testing.expectEqualStrings("build.zig", itr.next().?.cannon());
-    // try std.testing.expectEqualStrings("test.zig", itr.next().?.cannon());
-    // try std.testing.expectEqualStrings("zig-out", itr.next().?.cannon());
-    // try std.testing.expectEqualStrings("zig-cache", itr.next().?.cannon());
-    // try std.testing.expectEqualStrings("src", itr.next().?.cannon());
+    try std.testing.expect(names.items.len == 0);
+    try std.testing.expect(itr.next() == null);
+    names.clearAndFree();
+}
+
+test "glob ." {
+    var a = std.testing.allocator;
+
+    var cwd = try std.fs.cwd().openIterableDir(".", .{});
+    var di = cwd.iterate();
+    var names = std.ArrayList([]u8).init(a);
+
+    while (try di.next()) |each| {
+        try names.append(try a.dupe(u8, each.name));
+    }
+    try std.testing.expectEqual(@as(usize, 8), names.items.len);
+
+    var ti = TokenIterator{
+        .raw = "echo .* *",
+    };
+
+    const slice = try ti.toSlice(a);
+    defer a.free(slice);
+    var itr = try Parser.parse(&a, slice);
+
+    var count: usize = 0;
+    while (itr.next()) |next| {
+        count += 1;
+        _ = next;
+    }
+    try std.testing.expectEqual(@as(usize, 9), count);
+
+    try std.testing.expectEqualStrings("echo", itr.first().cannon());
+    found: while (itr.next()) |next| {
+        if (names.items.len == 0) return error.TestingSizeMismatch;
+        for (names.items, 0..) |name, i| {
+            if (std.mem.eql(u8, name, next.cannon())) {
+                a.free(names.swapRemove(i));
+                continue :found;
+            }
+        } else return error.TestingUnmatchedName;
+    }
     try std.testing.expect(names.items.len == 0);
     try std.testing.expect(itr.next() == null);
     names.clearAndFree();
