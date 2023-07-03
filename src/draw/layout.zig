@@ -111,8 +111,7 @@ fn sum(cs: []u16) u32 {
 pub fn tableLexeme(a: Allocator, items: []Lexeme, w: u32) Error![]LexTree {
     const largest = maxWidthLexem(items);
     if (largest > w) return Error.SizeTooLarge;
-    var cols_w: []u16 = a.alloc(u16, w / largest) catch return Error.Memory;
-    // not ideal but it's a reasonable start
+    var cols_w: []u16 = a.alloc(u16, 0) catch return Error.Memory;
     defer a.free(cols_w);
 
     var cols = items.len;
@@ -127,21 +126,20 @@ pub fn tableLexeme(a: Allocator, items: []Lexeme, w: u32) Error![]LexTree {
         const remainder: u32 = if (items.len % cols > 0) 1 else 0;
         rows = @truncate(u32, items.len / cols) + remainder;
         for (0..rows) |row| {
-            const curr_len = @min(items.len, (row + 1) * cols);
-            const current = items[row * cols .. curr_len];
+            const current = items[row * cols .. @min((row + 1) * cols, items.len)];
             if (countLexems(current) > w) {
                 //continue :first;
             }
             for (0..cols) |c| {
-                if (c + row * cols >= items.len) break;
-                cols_w[c] = @max(cols_w[c], countPrintable(current[c].char) + 1);
+                if (row * cols + c >= items.len) break;
+                cols_w[c] = @max(cols_w[c], countPrintable(current[c].char) + 2);
+                // padding of 2 feels more comfortable
             }
             if (sum(cols_w) > w) continue :first;
         }
         break;
     }
 
-    if (rows == 1) @memset(cols_w, @truncate(u16, largest));
     var trees = a.alloc(LexTree, rows) catch return Error.Memory;
     // errdefer
 
@@ -149,10 +147,11 @@ pub fn tableLexeme(a: Allocator, items: []Lexeme, w: u32) Error![]LexTree {
         trees[row] = LexTree{
             .siblings = items[row * cols .. @min((row + 1) * cols, items.len)],
         };
-        for (0..cols) |col| {
-            if (col + row * cols >= items.len) break;
-            const old = items[row * cols + col].char;
-            trees[row].siblings[col].char = dupePadded(a, old, cols_w[col]) catch return Error.Memory;
+        for (0..cols) |c| {
+            const rowcol = row * cols + c;
+            if (rowcol >= items.len) break;
+            const old = items[rowcol].char;
+            trees[row].siblings[c].char = dupePadded(a, old, cols_w[c]) catch return Error.Memory;
         }
     }
 
