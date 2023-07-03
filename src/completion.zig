@@ -231,12 +231,19 @@ fn completeDirBase(cwdi: IterableDir, base: []const u8) !void {
 fn completePath(_: *HSH, target: []const u8) !void {
     if (target.len < 1) return;
 
-    if (target[0] == '/') {}
-
     var whole = std.mem.splitBackwards(u8, target, "/");
     var base = whole.first();
     var path = whole.rest();
-    var dir = std.fs.cwd().openIterableDir(path, .{}) catch return;
+
+    var dir: std.fs.IterableDir = undefined;
+    if (target[0] == '/') {
+        if (path.len == 0) {
+            path = target;
+        }
+        dir = std.fs.openIterableDirAbsolute(path, .{}) catch return;
+    } else {
+        dir = std.fs.cwd().openIterableDir(path, .{}) catch return;
+    }
 
     var itr = dir.iterate();
     while (try itr.next()) |each| {
