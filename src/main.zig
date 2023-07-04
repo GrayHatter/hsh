@@ -163,7 +163,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                 }
                 //for (comp.list.items) |c| std.debug.print("comp {}\n", .{c});
             } else {
-                try comp.drawAll(&hsh.draw, @intCast(hsh.draw.term_size.x));
+                try comp.drawAll(&hsh.draw, hsh.draw.term_size);
             }
 
             target = comp.next();

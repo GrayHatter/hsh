@@ -161,7 +161,7 @@ pub const CompSet = struct {
         try group.append(o);
     }
 
-    pub fn drawGroup(self: *const CompSet, f: Flavors, d: *Draw.Drawable, w: u32) !void {
+    pub fn drawGroup(self: *const CompSet, f: Flavors, d: *Draw.Drawable, wh: Cord) !void {
         var list = ArrayList(Draw.Lexeme).init(self.alloc);
         var group = &self.groups[@intFromEnum(f)];
         var current_group = if (@intFromEnum(f) == self.group_index) true else false;
@@ -172,7 +172,7 @@ pub const CompSet = struct {
             const lex = itm.lexeme(active);
             list.append(lex) catch break;
         }
-        var trees = try Draw.Layout.tableLexeme(self.alloc, list.items, w);
+        var trees = try Draw.Layout.tableLexeme(self.alloc, list.items, wh);
         for (trees) |tree| try Draw.drawAfter(d, tree);
 
         for (list.items) |item| {
@@ -182,11 +182,11 @@ pub const CompSet = struct {
         list.clearAndFree();
     }
 
-    pub fn drawAll(self: *CompSet, d: *Draw.Drawable, w: u32) !void {
+    pub fn drawAll(self: *CompSet, d: *Draw.Drawable, wh: Cord) !void {
         // Yeah... I know
         for (0..flavors_len) |flavor| {
             // TOD Draw name
-            try self.drawGroup(@enumFromInt(flavor), d, w);
+            try self.drawGroup(@enumFromInt(flavor), d, wh);
         }
     }
 

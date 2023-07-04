@@ -1,12 +1,14 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const draw = @import("../draw.zig");
+const Cord = draw.Cord;
 const LexTree = draw.LexTree;
 const Lexeme = draw.Lexeme;
 const dupePadded = @import("../mem.zig").dupePadded;
 
 const Error = error{
-    SizeTooLarge,
+    ViewportFit,
+    ItemCount,
     LayoutUnable,
     Memory,
 };
@@ -74,12 +76,12 @@ fn maxWidthLexem(lexs: []const Lexeme) u32 {
 /// *LexTree
 /// LexTree.siblings.Lexem,
 /// LexTree.siblings.Lexem[..].char must all be free'd
-pub fn grid(a: Allocator, items: []const []const u8, w: u32) Error![]LexTree {
+pub fn grid(a: Allocator, items: []const []const u8, wh: Cord) Error![]LexTree {
     // errdefer
     const largest = maxWidth(items);
-    if (largest > w) return Error.SizeTooLarge;
+    if (largest > wh.x) return Error.ViewportFit;
 
-    const cols: u32 = @max(w / largest, 1);
+    const cols: u32 = @max(@as(u32, @intCast(wh.x)) / largest, 1);
     const remainder: u32 = if (items.len % cols > 0) 1 else 0;
     const rows: u32 = @as(u32, @truncate(items.len)) / cols + remainder;
 
@@ -108,9 +110,9 @@ fn sum(cs: []u16) u32 {
     return total;
 }
 
-pub fn tableLexeme(a: Allocator, items: []Lexeme, w: u32) Error![]LexTree {
+pub fn tableLexeme(a: Allocator, items: []Lexeme, wh: Cord) Error![]LexTree {
     const largest = maxWidthLexem(items);
-    if (largest > w) return Error.SizeTooLarge;
+    if (largest > wh.x) return Error.ViewportFit;
     var cols_w: []u16 = a.alloc(u16, 0) catch return Error.Memory;
     defer a.free(cols_w);
 
@@ -118,7 +120,7 @@ pub fn tableLexeme(a: Allocator, items: []Lexeme, w: u32) Error![]LexTree {
     var rows: u32 = 0;
 
     first: while (true) : (cols -= 1) {
-        if (countLexems(items[0..cols]) > w) continue;
+        if (countLexems(items[0..cols]) > wh.x) continue;
         if (cols == 0) return Error.LayoutUnable;
 
         cols_w = a.realloc(cols_w, cols) catch return Error.Memory;
@@ -127,7 +129,7 @@ pub fn tableLexeme(a: Allocator, items: []Lexeme, w: u32) Error![]LexTree {
         rows = @as(u32, @truncate(items.len / cols)) + remainder;
         for (0..rows) |row| {
             const current = items[row * cols .. @min((row + 1) * cols, items.len)];
-            if (countLexems(current) > w) {
+            if (countLexems(current) > wh.x) {
                 //continue :first;
             }
             for (0..cols) |c| {
@@ -135,7 +137,7 @@ pub fn tableLexeme(a: Allocator, items: []Lexeme, w: u32) Error![]LexTree {
                 cols_w[c] = @max(cols_w[c], countPrintable(current[c].char) + 2);
                 // padding of 2 feels more comfortable
             }
-            if (sum(cols_w) > w) continue :first;
+            if (sum(cols_w) > wh.x) continue :first;
         }
         break;
     }
@@ -163,7 +165,7 @@ pub fn tableLexeme(a: Allocator, items: []Lexeme, w: u32) Error![]LexTree {
 /// LexTree.siblings.Lexem,
 /// LexTree.siblings.Lexem[..].char must all be free'd
 /// items are not reordered
-pub fn table(a: Allocator, items: []const []const u8, w: u32) Error![]LexTree {
+pub fn table(a: Allocator, items: []const []const u8, wh: Cord) Error![]LexTree {
     var lexes = a.alloc(Lexeme, items.len) catch return Error.Memory;
     errdefer a.free(lexes);
 
@@ -171,7 +173,7 @@ pub fn table(a: Allocator, items: []const []const u8, w: u32) Error![]LexTree {
         l.*.char = i;
     }
 
-    return tableLexeme(a, lexes, w);
+    return tableLexeme(a, lexes, wh);
 }
 
 test "count printable" {
@@ -199,7 +201,7 @@ const strs13 = strs12 ++ [_][]const u8{"extra4luck"};
 
 test "table" {
     var a = std.testing.allocator;
-    const rows = try table(a, &strs12, 50);
+    const rows = try table(a, &strs12, Cord{ .x = 50, .y = 1 });
     //std.debug.print("rows {any}\n", .{rows});
     for (rows) |row| {
         //std.debug.print("  row {any}\n", .{row});
@@ -220,7 +222,7 @@ test "table" {
 test "grid 3*4" {
     var a = std.testing.allocator;
 
-    const rows = try grid(a, &strs12, 50);
+    const rows = try grid(a, &strs12, Cord{ .x = 50, .y = 1 });
     //std.debug.print("rows {any}\n", .{rows});
     for (rows) |row| {
         //std.debug.print("  row {any}\n", .{row});
@@ -241,7 +243,7 @@ test "grid 3*4" {
 
 test "grid 3*4 + 1" {
     var a = std.testing.allocator;
-    const rows = try grid(a, &strs13, 50);
+    const rows = try grid(a, &strs13, Cord{ .x = 50, .y = 1 });
     //std.debug.print("rows {any}\n", .{rows});
     for (rows) |row| {
         //std.debug.print("  row {any}\n", .{row});
