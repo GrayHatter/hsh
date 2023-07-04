@@ -129,7 +129,7 @@ pub fn watchCheck(self: *fs) ?[]u8 {
                 );
                 return null;
             }
-            var event = @ptrCast(*const std.os.linux.inotify_event, &buf);
+            var event: *const std.os.linux.inotify_event = @ptrCast(&buf);
             log.debug("inotify event {any}\n", .{event});
         }
     }

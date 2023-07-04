@@ -585,18 +585,18 @@ pub const Tokenizer = struct {
         if (self.raw.items.len == 0 or self.c_idx == 0) return;
 
         self.c_idx -|= 1;
-        var t = self.raw.orderedRemove(@bitCast(usize, self.c_idx));
+        var t = self.raw.orderedRemove(@bitCast(self.c_idx));
         while (std.ascii.isWhitespace(t) and self.c_idx > 0) {
             self.c_idx -|= 1;
-            t = self.raw.orderedRemove(@bitCast(usize, self.c_idx));
+            t = self.raw.orderedRemove(@bitCast(self.c_idx));
         }
         while (std.ascii.isAlphanumeric(t) and self.c_idx > 0) {
             self.c_idx -|= 1;
-            t = self.raw.orderedRemove(@bitCast(usize, self.c_idx));
+            t = self.raw.orderedRemove(@bitCast(self.c_idx));
         }
         while (std.ascii.isWhitespace(t) and self.c_idx > 0) {
             self.c_idx -|= 1;
-            t = self.raw.orderedRemove(@bitCast(usize, self.c_idx));
+            t = self.raw.orderedRemove(@bitCast(self.c_idx));
         }
         if (self.c_idx > 1 and (std.ascii.isWhitespace(t) or std.ascii.isAlphanumeric(t)))
             try self.consumec(t);
@@ -629,7 +629,7 @@ pub const Tokenizer = struct {
     }
 
     pub fn consumec(self: *Tokenizer, c: u8) Error!void {
-        self.raw.insert(@bitCast(usize, self.c_idx), c) catch return Error.Unknown;
+        self.raw.insert(self.c_idx, @bitCast(c)) catch return Error.Unknown;
         self.c_idx += 1;
     }
 

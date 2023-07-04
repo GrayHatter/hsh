@@ -69,8 +69,8 @@ fn samesame(any: anytype, line: []const u8) !bool {
 
     var stream = any;
     const size = line.len + 2;
-
-    try stream.seekBy(-@intCast(i64, size));
+    const seekby: isize = -@as(isize, @intCast(size));
+    try stream.seekBy(seekby);
     var buf: [2048]u8 = undefined;
     const read = try stream.reader().read(buf[0..size]);
     if (read < size) return false;

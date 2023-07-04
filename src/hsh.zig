@@ -279,7 +279,7 @@ pub const HSH = struct {
                         //std.debug.print("Unknown child on {} {}\n", .{ sig.info.code, pid });
                         continue;
                     };
-                    switch (@intToEnum(SI_CODE, sig.info.code)) {
+                    switch (@as(SI_CODE, @enumFromInt(sig.info.code))) {
                         SI_CODE.STOPPED => {
                             if (child.*.status == .Running) {
                                 child.*.termattr = hsh.tty.popTTY() catch unreachable;
@@ -296,7 +296,7 @@ pub const HSH = struct {
                                 };
                             }
                             const status = sig.info.fields.common.second.sigchld.status;
-                            child.*.exit_code = @bitCast(u8, @truncate(i8, status));
+                            child.*.exit_code = @intCast(status);
                             child.*.status = .Ded;
                         },
                         SI_CODE.CONTINUED => {
@@ -308,7 +308,7 @@ pub const HSH = struct {
                             log.err("CHLD CRASH on {}\n", .{pid});
                             child.*.status = .Crashed;
                             const status = sig.info.fields.common.second.sigchld.status;
-                            child.*.exit_code = @bitCast(u8, @truncate(i8, status));
+                            child.*.exit_code = @intCast(status);
                         },
                     }
                 },

@@ -82,7 +82,7 @@ pub fn esc(hsh: *HSH) !KeyPress {
         else => {
             log.debug("\n\nunknown input: escape {s} {}\n", .{ buffer, buffer[0] });
             return .{ .ModKey = .{
-                .key = @intToEnum(Key, buffer[0]),
+                .key = @enumFromInt(buffer[0]),
                 .mods = .alt,
             } };
         },
@@ -148,11 +148,10 @@ fn csi_xterm(buffer: []const u8) KeyPress {
 
             const rest = mods.rest();
             const mod_bits = (std.fmt.parseInt(u8, rest[0 .. rest.len - 1], 10) catch 1) -% 1;
-            const mod_keys = @intToEnum(Modifiers, mod_bits);
             return KeyPress{
                 .ModKey = .{
                     .key = key,
-                    .mods = mod_keys,
+                    .mods = @enumFromInt(mod_bits),
                 },
             };
         },

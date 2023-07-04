@@ -252,7 +252,7 @@ fn execBuiltin(h: *HSH, b: *Builtin) Error!u8 {
 
 fn execBin(e: Binary) Error!void {
     // TODO manage env
-    const res = std.os.execveZ(e.arg, e.argv, @ptrCast([*:null]?[*:0]u8, std.os.environ));
+    const res = std.os.execveZ(e.arg, e.argv, @ptrCast(std.os.environ));
     switch (res) {
         error.FileNotFound => {
             // we validate exes internally now this should be impossible
@@ -383,11 +383,7 @@ pub fn child(h: *HSH, argv: [:null]const ?[*:0]const u8) !ERes {
         std.os.dup2(pipe[1], std.os.STDOUT_FILENO) catch unreachable;
         std.os.close(pipe[0]);
         std.os.close(pipe[1]);
-        std.os.execvpeZ(
-            argv[0].?,
-            argv.ptr,
-            @ptrCast([*:null]?[*:0]u8, std.os.environ),
-        ) catch {
+        std.os.execvpeZ(argv[0].?, argv.ptr, @ptrCast(std.os.environ)) catch {
             unreachable;
         };
         unreachable;

@@ -208,7 +208,7 @@ fn drawTrees(buf: *DrawBuf, x: usize, y: usize, tree: []LexTree) Err!void {
 }
 
 fn countLines(buf: []const u8) u16 {
-    return @truncate(u16, std.mem.count(u8, buf, "\n"));
+    return @truncate(std.mem.count(u8, buf, "\n"));
 }
 
 pub fn drawBefore(d: *Drawable, t: LexTree) !void {
@@ -256,17 +256,17 @@ pub fn render(d: *Drawable) Err!void {
     if (d.right.items.len > 0) {
         cntx += try d.write("\r\x1B[K");
         // Assumes that movement becomes a nop once at term width
-        cntx += try d.write(d.move(.Absolute, @intCast(u16, d.term_size.x)));
+        cntx += try d.write(d.move(.Absolute, @intCast(d.term_size.x)));
         // printable [...] to give a blank buffer (I hate line wrapping)
         const printable = countPrintable(d.right.items);
-        cntx += try d.write(d.move(.Left, @intCast(u16, printable)));
+        cntx += try d.write(d.move(.Left, @intCast(printable)));
         cntx += try d.write(d.right.items);
     }
 
     if (cntx == 0) _ = try d.write("\r\x1B[K");
     _ = try d.write("\r");
     _ = try d.write(d.b.items);
-    _ = try d.write(d.move(.Left, @truncate(u16, d.cursor)));
+    _ = try d.write(d.move(.Left, @truncate(d.cursor)));
     // TODO save backtrack line count?
     d.lines += countLines(d.b.items);
 }

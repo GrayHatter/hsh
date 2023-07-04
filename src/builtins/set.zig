@@ -24,7 +24,7 @@ pub const Opts = enum(u8) {
 
     pub fn find(c: u8) Err!Opts {
         inline for (@typeInfo(Opts).Enum.fields) |field| {
-            if (field.value == c) return @intToEnum(Opts, field.value);
+            if (field.value == c) return @enumFromInt(field.value);
         }
         return Err.InvalidToken;
     }

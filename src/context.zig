@@ -73,10 +73,10 @@ pub fn available(hsh: *const HSH) ![]Contexts {
 
 pub fn update(h: *HSH, requested: []const Contexts) !void {
     for (requested) |r| {
-        try a_contexts.items[@enumToInt(r)].update(h);
+        try a_contexts.items[@intFromEnum(r)].update(h);
     }
 }
 
 pub fn fetch(h: *const HSH, c: Contexts) Error!Lexeme {
-    return try a_contexts.items[@enumToInt(c)].fetch(h);
+    return try a_contexts.items[@intFromEnum(c)].fetch(h);
 }

@@ -104,7 +104,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                         .alt => {
                             switch (mk.key) {
                                 else => |k| {
-                                    const key: u8 = @enumToInt(k);
+                                    const key: u8 = @intFromEnum(k);
                                     switch (key) {
                                         '.' => log.err("<A-.> not yet implemented\n", .{}),
                                         else => {},
@@ -163,7 +163,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                 }
                 //for (comp.list.items) |c| std.debug.print("comp {}\n", .{c});
             } else {
-                try comp.drawAll(&hsh.draw, @intCast(u32, hsh.draw.term_size.x));
+                try comp.drawAll(&hsh.draw, @intCast(hsh.draw.term_size.x));
             }
 
             target = comp.next();
@@ -254,7 +254,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
 fn read(fd: std.os.fd_t, buf: []u8) !usize {
     const rc = std.os.linux.read(fd, buf.ptr, buf.len);
     switch (std.os.linux.getErrno(rc)) {
-        .SUCCESS => return @intCast(usize, rc),
+        .SUCCESS => return @intCast(rc),
         .INTR => return error.Interupted,
         .AGAIN => return error.WouldBlock,
         .BADF => return error.NotOpenForReading, // Can be a race condition.
@@ -279,7 +279,7 @@ fn core(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !bool {
     //try Context.update(hsh, &[_]Context.Contexts{.git});
 
     while (true) {
-        hsh.draw.cursor = @truncate(u32, tkn.cadj());
+        hsh.draw.cursor = @truncate(tkn.cadj());
         hsh.spin();
 
         //Draw.clearCtx(&hsh.draw);

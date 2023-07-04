@@ -81,7 +81,7 @@ pub fn grid(a: Allocator, items: []const []const u8, w: u32) Error![]LexTree {
 
     const cols: u32 = @max(w / largest, 1);
     const remainder: u32 = if (items.len % cols > 0) 1 else 0;
-    const rows: u32 = @truncate(u32, items.len) / cols + remainder;
+    const rows: u32 = @as(u32, @truncate(items.len)) / cols + remainder;
 
     var trees = a.alloc(LexTree, rows) catch return Error.Memory;
     var lexes = a.alloc(Lexeme, items.len) catch return Error.Memory;
@@ -124,7 +124,7 @@ pub fn tableLexeme(a: Allocator, items: []Lexeme, w: u32) Error![]LexTree {
         cols_w = a.realloc(cols_w, cols) catch return Error.Memory;
         @memset(cols_w, 0);
         const remainder: u32 = if (items.len % cols > 0) 1 else 0;
-        rows = @truncate(u32, items.len / cols) + remainder;
+        rows = @as(u32, @truncate(items.len / cols)) + remainder;
         for (0..rows) |row| {
             const current = items[row * cols .. @min((row + 1) * cols, items.len)];
             if (countLexems(current) > w) {
@@ -213,7 +213,7 @@ test "table" {
     try std.testing.expect(rows[0].siblings.len == 4);
 
     // I have my good ol' C pointers back... this is so nice :)
-    a.free(@ptrCast(*[strs12.len]Lexeme, rows[0].siblings));
+    a.free(@as(*[strs12.len]Lexeme, @ptrCast(rows[0].siblings)));
     a.free(rows);
 }
 
@@ -235,7 +235,7 @@ test "grid 3*4" {
     try std.testing.expect(rows[3].siblings.len == 3);
 
     // I have my good ol' C pointers back... this is so nice :)
-    a.free(@ptrCast(*[strs12.len]Lexeme, rows[0].siblings));
+    a.free(@as(*[strs12.len]Lexeme, @ptrCast(rows[0].siblings)));
     a.free(rows);
 }
 
@@ -256,6 +256,6 @@ test "grid 3*4 + 1" {
     try std.testing.expect(rows[4].siblings.len == 1);
 
     // I have my good ol' C pointers back... this is so nice :)
-    a.free(@ptrCast(*[strs13.len]Lexeme, rows[0].siblings));
+    a.free(@as(*[strs13.len]Lexeme, @ptrCast(rows[0].siblings)));
     a.free(rows);
 }

@@ -74,7 +74,7 @@ pub fn exec(self: Builtins) BuiltinFn {
 /// Caller must ensure this builtin exists.
 pub fn strExec(str: []const u8) BuiltinFn {
     inline for (@typeInfo(Builtins).Enum.fields[0..]) |f| {
-        if (std.mem.eql(u8, f.name, str)) return exec(@intToEnum(Builtins, f.value));
+        if (std.mem.eql(u8, f.name, str)) return exec(@enumFromInt(f.value));
     }
     std.debug.print("strExec panic on {s}\n", .{str});
     unreachable;

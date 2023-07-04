@@ -184,9 +184,9 @@ pub const TTY = struct {
 
     pub fn geom(self: *TTY) !Cord {
         var size: os.linux.winsize = mem.zeroes(os.linux.winsize);
-        const err = os.system.ioctl(self.dev, os.linux.T.IOCGWINSZ, @ptrToInt(&size));
+        const err = os.system.ioctl(self.dev, os.linux.T.IOCGWINSZ, @intFromPtr(&size));
         if (os.errno(err) != .SUCCESS) {
-            return os.unexpectedErrno(@intToEnum(os.system.E, err));
+            return os.unexpectedErrno(@enumFromInt(err));
         }
         return .{
             .x = size.ws_col,

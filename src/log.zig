@@ -22,7 +22,7 @@ pub fn hshLogFn(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    if (@enumToInt(verbosity) < @enumToInt(level)) return;
+    if (@intFromEnum(verbosity) < @intFromEnum(level)) return;
     const prefix = comptime switch (level) {
         .err => "[\x1B[31merr\x1B[39m] ",
         .warning => "[\x1B[33mwrn\x1B[39m] ",

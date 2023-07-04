@@ -6,6 +6,7 @@ const IterableDir = std.fs.IterableDir;
 const tokenizer = @import("tokenizer.zig");
 const Token = tokenizer.Token;
 const Draw = @import("draw.zig");
+const Cord = Draw.Cord;
 const log = @import("log");
 
 const Self = @This();
@@ -126,7 +127,7 @@ pub const CompSet = struct {
 
     pub fn reset(self: *CompSet) void {
         self.index = 0;
-        self.group_index = @enumToInt(Flavors.Original);
+        self.group_index = @intFromEnum(Flavors.Original);
         self.group = &self.groups[self.group_index];
     }
 
@@ -156,14 +157,14 @@ pub const CompSet = struct {
     }
 
     pub fn push(self: *CompSet, o: CompOption) !void {
-        var group = &self.groups[@enumToInt(o.kind)];
+        var group = &self.groups[@intFromEnum(o.kind)];
         try group.append(o);
     }
 
     pub fn drawGroup(self: *const CompSet, f: Flavors, d: *Draw.Drawable, w: u32) !void {
         var list = ArrayList(Draw.Lexeme).init(self.alloc);
-        var group = &self.groups[@enumToInt(f)];
-        var current_group = if (@enumToInt(f) == self.group_index) true else false;
+        var group = &self.groups[@intFromEnum(f)];
+        var current_group = if (@intFromEnum(f) == self.group_index) true else false;
 
         if (group.items.len == 0) return;
         for (group.items, 0..) |itm, i| {
@@ -185,7 +186,7 @@ pub const CompSet = struct {
         // Yeah... I know
         for (0..flavors_len) |flavor| {
             // TOD Draw name
-            try self.drawGroup(@intToEnum(Flavors, flavor), d, w);
+            try self.drawGroup(@enumFromInt(flavor), d, w);
         }
     }
 
@@ -238,9 +239,10 @@ fn completePath(_: *HSH, target: []const u8) !void {
     var dir: std.fs.IterableDir = undefined;
     if (target[0] == '/') {
         if (path.len == 0) {
-            path = target;
+            dir = std.fs.openIterableDirAbsolute("/", .{}) catch return;
+        } else {
+            dir = std.fs.openIterableDirAbsolute(path, .{}) catch return;
         }
-        dir = std.fs.openIterableDirAbsolute(path, .{}) catch return;
     } else {
         dir = std.fs.cwd().openIterableDir(path, .{}) catch return;
     }
