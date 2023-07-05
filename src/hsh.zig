@@ -267,9 +267,11 @@ pub const HSH = struct {
             const pid = sig.info.fields.common.first.piduid.pid;
             switch (sig.signal) {
                 std.os.SIG.INT => {
+                    // TODO move this branch to a better location
                     std.debug.print("^C\n\r", .{});
                     hsh.tkn.reset();
                     hsh.draw.reset();
+                    hsh.hist.?.cnt = 0;
                     //std.debug.print("\n\rSIGNAL INT(oopsies)\n", .{});
                 },
                 std.os.SIG.CHLD => {
