@@ -23,32 +23,32 @@ pub const Err = error{
 };
 
 const Layer = enum {
-    Norm,
-    Top,
-    Bottom,
-    Temp,
-    Null, // "Nop" layer
+    norm,
+    top,
+    bottom,
+    temp,
+    null, // "Nop" layer
 };
 
 pub const Attr = enum {
-    Reset,
-    Bold,
-    Dim,
-    Italic,
-    Underline,
-    Reverse,
-    ReverseBold, // Not in standard
-    Strikeout,
+    reset,
+    bold,
+    dim,
+    italic,
+    underline,
+    reverse,
+    reverse_bold, // Not in standard
+    strikeout,
 };
 
 pub const Color = enum {
-    None,
-    Black,
-    White,
-    Gray,
-    Red,
-    Blue,
-    Green,
+    none,
+    black,
+    white,
+    gray,
+    red,
+    blue,
+    green,
 };
 
 pub const Lexeme = struct {
@@ -143,9 +143,9 @@ pub const Drawable = struct {
 fn setAttr(buf: *DrawBuf, attr: ?Attr) Err!void {
     if (attr) |a| {
         switch (a) {
-            .Bold => buf.appendSlice("\x1B[1m") catch return Err.Memory,
-            .Reverse => buf.appendSlice("\x1B[7m") catch return Err.Memory,
-            .ReverseBold => buf.appendSlice("\x1B[1m\x1B[7m") catch return Err.Memory,
+            .bold => buf.appendSlice("\x1B[1m") catch return Err.Memory,
+            .reverse => buf.appendSlice("\x1B[7m") catch return Err.Memory,
+            .reverse_bold => buf.appendSlice("\x1B[1m\x1B[7m") catch return Err.Memory,
             else => buf.appendSlice("\x1B[0m") catch return Err.Memory,
         }
     }
@@ -154,8 +154,8 @@ fn setAttr(buf: *DrawBuf, attr: ?Attr) Err!void {
 fn bgColor(buf: *DrawBuf, c: ?Color) Err!void {
     if (c) |bg| {
         switch (bg) {
-            .Red => buf.appendSlice("\x1B[41m") catch return Err.Memory,
-            .Blue => buf.appendSlice("\x1B[34m") catch return Err.Memory,
+            .red => buf.appendSlice("\x1B[41m") catch return Err.Memory,
+            .blue => buf.appendSlice("\x1B[34m") catch return Err.Memory,
             else => buf.appendSlice("\x1B[39m") catch return Err.Memory,
         }
     }
@@ -164,7 +164,8 @@ fn bgColor(buf: *DrawBuf, c: ?Color) Err!void {
 fn fgColor(buf: *DrawBuf, c: ?Color) Err!void {
     if (c) |fg| {
         switch (fg) {
-            .Blue => buf.appendSlice("\x1B[34m") catch return Err.Memory,
+            .red => buf.appendSlice("\x1B[31m") catch return Err.Memory,
+            .blue => buf.appendSlice("\x1B[34m") catch return Err.Memory,
             else => buf.appendSlice("\x1B[39m") catch return Err.Memory,
         }
     }
@@ -181,9 +182,9 @@ fn drawLexeme(buf: *DrawBuf, x: usize, y: usize, l: Lexeme) Err!void {
     }
     buf.appendSlice(l.char) catch return Err.Memory;
     if (colorize) {
-        try bgColor(buf, .None);
-        try fgColor(buf, .None);
-        try setAttr(buf, .Reset);
+        try bgColor(buf, .none);
+        try fgColor(buf, .none);
+        try setAttr(buf, .reset);
     }
 }
 

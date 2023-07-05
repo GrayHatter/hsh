@@ -6,7 +6,7 @@ const LexTree = draw.LexTree;
 const Lexeme = draw.Lexeme;
 const dupePadded = @import("../mem.zig").dupePadded;
 
-const Error = error{
+pub const Error = error{
     ViewportFit,
     ItemCount,
     LayoutUnable,
@@ -127,6 +127,8 @@ pub fn tableLexeme(a: Allocator, items: []Lexeme, wh: Cord) Error![]LexTree {
         @memset(cols_w, 0);
         const remainder: u32 = if (items.len % cols > 0) 1 else 0;
         rows = @as(u32, @truncate(items.len / cols)) + remainder;
+        if (rows >= wh.y) return Error.ItemCount;
+
         for (0..rows) |row| {
             const current = items[row * cols .. @min((row + 1) * cols, items.len)];
             if (countLexems(current) > wh.x) {
@@ -201,7 +203,10 @@ const strs13 = strs12 ++ [_][]const u8{"extra4luck"};
 
 test "table" {
     var a = std.testing.allocator;
-    const rows = try table(a, &strs12, Cord{ .x = 50, .y = 1 });
+    const err = table(a, &strs12, Cord{ .x = 50, .y = 1 });
+    try std.testing.expectError(Error.ItemCount, err);
+
+    const rows = try table(a, &strs12, Cord{ .x = 50, .y = 5 });
     //std.debug.print("rows {any}\n", .{rows});
     for (rows) |row| {
         //std.debug.print("  row {any}\n", .{row});

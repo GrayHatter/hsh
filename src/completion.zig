@@ -26,7 +26,7 @@ pub const FSKind = enum {
 
     pub fn color(k: FSKind) ?Draw.Color {
         return switch (k) {
-            .Dir => .Blue,
+            .Dir => .blue,
             else => null,
         };
     }
@@ -46,8 +46,8 @@ pub const FSKind = enum {
 
 pub const Flavors = enum(u3) {
     Unknown,
-    Original,
     FileSystem,
+    Original, // Should remain last for error order semantics
 };
 
 const flavors_len = @typeInfo(Flavors).Enum.fields.len;
@@ -71,14 +71,14 @@ pub const CompOption = struct {
     pub fn lexeme(self: CompOption, active: bool) Draw.Lexeme {
         var lex = Draw.Lexeme{
             .char = self.name,
-            .attr = if (active) .Reverse else .Reset,
+            .attr = if (active) .reverse else .reset,
         };
 
         switch (self.kind) {
             .FileSystem => |fs| {
                 lex.fg = fs.color();
                 if (fs == .Dir) {
-                    lex.attr = if (active) .ReverseBold else .Bold;
+                    lex.attr = if (active) .reverse_bold else .bold;
                 }
             },
             else => {},
@@ -93,6 +93,7 @@ pub const CompOption = struct {
 //    flavor: Flavors,
 //    list: CompList,
 //};
+const ERRSTR = "[Not enough room to print {} items]";
 
 pub const CompSet = struct {
     alloc: Allocator,
@@ -105,6 +106,7 @@ pub const CompSet = struct {
     // the pointers contained within are likely already invalid!
     //orig_token: ?*const Token = null,
     kind: tokenizer.Kind = undefined,
+    err: bool = false,
 
     fn count(self: *const CompSet) usize {
         var c: usize = 0;
@@ -138,6 +140,7 @@ pub const CompSet = struct {
 
     pub fn next(self: *CompSet) *const CompOption {
         std.debug.assert(self.count() > 0);
+        if (self.err) self.reset();
         defer self.skip();
         return &self.group.items[self.index];
     }
@@ -161,8 +164,9 @@ pub const CompSet = struct {
         try group.append(o);
     }
 
-    pub fn drawGroup(self: *const CompSet, f: Flavors, d: *Draw.Drawable, wh: Cord) !void {
+    pub fn drawGroup(self: *CompSet, f: Flavors, d: *Draw.Drawable, wh: Cord) !void {
         var list = ArrayList(Draw.Lexeme).init(self.alloc);
+        defer list.clearAndFree();
         var group = &self.groups[@intFromEnum(f)];
         var current_group = if (@intFromEnum(f) == self.group_index) true else false;
 
@@ -172,20 +176,38 @@ pub const CompSet = struct {
             const lex = itm.lexeme(active);
             list.append(lex) catch break;
         }
-        var trees = try Draw.Layout.tableLexeme(self.alloc, list.items, wh);
-        for (trees) |tree| try Draw.drawAfter(d, tree);
+        if (Draw.Layout.tableLexeme(self.alloc, list.items, wh)) |trees| {
+            for (trees) |tree| try Draw.drawAfter(d, tree);
 
-        for (list.items) |item| {
-            self.alloc.free(item.char);
+            for (list.items) |item| {
+                self.alloc.free(item.char);
+            }
+            self.alloc.free(trees);
+        } else |err| {
+            if (err == Draw.Layout.Error.ItemCount) {
+                var fbuf: [128]u8 = undefined;
+                const str = try std.fmt.bufPrint(&fbuf, ERRSTR, .{self.count()});
+                try Draw.drawAfter(d, Draw.LexTree{
+                    .lex = Draw.Lexeme{ .char = str, .attr = .bold, .fg = .red },
+                });
+                self.err = true;
+                return err;
+            }
         }
-        self.alloc.free(trees);
-        list.clearAndFree();
     }
 
     pub fn drawAll(self: *CompSet, d: *Draw.Drawable, wh: Cord) !void {
+        if (self.err) {
+            var fbuf: [128]u8 = undefined;
+            const str = try std.fmt.bufPrint(&fbuf, ERRSTR, .{self.count()});
+            try Draw.drawAfter(d, Draw.LexTree{
+                .lex = Draw.Lexeme{ .char = str, .attr = .bold, .fg = .red },
+            });
+            return;
+        }
         // Yeah... I know
         for (0..flavors_len) |flavor| {
-            // TOD Draw name
+            // TODO Draw name
             try self.drawGroup(@enumFromInt(flavor), d, wh);
         }
     }
@@ -197,6 +219,7 @@ pub const CompSet = struct {
             }
             group.clearAndFree();
         }
+        self.err = false;
     }
 };
 
