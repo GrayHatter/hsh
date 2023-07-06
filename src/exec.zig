@@ -272,6 +272,8 @@ fn free(a: Allocator, s: *CallableStack) void {
             for (e.argv) |*p| {
                 a.free(std.mem.sliceTo(p.*.?, 0));
             }
+            a.free(std.mem.sliceTo(e.arg, 0));
+            a.free(e.argv);
         },
     }
 }
@@ -285,6 +287,7 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!void {
         log.err("unable to make stack {}\n", .{e});
         return e;
     };
+    defer h.alloc.free(stack);
 
     if (stack.len == 1 and stack[0].callable == .builtin) {
         _ = try execBuiltin(h, &stack[0].callable.builtin);
@@ -364,7 +367,7 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!void {
         if (s.stdio.in != std.os.STDIN_FILENO) std.os.close(s.stdio.in);
         if (s.stdio.out != std.os.STDOUT_FILENO) std.os.close(s.stdio.out);
         if (s.stdio.err != std.os.STDERR_FILENO) std.os.close(s.stdio.err);
-        free(h.alloc, s);
+        //free(h.alloc, s);
     }
 }
 
