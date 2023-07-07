@@ -131,9 +131,11 @@ pub fn makeAbsExecutable(a: Allocator, str: []const u8) Error![]u8 {
 /// Caller will own memory
 fn makeExeZ(a: Allocator, str: []const u8) Error!ARG {
     var exe = try makeAbsExecutable(a, str);
-    if (!a.resize(exe, exe.len + 1)) {
+    if (a.resize(exe, exe.len + 1)) {
+        exe.len += 1;
+    } else {
         exe = a.realloc(exe, exe.len + 1) catch return Error.Memory;
-    } else exe.len += 1;
+    }
     exe[exe.len - 1] = 0;
     return exe[0 .. exe.len - 1 :0];
 }
@@ -149,11 +151,10 @@ fn builtin(a: Allocator, parsed: ParsedIterator) Error!Builtin {
 
 /// Caller owns memory of argv, and the open fds
 fn binary(a: Allocator, titr: ParsedIterator) Error!Binary {
-    var exeZ: ?ARG = null;
     var argv = ArrayList(?ARG).init(a);
     var itr = titr;
 
-    exeZ = makeExeZ(a, itr.first().cannon()) catch |e| {
+    var exeZ: ?ARG = makeExeZ(a, itr.first().cannon()) catch |e| {
         log.err("path missing {s}\n", .{itr.first().cannon()});
         return e;
     };
@@ -269,10 +270,12 @@ fn free(a: Allocator, s: *CallableStack) void {
         .builtin => {},
         .exec => |e| {
             // TODO validate this clears all pointers correctly
-            for (e.argv) |*p| {
-                a.free(std.mem.sliceTo(p.*.?, 0));
+            for (e.argv) |*marg| {
+                if (marg.*) |argz| {
+                    var arg = std.mem.span(argz);
+                    a.free(arg);
+                }
             }
-            a.free(std.mem.sliceTo(e.arg, 0));
             a.free(e.argv);
         },
     }
@@ -301,19 +304,18 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!void {
 
     var fpid: std.os.pid_t = 0;
     for (stack) |*s| {
+        defer free(h.alloc, s);
         if (s.conditional) |cond| {
             if (fpid == 0) unreachable;
             switch (cond) {
                 .After => _ = jobs.waitFor(h, fpid) catch {},
                 .Failure => {
                     if (jobs.waitFor(h, fpid) catch true) {
-                        free(h.alloc, s);
                         continue;
                     }
                 },
                 .Success => {
                     if (!(jobs.waitFor(h, fpid) catch return Error.PipelineError)) {
-                        free(h.alloc, s);
                         continue;
                     }
                 },
@@ -367,7 +369,6 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!void {
         if (s.stdio.in != std.os.STDIN_FILENO) std.os.close(s.stdio.in);
         if (s.stdio.out != std.os.STDOUT_FILENO) std.os.close(s.stdio.out);
         if (s.stdio.err != std.os.STDERR_FILENO) std.os.close(s.stdio.err);
-        //free(h.alloc, s);
     }
 }
 

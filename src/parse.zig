@@ -74,7 +74,7 @@ pub const ParsedIterator = struct {
         return token;
     }
 
-    fn subtokensDel(self: *Self) void {
+    fn subtokensDel(self: *Self) bool {
         if (self.subtokens) |subtkns| {
             const l = subtkns.len;
             self.alloc.free(subtkns[0].raw);
@@ -83,6 +83,10 @@ pub const ParsedIterator = struct {
             }
             self.subtokens = self.alloc.realloc(subtkns, subtkns.len - 1) catch unreachable;
         }
+        if (self.subtokens) |st| {
+            return st.len > 0;
+        }
+        return false;
     }
 
     fn subtokensDupe(self: *Self, str: []const u8) !void {
@@ -110,7 +114,7 @@ pub const ParsedIterator = struct {
             if (subtkns[0].next()) |n| {
                 return n;
             } else {
-                self.subtokensDel();
+                _ = self.subtokensDel();
                 return self.nextSubtoken(token);
             }
         } else {
@@ -186,10 +190,8 @@ pub const ParsedIterator = struct {
             self.alloc.free(self.resolved);
         }
         self.resolved = self.alloc.alloc([]u8, 0) catch @panic("Alloc 0 can't fail");
-        if (self.subtokens) |ts| {
-            self.alloc.free(ts);
-            self.subtokens = null;
-        }
+        while (self.subtokensDel()) {}
+        self.subtokens = null;
     }
 
     /// Alias for restart to free stored memory
