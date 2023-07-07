@@ -159,6 +159,8 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                 if (comp.known()) |only| {
                     // original and single, complete now
                     try tkn.replaceToken(only);
+                    const newctkn = tkn.cursor_token() catch unreachable;
+                    comp = try complete.complete(hsh, &newctkn);
                     return .Prompt;
                 }
                 //for (comp.list.items) |c| std.debug.print("comp {}\n", .{c});
