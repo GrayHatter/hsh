@@ -239,6 +239,7 @@ pub const CursorMotion = enum(u8) {
 pub const Tokenizer = struct {
     alloc: Allocator,
     raw: ArrayList(u8),
+    prev_raw: ?ArrayList(u8) = null,
     hist_z: ?ArrayList(u8) = null,
     c_idx: usize = 0,
     c_tkn: usize = 0, // cursor is over this token
@@ -249,10 +250,6 @@ pub const Tokenizer = struct {
             .alloc = a,
             .raw = ArrayList(u8).init(a),
         };
-    }
-
-    pub fn raze(self: *Tokenizer) void {
-        self.reset();
     }
 
     fn cChar(self: *Tokenizer) ?u8 {
@@ -633,21 +630,18 @@ pub const Tokenizer = struct {
         self.c_idx += 1;
     }
 
-    pub fn push_line(self: *Tokenizer) void {
-        if (self.hist_z) |*hz| {
-            hz.clearAndFree();
-            self.hist_z = null;
-        }
+    pub fn pushLine(self: *Tokenizer) void {
+        self.resetHist();
         self.hist_z = self.raw;
         self.raw = ArrayList(u8).init(self.alloc);
     }
 
-    pub fn push_hist(self: *Tokenizer) void {
+    pub fn pushHist(self: *Tokenizer) void {
         self.c_idx = self.raw.items.len;
     }
 
-    pub fn pop_line(self: *Tokenizer) void {
-        self.clear();
+    pub fn popLine(self: *Tokenizer) void {
+        self.resetRaw();
         if (self.hist_z) |h| {
             self.raw = h;
             self.hist_z = null;
@@ -656,16 +650,32 @@ pub const Tokenizer = struct {
     }
 
     pub fn reset(self: *Tokenizer) void {
-        self.clear();
+        self.resetRaw();
+        self.resetHist();
+    }
+
+    fn resetHist(self: *Tokenizer) void {
         if (self.hist_z) |*hz| hz.clearAndFree();
         self.hist_z = null;
     }
 
-    pub fn clear(self: *Tokenizer) void {
+    pub fn resetRaw(self: *Tokenizer) void {
         self.raw.clearAndFree();
         self.c_idx = 0;
         self.err_idx = 0;
         self.c_tkn = 0;
+    }
+
+    /// Doesn't exec, called to save previous "local" command
+    pub fn exec(self: *Tokenizer) void {
+        if (self.prev_raw) |*pr| pr.clearAndFree();
+        self.prev_raw = self.raw;
+        self.raw = ArrayList(u8).init(self.alloc);
+        self.resetRaw();
+    }
+
+    pub fn raze(self: *Tokenizer) void {
+        self.reset();
     }
 
     pub fn consumes(self: *Tokenizer, str: []const u8) Error!void {

@@ -63,30 +63,30 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                     switch (a) {
                         .Up => {
                             var hist = &(hsh.hist orelse return .None);
-                            if (hist.cnt == 0) tkn.push_line();
-                            tkn.clear();
+                            if (hist.cnt == 0) tkn.pushLine();
+                            tkn.resetRaw();
                             hist.cnt += 1;
                             if (tkn.hist_z) |hz| {
                                 _ = hist.readAtFiltered(&tkn.raw, hz.items) catch unreachable;
                             } else {
                                 _ = hist.readAtFiltered(&tkn.raw, tkn.raw.items) catch unreachable;
                             }
-                            tkn.push_hist();
+                            tkn.pushHist();
                         },
                         .Down => {
                             var hist = &(hsh.hist orelse return .None);
                             if (hist.cnt > 1) {
                                 hist.cnt -= 1;
-                                tkn.clear();
+                                tkn.resetRaw();
                                 if (tkn.hist_z) |hz| {
                                     _ = hist.readAtFiltered(&tkn.raw, hz.items) catch unreachable;
                                 } else {
                                     _ = hist.readAtFiltered(&tkn.raw, tkn.raw.items) catch unreachable;
                                 }
-                                tkn.push_hist();
+                                tkn.pushHist();
                             } else if (hist.cnt == 1) {
                                 hist.cnt -= 1;
-                                tkn.pop_line();
+                                tkn.popLine();
                             } else {}
                         },
                         .Left => tkn.cPos(.dec),
@@ -425,7 +425,7 @@ pub fn main() !void {
                     std.debug.print("Exec error {}\n", .{err});
                     unreachable;
                 };
-                hsh.tkn.reset();
+                hsh.tkn.exec();
                 continue;
             } else {
                 break;
