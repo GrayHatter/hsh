@@ -82,6 +82,7 @@ fn readFromRC(hsh: *HSH) !void {
         var a = hsh.alloc;
 
         var tokenizer = Tokenizer.init(a);
+        defer tokenizer.raze();
         while (readLine(&a, r)) |line| {
             defer a.free(line);
             if (line.len > 0 and line[0] == '#') {

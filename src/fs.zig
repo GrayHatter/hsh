@@ -29,6 +29,7 @@ const Names = struct {
         if (self.cwd.ptr != self.cwd_short.ptr) {
             a.free(self.cwd_short);
         }
+        self.paths.clearAndFree();
     }
 };
 const Dirs = struct {

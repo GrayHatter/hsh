@@ -76,7 +76,9 @@ pub fn init(a: std.mem.Allocator) void {
     }) catch unreachable;
 }
 
-pub fn raze() void {}
+pub fn raze() void {
+    known_options.clearAndFree();
+}
 
 fn save(_: *HSH, _: *anyopaque) ?[][]const u8 {
     return null;
