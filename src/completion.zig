@@ -107,6 +107,7 @@ pub const CompSet = struct {
     //orig_token: ?*const Token = null,
     kind: tokenizer.Kind = undefined,
     err: bool = false,
+    draw_cache: [flavors_len]?[]Draw.LexTree = .{ null, null, null },
 
     fn count(self: *const CompSet) usize {
         var c: usize = 0;
@@ -165,24 +166,28 @@ pub const CompSet = struct {
     }
 
     pub fn drawGroup(self: *CompSet, f: Flavors, d: *Draw.Drawable, wh: Cord) !void {
-        var list = ArrayList(Draw.Lexeme).init(self.alloc);
-        defer list.clearAndFree();
-        var group = &self.groups[@intFromEnum(f)];
-        var current_group = if (@intFromEnum(f) == self.group_index) true else false;
+        //defer list.clearAndFree();
+        const g_int = @intFromEnum(f);
+        var group = &self.groups[g_int];
+        var current_group = if (g_int == self.group_index) true else false;
 
         if (group.items.len == 0) return;
+
+        if (self.draw_cache[g_int]) |*dc| {
+            for (dc.*) |tree| try Draw.drawAfter(d, tree);
+            return;
+        }
+
+        var list = ArrayList(Draw.Lexeme).init(self.alloc);
         for (group.items, 0..) |itm, i| {
             const active = current_group and i == self.index;
             const lex = itm.lexeme(active);
             list.append(lex) catch break;
         }
-        if (Draw.Layout.tableLexeme(self.alloc, list.items, wh)) |trees| {
+        var items = try list.toOwnedSlice();
+        if (Draw.Layout.tableLexeme(self.alloc, items, wh)) |trees| {
+            self.draw_cache[g_int] = trees;
             for (trees) |tree| try Draw.drawAfter(d, tree);
-
-            for (list.items) |item| {
-                self.alloc.free(item.char);
-            }
-            self.alloc.free(trees);
         } else |err| {
             if (err == Draw.Layout.Error.ItemCount) {
                 var fbuf: [128]u8 = undefined;
@@ -218,6 +223,21 @@ pub const CompSet = struct {
                 self.alloc.free(opt.full);
             }
             group.clearAndFree();
+        }
+        for (&self.draw_cache) |*cache_group| {
+            if (cache_group.*) |*trees| {
+                var real_size: usize = 0;
+                for (trees.*) |row| {
+                    for (row.siblings) |lex| {
+                        self.alloc.free(lex.char);
+                        real_size += 1;
+                    }
+                }
+                trees.*[0].siblings.len = real_size;
+                self.alloc.free(trees.*[0].siblings);
+                self.alloc.free(trees.*);
+                cache_group.* = null;
+            }
         }
         self.err = false;
     }
