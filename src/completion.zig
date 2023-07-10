@@ -174,7 +174,26 @@ pub const CompSet = struct {
         if (group.items.len == 0) return;
 
         if (self.draw_cache[g_int]) |*dc| {
-            for (dc.*) |tree| try Draw.drawAfter(d, tree);
+            const mod: usize = dc.*[0].siblings.len;
+            var last_row = (self.index -% 1) / mod;
+            var last_col = (self.index -% 1) % mod;
+            const this_row = (self.index) / mod;
+            const this_col = (self.index) % mod;
+
+            if (!current_group and self.index == 0) {
+                last_row = (group.items.len - 1) / mod;
+                last_col = (group.items.len - 1) % mod;
+            }
+
+            for (dc.*, 0..) |tree, row| {
+                if (row == last_row) {
+                    tree.siblings[last_col].attr = .reset;
+                }
+                if (current_group and row == this_row) {
+                    tree.siblings[this_col].attr = .reverse;
+                }
+                try Draw.drawAfter(d, tree);
+            }
             return;
         }
 
