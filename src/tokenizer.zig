@@ -299,8 +299,8 @@ pub const Tokenizer = struct {
             var t = try any(self.raw.items[i..]);
             if (t.raw.len == 0) return Error.TokenizeFailed;
             i += t.raw.len;
-            self.c_tkn += 1;
             if (i >= self.c_idx) return t;
+            self.c_tkn += 1;
         }
         return Error.TokenizeFailed;
     }
@@ -533,9 +533,9 @@ pub const Tokenizer = struct {
     /// it's something the user asked for!
     pub fn replaceToken(self: *Tokenizer, new: *const CompOption) !void {
         _ = try self.cursor_token();
-        var i: usize = 0;
         var tokens_rem = self.c_tkn;
-        var old: Token = undefined;
+        var old: Token = any(self.raw.items) catch return Error.Unknown;
+        var i: usize = old.raw.len;
         while (tokens_rem > 0) {
             tokens_rem -= 1;
             old = try any(self.raw.items[i..]);
@@ -545,15 +545,15 @@ pub const Tokenizer = struct {
 
         self.c_idx = i;
         if (old.kind != .WhiteSpace) try self.popRange(old.raw.len);
-        if (new.kind == .Original and mem.eql(u8, new.full, " ")) return;
+        if (new.kind == .original and mem.eql(u8, new.full, " ")) return;
 
         try self.consumeSafeish(new.full);
 
         switch (new.kind) {
-            .Original => {
+            .original => {
                 if (mem.eql(u8, new.full, " ")) return;
             },
-            .FileSystem => |fs| {
+            .file_system => |fs| {
                 if (fs == .Dir) {
                     try self.consumec('/');
                 }

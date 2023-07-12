@@ -151,10 +151,13 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                 return .Prompt;
             }
             const ctkn = tkn.cursor_token() catch unreachable;
-            // Should be unreachable given tokenize() above
+            var flavor: complete.Kind = .any;
+            if (tkn.c_tkn == 0) {
+                flavor = .path_exe;
+            }
             var target: *const complete.CompOption = undefined;
             if (b != prev) {
-                comp = try complete.complete(hsh, &ctkn);
+                comp = try complete.complete(hsh, &ctkn, flavor);
             } else {
                 comp.drawAll(&hsh.draw, hsh.draw.term_size) catch |err| {
                     if (err == Draw.Layout.Error.ItemCount) return .Prompt else return err;
@@ -165,7 +168,7 @@ fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, prev: u8, comp_: *complete.Comp
                 // original and single, complete now
                 try tkn.replaceToken(only);
                 const newctkn = tkn.cursor_token() catch unreachable;
-                comp = try complete.complete(hsh, &newctkn);
+                comp = try complete.complete(hsh, &newctkn, flavor);
                 return .Prompt;
             }
             //for (comp.list.items) |c| std.debug.print("comp {}\n", .{c});

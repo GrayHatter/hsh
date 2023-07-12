@@ -2,6 +2,7 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const HSH = @import("hsh.zig").HSH;
+const fs = @import("fs.zig");
 const IterableDir = std.fs.IterableDir;
 const tokenizer = @import("tokenizer.zig");
 const Token = tokenizer.Token;
@@ -45,24 +46,26 @@ pub const FSKind = enum {
 };
 
 pub const Flavors = enum(u3) {
-    Unknown,
-    FileSystem,
-    Original, // Should remain last for error order semantics
+    any,
+    path_exe,
+    file_system,
+    original, // Should remain last for error order semantics
 };
 
 const flavors_len = @typeInfo(Flavors).Enum.fields.len;
 
 pub const Kind = union(Flavors) {
-    Unknown: void,
-    Original: bool,
-    FileSystem: FSKind,
+    any: void,
+    path_exe: void,
+    original: bool,
+    file_system: FSKind,
 };
 
 pub const CompOption = struct {
     full: []const u8,
     /// name is normally a simple subslice of full.
     name: []const u8,
-    kind: Kind = Kind{ .Unknown = {} },
+    kind: Kind = Kind{ .any = {} },
     pub fn format(self: CompOption, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
         if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
         try std.fmt.format(out, "CompOption{{{s}, {s}}}", .{ self.full, @tagName(self.kind) });
@@ -75,9 +78,9 @@ pub const CompOption = struct {
         };
 
         switch (self.kind) {
-            .FileSystem => |fs| {
-                lex.fg = fs.color();
-                if (fs == .Dir) {
+            .file_system => |f_s| {
+                lex.fg = f_s.color();
+                if (f_s == .Dir) {
                     lex.attr = if (active) .reverse_bold else .bold;
                 }
             },
@@ -107,7 +110,7 @@ pub const CompSet = struct {
     //orig_token: ?*const Token = null,
     kind: tokenizer.Kind = undefined,
     err: bool = false,
-    draw_cache: [flavors_len]?[]Draw.LexTree = .{ null, null, null },
+    draw_cache: [flavors_len]?[]Draw.LexTree = .{ null, null, null, null },
 
     fn count(self: *const CompSet) usize {
         var c: usize = 0;
@@ -130,7 +133,7 @@ pub const CompSet = struct {
 
     pub fn reset(self: *CompSet) void {
         self.index = 0;
-        self.group_index = @intFromEnum(Flavors.Original);
+        self.group_index = @intFromEnum(Flavors.original);
         self.group = &self.groups[self.group_index];
     }
 
@@ -270,7 +273,7 @@ fn completeDir(cwdi: IterableDir) !void {
             .full = full,
             .name = full,
             .kind = Kind{
-                .FileSystem = FSKind.fromFsKind(each.kind),
+                .file_system = FSKind.fromFsKind(each.kind),
             },
         });
     }
@@ -285,7 +288,7 @@ fn completeDirBase(cwdi: IterableDir, base: []const u8) !void {
             .full = full,
             .name = full,
             .kind = Kind{
-                .FileSystem = FSKind.fromFsKind(each.kind),
+                .file_system = FSKind.fromFsKind(each.kind),
             },
         });
     }
@@ -323,15 +326,52 @@ fn completePath(_: *HSH, target: []const u8) !void {
             .full = full,
             .name = name,
             .kind = Kind{
-                .FileSystem = FSKind.fromFsKind(each.kind),
+                .file_system = FSKind.fromFsKind(each.kind),
             },
         });
     }
 }
 
+fn completeSysPath(h: *HSH, target: []const u8) !void {
+    if (std.mem.indexOf(u8, target, "/")) |_| {
+        return completePath(h, target);
+    }
+
+    for (h.hfs.names.paths.items) |path| {
+        var dir = std.fs.openIterableDirAbsolute(path, .{}) catch return;
+        defer dir.close();
+        var itr = dir.iterate();
+        while (try itr.next()) |each| {
+            if (!std.mem.startsWith(u8, each.name, target)) continue;
+            if (each.name[0] == '.' and (target.len == 0 or target[0] != '.')) continue;
+            if (each.kind != .file) continue; // TODO probably a bug
+            const file = fs.openFileAt(dir.dir, each.name, false) orelse continue;
+            if (file.metadata()) |md| {
+                if (!md.permissions().inner.unixHas(
+                    std.fs.File.PermissionsUnix.Class.other,
+                    std.fs.File.PermissionsUnix.Permission.execute,
+                )) continue;
+            } else |err| {
+                log.err("{} unable to get metadata for file at path {s} name {s}\n", .{
+                    err,
+                    path,
+                    target,
+                });
+                return;
+            }
+
+            var full = try compset.alloc.dupe(u8, each.name);
+            try compset.push(CompOption{
+                .full = full,
+                .name = full,
+                .kind = Kind{ .path_exe = {} },
+            });
+        }
+    }
+}
 /// Caller owns nothing, memory is only guaranteed until `complete` is
 /// called again.
-pub fn complete(hsh: *HSH, t: *const Token) !*CompSet {
+pub fn complete(hsh: *HSH, t: *const Token, hint: Flavors) !*CompSet {
     compset.raze();
     compset.kind = t.kind;
     compset.index = 0;
@@ -340,19 +380,26 @@ pub fn complete(hsh: *HSH, t: *const Token) !*CompSet {
     try compset.push(CompOption{
         .full = full,
         .name = full,
-        .kind = Kind{ .Original = t.kind == .WhiteSpace },
+        .kind = Kind{ .original = t.kind == .WhiteSpace },
     });
-    switch (t.kind) {
-        .WhiteSpace => try completeDir(try std.fs.cwd().openIterableDir(".", .{})),
-        .String, .Path => {
-            if (std.mem.indexOfScalar(u8, t.cannon(), '/')) |_| {
-                try completePath(hsh, t.cannon());
-            } else {
-                try completeDirBase(try std.fs.cwd().openIterableDir(".", .{}), t.cannon());
+    switch (hint) {
+        .path_exe => {
+            try completeSysPath(hsh, t.cannon());
+        },
+        else => {
+            switch (t.kind) {
+                .WhiteSpace => try completeDir(try std.fs.cwd().openIterableDir(".", .{})),
+                .String, .Path => {
+                    if (std.mem.indexOfScalar(u8, t.cannon(), '/')) |_| {
+                        try completePath(hsh, t.cannon());
+                    } else {
+                        try completeDirBase(try std.fs.cwd().openIterableDir(".", .{}), t.cannon());
+                    }
+                },
+                .IoRedir => {},
+                else => {},
             }
         },
-        .IoRedir => {},
-        else => {},
     }
     compset.reset();
     return &compset;
@@ -363,6 +410,7 @@ pub fn init(hsh: *HSH) !*CompSet {
         .alloc = hsh.alloc,
         .group = undefined,
         .groups = .{
+            CompList.init(hsh.alloc),
             CompList.init(hsh.alloc),
             CompList.init(hsh.alloc),
             CompList.init(hsh.alloc),
