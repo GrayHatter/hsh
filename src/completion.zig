@@ -14,8 +14,6 @@ const Self = @This();
 
 pub const CompList = ArrayList(CompOption);
 
-var compset: CompSet = undefined;
-
 pub const FSKind = enum {
     File,
     Dir,
@@ -265,11 +263,11 @@ pub const CompSet = struct {
     }
 };
 
-fn completeDir(cwdi: IterableDir) !void {
+fn completeDir(cs: *CompSet, cwdi: IterableDir) !void {
     var itr = cwdi.iterate();
     while (try itr.next()) |each| {
-        const full = try compset.alloc.dupe(u8, each.name);
-        try compset.push(CompOption{
+        const full = try cs.alloc.dupe(u8, each.name);
+        try cs.push(CompOption{
             .full = full,
             .name = full,
             .kind = Kind{
@@ -279,12 +277,12 @@ fn completeDir(cwdi: IterableDir) !void {
     }
 }
 
-fn completeDirBase(cwdi: IterableDir, base: []const u8) !void {
+fn completeDirBase(cs: *CompSet, cwdi: IterableDir, base: []const u8) !void {
     var itr = cwdi.iterate();
     while (try itr.next()) |each| {
         if (!std.mem.startsWith(u8, each.name, base)) continue;
-        var full = try compset.alloc.dupe(u8, each.name);
-        try compset.push(CompOption{
+        var full = try cs.alloc.dupe(u8, each.name);
+        try cs.push(CompOption{
             .full = full,
             .name = full,
             .kind = Kind{
@@ -294,7 +292,7 @@ fn completeDirBase(cwdi: IterableDir, base: []const u8) !void {
     }
 }
 
-fn completePath(_: *HSH, target: []const u8) !void {
+fn completePath(cs: *CompSet, _: *HSH, target: []const u8) !void {
     if (target.len < 1) return;
 
     var whole = std.mem.splitBackwards(u8, target, "/");
@@ -317,12 +315,12 @@ fn completePath(_: *HSH, target: []const u8) !void {
         if (!std.mem.startsWith(u8, each.name, base)) continue;
         if (each.name[0] == '.' and (base.len == 0 or base[0] != '.')) continue;
 
-        var full = try compset.alloc.alloc(u8, path.len + each.name.len + 1);
+        var full = try cs.alloc.alloc(u8, path.len + each.name.len + 1);
         var name = full[path.len + 1 ..];
         @memcpy(full[0..path.len], path);
         full[path.len] = '/';
         @memcpy(name, each.name);
-        try compset.push(CompOption{
+        try cs.push(CompOption{
             .full = full,
             .name = name,
             .kind = Kind{
@@ -332,9 +330,9 @@ fn completePath(_: *HSH, target: []const u8) !void {
     }
 }
 
-fn completeSysPath(h: *HSH, target: []const u8) !void {
+fn completeSysPath(cs: *CompSet, h: *HSH, target: []const u8) !void {
     if (std.mem.indexOf(u8, target, "/")) |_| {
-        return completePath(h, target);
+        return completePath(cs, h, target);
     }
 
     for (h.hfs.names.paths.items) |path| {
@@ -360,8 +358,8 @@ fn completeSysPath(h: *HSH, target: []const u8) !void {
                 return;
             }
 
-            var full = try compset.alloc.dupe(u8, each.name);
-            try compset.push(CompOption{
+            var full = try cs.alloc.dupe(u8, each.name);
+            try cs.push(CompOption{
                 .full = full,
                 .name = full,
                 .kind = Kind{ .path_exe = {} },
@@ -371,29 +369,29 @@ fn completeSysPath(h: *HSH, target: []const u8) !void {
 }
 /// Caller owns nothing, memory is only guaranteed until `complete` is
 /// called again.
-pub fn complete(hsh: *HSH, t: *const Token, hint: Flavors) !*CompSet {
-    compset.raze();
-    compset.kind = t.kind;
-    compset.index = 0;
+pub fn complete(cs: *CompSet, hsh: *HSH, t: *const Token, hint: Flavors) !void {
+    cs.raze();
+    cs.kind = t.kind;
+    cs.index = 0;
 
-    const full = try compset.alloc.dupe(u8, t.cannon());
-    try compset.push(CompOption{
+    const full = try cs.alloc.dupe(u8, t.cannon());
+    try cs.push(CompOption{
         .full = full,
         .name = full,
         .kind = Kind{ .original = t.kind == .WhiteSpace },
     });
     switch (hint) {
         .path_exe => {
-            try completeSysPath(hsh, t.cannon());
+            try completeSysPath(cs, hsh, t.cannon());
         },
         else => {
             switch (t.kind) {
-                .WhiteSpace => try completeDir(try std.fs.cwd().openIterableDir(".", .{})),
+                .WhiteSpace => try completeDir(cs, try std.fs.cwd().openIterableDir(".", .{})),
                 .String, .Path => {
                     if (std.mem.indexOfScalar(u8, t.cannon(), '/')) |_| {
-                        try completePath(hsh, t.cannon());
+                        try completePath(cs, hsh, t.cannon());
                     } else {
-                        try completeDirBase(try std.fs.cwd().openIterableDir(".", .{}), t.cannon());
+                        try completeDirBase(cs, try std.fs.cwd().openIterableDir(".", .{}), t.cannon());
                     }
                 },
                 .IoRedir => {},
@@ -401,12 +399,12 @@ pub fn complete(hsh: *HSH, t: *const Token, hint: Flavors) !*CompSet {
             }
         },
     }
-    compset.reset();
-    return &compset;
+    cs.reset();
+    return;
 }
 
-pub fn init(hsh: *HSH) !*CompSet {
-    compset = CompSet{
+pub fn init(hsh: *HSH) !CompSet {
+    var compset = CompSet{
         .alloc = hsh.alloc,
         .group = undefined,
         .groups = .{
@@ -417,5 +415,5 @@ pub fn init(hsh: *HSH) !*CompSet {
         },
     };
     compset.group = &compset.groups[0];
-    return &compset;
+    return compset;
 }
