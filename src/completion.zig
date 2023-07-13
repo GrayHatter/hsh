@@ -69,23 +69,27 @@ pub const CompOption = struct {
         try std.fmt.format(out, "CompOption{{{s}, {s}}}", .{ self.full, @tagName(self.kind) });
     }
 
-    pub fn lexeme(self: CompOption, active: bool) Draw.Lexeme {
-        var lex = Draw.Lexeme{
-            .char = self.name,
+    pub fn style(self: CompOption, active: bool) Draw.Style {
+        var s = Draw.Style{
             .attr = if (active) .reverse else .reset,
         };
-
         switch (self.kind) {
             .file_system => |f_s| {
-                lex.fg = f_s.color();
+                s.fg = f_s.color();
                 if (f_s == .Dir) {
-                    lex.attr = if (active) .reverse_bold else .bold;
+                    s.attr = if (active) .reverse_bold else .bold;
                 }
             },
             else => {},
         }
+        return s;
+    }
 
-        return lex;
+    pub fn lexeme(self: CompOption, active: bool) Draw.Lexeme {
+        return Draw.Lexeme{
+            .char = self.name,
+            .style = self.style(active),
+        };
     }
 };
 
@@ -188,10 +192,22 @@ pub const CompSet = struct {
 
             for (dc.*, 0..) |tree, row| {
                 if (row == last_row) {
-                    tree.siblings[last_col].attr = .reset;
+                    tree.siblings[last_col].style.attr = switch (tree.siblings[last_col].style.attr.?) {
+                        .reset => .reverse,
+                        .reverse => .reset,
+                        .reverse_bold => .bold,
+                        .bold => .reverse_bold,
+                        else => .reset,
+                    };
                 }
                 if (current_group and row == this_row) {
-                    tree.siblings[this_col].attr = .reverse;
+                    tree.siblings[this_col].style.attr = switch (tree.siblings[this_col].style.attr.?) {
+                        .reset => .reverse,
+                        .reverse => .reset,
+                        .reverse_bold => .bold,
+                        .bold => .reverse_bold,
+                        else => .reset,
+                    };
                 }
                 try Draw.drawAfter(d, tree);
             }
@@ -213,7 +229,7 @@ pub const CompSet = struct {
                 var fbuf: [128]u8 = undefined;
                 const str = try std.fmt.bufPrint(&fbuf, ERRSTR, .{self.count()});
                 try Draw.drawAfter(d, Draw.LexTree{
-                    .lex = Draw.Lexeme{ .char = str, .attr = .bold, .fg = .red },
+                    .lex = Draw.Lexeme{ .char = str, .style = .{ .attr = .bold, .fg = .red } },
                 });
                 self.err = true;
                 return err;
@@ -226,7 +242,7 @@ pub const CompSet = struct {
             var fbuf: [128]u8 = undefined;
             const str = try std.fmt.bufPrint(&fbuf, ERRSTR, .{self.count()});
             try Draw.drawAfter(d, Draw.LexTree{
-                .lex = Draw.Lexeme{ .char = str, .attr = .bold, .fg = .red },
+                .lex = Draw.Lexeme{ .char = str, .style = .{ .attr = .bold, .fg = .red } },
             });
             return;
         }

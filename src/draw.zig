@@ -51,11 +51,15 @@ pub const Color = enum {
     green,
 };
 
-pub const Lexeme = struct {
-    char: []const u8,
+pub const Style = struct {
     attr: ?Attr = null,
     fg: ?Color = null,
     bg: ?Color = null,
+};
+
+pub const Lexeme = struct {
+    char: []const u8,
+    style: Style = .{},
 };
 
 const LexSibling = []Lexeme;
@@ -176,9 +180,9 @@ fn drawLexeme(buf: *DrawBuf, x: usize, y: usize, l: Lexeme) Err!void {
     _ = x;
     _ = y;
     if (colorize) {
-        try setAttr(buf, l.attr);
-        try fgColor(buf, l.fg);
-        try bgColor(buf, l.bg);
+        try setAttr(buf, l.style.attr);
+        try fgColor(buf, l.style.fg);
+        try bgColor(buf, l.style.bg);
     }
     buf.appendSlice(l.char) catch return Err.Memory;
     if (colorize) {

@@ -42,7 +42,7 @@ fn userTextMultiline(hsh: *HSH, tkn: *Tokenizer) !void {
     try draw(&hsh.draw, LexTree{
         .siblings = @constCast(&[_]Lexeme{
             .{ .char = good },
-            .{ .char = bad, .bg = .red },
+            .{ .char = bad, .style = .{ .bg = .red } },
         }),
     });
 }
@@ -56,7 +56,7 @@ fn userText(hsh: *HSH, tkn: *Tokenizer) !void {
     try draw(&hsh.draw, LexTree{
         .siblings = @constCast(&[_]Lexeme{
             .{ .char = good },
-            .{ .char = bad, .bg = .red },
+            .{ .char = bad, .style = .{ .bg = .red } },
         }),
     });
 }
@@ -66,8 +66,10 @@ pub fn prompt(hsh: *HSH, tkn: *Tokenizer) !void {
         .siblings = @constCast(&[_]Lexeme{
             .{
                 .char = hsh.env.get("USER") orelse "[username unknown]",
-                .attr = .bold,
-                .fg = .blue,
+                .style = .{
+                    .attr = .bold,
+                    .fg = .blue,
+                },
             },
             .{ .char = "@" },
             .{ .char = "host " },
