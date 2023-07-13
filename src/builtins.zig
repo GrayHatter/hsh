@@ -206,9 +206,18 @@ test "builtins alias" {
 }
 
 //DEBUGGING BUILTINS
-fn tty(hsh: *HSH, _: *ParsedIterator) Err!u8 {
+fn tty(hsh: *HSH, pi: *ParsedIterator) Err!u8 {
+    std.debug.assert(std.mem.eql(u8, "tty", pi.first().cannon()));
+
     for (hsh.tty.attrs.items) |i| {
         std.debug.print("attr {any}\n", .{i});
     }
+
+    if (pi.next()) |next| {
+        if (std.mem.eql(u8, "pop", next.cannon())) {
+            _ = hsh.tty.popTTY() catch return Err.Unknown;
+        }
+    }
+
     return 0;
 }
