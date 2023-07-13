@@ -110,55 +110,70 @@ fn sum(cs: []u16) u32 {
     return total;
 }
 
-pub fn tableLexeme(a: Allocator, items: []Lexeme, wh: Cord) Error![]LexTree {
-    const largest = maxWidthLexem(items);
-    if (largest > wh.x) return Error.ViewportFit;
-    var cols_w: []u16 = a.alloc(u16, 0) catch return Error.Memory;
-    defer a.free(cols_w);
+pub fn tableSize(a: Allocator, items: []Lexeme, wh: Cord) Error![]u16 {
+    var colsize: []u16 = a.alloc(u16, 0) catch return Error.Memory;
+    errdefer a.free(colsize);
 
     var cols = items.len;
     var rows: u32 = 0;
 
     first: while (true) : (cols -= 1) {
-        if (countLexems(items[0..cols]) > wh.x) continue;
         if (cols == 0) return Error.LayoutUnable;
+        if (countLexems(items[0..cols]) > wh.x) continue;
 
-        cols_w = a.realloc(cols_w, cols) catch return Error.Memory;
-        @memset(cols_w, 0);
-        const remainder: u32 = if (items.len % cols > 0) 1 else 0;
-        rows = @as(u32, @truncate(items.len / cols)) + remainder;
+        colsize = a.realloc(colsize, cols) catch return Error.Memory;
+        @memset(colsize, 0);
+        rows = @as(u32, @truncate(items.len / cols));
+        if (items.len % cols > 0) rows += 1;
         if (rows >= wh.y) return Error.ItemCount;
 
         for (0..rows) |row| {
             const current = items[row * cols .. @min((row + 1) * cols, items.len)];
-            if (countLexems(current) > wh.x) {
-                //continue :first;
-            }
             for (0..cols) |c| {
                 if (row * cols + c >= items.len) break;
-                cols_w[c] = @max(cols_w[c], countPrintable(current[c].char) + 2);
+                colsize[c] = @max(colsize[c], countPrintable(current[c].char) + 2);
                 // padding of 2 feels more comfortable
             }
-            if (sum(cols_w) > wh.x) continue :first;
+            if (sum(colsize) > wh.x) continue :first;
         }
         break;
     }
+    return colsize;
+}
+
+pub fn table(a: Allocator, items: anytype, wh: Cord) Error![]LexTree {
+    const T = @TypeOf(items);
+    const func = comptime switch (T) {
+        []Lexeme => tableLexeme,
+        *[][]const u8 => tableChar,
+        *const [12][]const u8 => tableChar,
+        else => unreachable,
+    };
+    return func(a, items, wh);
+}
+
+fn tableLexeme(a: Allocator, items: []Lexeme, wh: Cord) Error![]LexTree {
+    const largest = maxWidthLexem(items);
+    if (largest > wh.x) return Error.ViewportFit;
+
+    const colsz = try tableSize(a, items, wh);
+    defer a.free(colsz);
+    var rows = (items.len / colsz.len);
+    if (items.len % colsz.len > 0) rows += 1;
 
     var trees = a.alloc(LexTree, rows) catch return Error.Memory;
-    // errdefer
 
     for (0..rows) |row| {
         trees[row] = LexTree{
-            .siblings = items[row * cols .. @min((row + 1) * cols, items.len)],
+            .siblings = items[row * colsz.len .. @min((row + 1) * colsz.len, items.len)],
         };
-        for (0..cols) |c| {
-            const rowcol = row * cols + c;
+        for (0..colsz.len) |c| {
+            const rowcol = row * colsz.len + c;
             if (rowcol >= items.len) break;
             const old = items[rowcol].char;
-            trees[row].siblings[c].char = dupePadded(a, old, cols_w[c]) catch return Error.Memory;
+            trees[row].siblings[c].char = dupePadded(a, old, colsz[c]) catch return Error.Memory;
         }
     }
-
     return trees;
 }
 
@@ -167,7 +182,7 @@ pub fn tableLexeme(a: Allocator, items: []Lexeme, wh: Cord) Error![]LexTree {
 /// LexTree.siblings.Lexem,
 /// LexTree.siblings.Lexem[..].char must all be free'd
 /// items are not reordered
-pub fn table(a: Allocator, items: []const []const u8, wh: Cord) Error![]LexTree {
+fn tableChar(a: Allocator, items: []const []const u8, wh: Cord) Error![]LexTree {
     var lexes = a.alloc(Lexeme, items.len) catch return Error.Memory;
     errdefer a.free(lexes);
 

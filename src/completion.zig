@@ -221,7 +221,7 @@ pub const CompSet = struct {
             list.append(lex) catch break;
         }
         var items = try list.toOwnedSlice();
-        if (Draw.Layout.tableLexeme(self.alloc, items, wh)) |trees| {
+        if (Draw.Layout.table(self.alloc, items, wh)) |trees| {
             self.draw_cache[g_int] = trees;
             for (trees) |tree| try Draw.drawAfter(d, tree);
         } else |err| {
