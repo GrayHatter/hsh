@@ -70,19 +70,20 @@ pub const CompOption = struct {
     }
 
     pub fn style(self: CompOption, active: bool) Draw.Style {
-        var s = Draw.Style{
-            .attr = if (active) .reverse else .reset,
-        };
         switch (self.kind) {
             .file_system => |f_s| {
-                s.fg = f_s.color();
-                if (f_s == .Dir) {
-                    s.attr = if (active) .reverse_bold else .bold;
+                switch (f_s) {
+                    .Dir => return .{
+                        .attr = if (active) .reverse_bold else .bold,
+                        .fg = f_s.color(),
+                    },
+                    else => return .{ .fg = f_s.color() },
                 }
             },
-            else => {},
+            else => return .{
+                .attr = if (active) .reverse else .reset,
+            },
         }
-        return s;
     }
 
     pub fn lexeme(self: CompOption, active: bool) Draw.Lexeme {
