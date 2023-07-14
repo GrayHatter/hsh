@@ -14,6 +14,10 @@ const Self = @This();
 
 pub const CompList = ArrayList(CompOption);
 
+const Error = error{
+    search_empty,
+};
+
 pub const FSKind = enum {
     File,
     Dir,
@@ -94,6 +98,50 @@ pub const CompOption = struct {
     }
 };
 
+fn searchMatch(items: []const u8, search: []const u8) bool {
+    var offset: usize = 0;
+    for (search) |s| {
+        if (offset >= items.len) break;
+        if (std.mem.indexOfScalar(u8, items[offset..], s)) |i| {
+            offset += i;
+            continue;
+        } else {
+            return false;
+        }
+    }
+    return offset < items.len;
+}
+
+fn styleToggle(lex: *Draw.Lexeme) void {
+    lex.style.attr = switch (lex.style.attr.?) {
+        .reset => .reverse,
+        .reverse => .reset,
+        .reverse_bold => .bold,
+        .bold => .reverse_bold,
+        .dim => .reverse_dim,
+        .reverse_dim => .dim,
+        else => .reset,
+    };
+}
+
+fn styleActive(lex: *Draw.Lexeme) void {
+    lex.style.attr = switch (lex.style.attr.?) {
+        .reset => .reverse,
+        .bold => .reverse_bold,
+        .dim => .reverse_dim,
+        else => .reset,
+    };
+}
+
+fn styleInactive(lex: *Draw.Lexeme) void {
+    lex.style.attr = switch (lex.style.attr.?) {
+        .reverse => .reset,
+        .reverse_bold => .bold,
+        .reverse_dim => .dim,
+        else => .reset,
+    };
+}
+
 /// For when groups gets dynamic alloc
 //pub const Group = struct {
 //    flavor: Flavors,
@@ -108,6 +156,7 @@ pub const CompSet = struct {
     group: *CompList,
     group_index: usize = 0,
     index: usize = 0,
+    search: ArrayList(u8),
     // actually using most of orig_token is much danger, such UB
     // the pointers contained within are likely already invalid!
     //orig_token: ?*const Token = null,
@@ -148,8 +197,16 @@ pub const CompSet = struct {
     pub fn next(self: *CompSet) *const CompOption {
         std.debug.assert(self.count() > 0);
         if (self.err) self.reset();
+
+        var maybe = &self.group.items[self.index];
+        if (self.search.items.len > 0) {
+            while (!searchMatch(maybe.name, self.search.items)) {
+                self.skip();
+                maybe = @constCast(self.next());
+            }
+        }
         defer self.skip();
-        return &self.group.items[self.index];
+        return maybe;
     }
 
     pub fn skip(self: *CompSet) void {
@@ -192,23 +249,19 @@ pub const CompSet = struct {
             }
 
             for (dc.*, 0..) |tree, row| {
+                for (tree.siblings) |*sib| {
+                    if (!searchMatch(sib.char, self.search.items)) {
+                        sib.style.attr = .dim;
+                    } else {
+                        sib.style.attr = .reset;
+                    }
+                }
+
                 if (row == last_row) {
-                    tree.siblings[last_col].style.attr = switch (tree.siblings[last_col].style.attr.?) {
-                        .reset => .reverse,
-                        .reverse => .reset,
-                        .reverse_bold => .bold,
-                        .bold => .reverse_bold,
-                        else => .reset,
-                    };
+                    styleToggle(&tree.siblings[last_col]);
                 }
                 if (current_group and row == this_row) {
-                    tree.siblings[this_col].style.attr = switch (tree.siblings[this_col].style.attr.?) {
-                        .reset => .reverse,
-                        .reverse => .reset,
-                        .reverse_bold => .bold,
-                        .bold => .reverse_bold,
-                        else => .reset,
-                    };
+                    styleToggle(&tree.siblings[this_col]);
                 }
                 try Draw.drawAfter(d, tree);
             }
@@ -254,6 +307,17 @@ pub const CompSet = struct {
         }
     }
 
+    pub fn searchChar(self: *CompSet, char: u8) !void {
+        try self.search.append(char);
+    }
+
+    pub fn searchPop(self: *CompSet) !void {
+        if (self.search.items.len == 0) {
+            return Error.search_empty;
+        }
+        _ = self.search.pop();
+    }
+
     pub fn raze(self: *CompSet) void {
         for (&self.groups) |*group| {
             for (group.items) |opt| {
@@ -277,6 +341,7 @@ pub const CompSet = struct {
             }
         }
         self.err = false;
+        self.search.clearAndFree();
     }
 };
 
@@ -430,6 +495,7 @@ pub fn init(hsh: *HSH) !CompSet {
             CompList.init(hsh.alloc),
             CompList.init(hsh.alloc),
         },
+        .search = ArrayList(u8).init(hsh.alloc),
     };
     compset.group = &compset.groups[0];
     return compset;
