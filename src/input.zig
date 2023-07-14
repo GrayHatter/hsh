@@ -59,17 +59,15 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet, mode: *Mode) 
     var target: *const complete.CompOption = undefined;
     if (mode.* == .typing) {
         try complete.complete(comp, hsh, &ctkn, flavor);
-        mode.* = .completing;
-    }
-    //else {
-    //}
 
-    if (comp.known()) |only| {
-        // original and single, complete now
-        try tkn.replaceToken(only);
-        const newctkn = tkn.cursor_token() catch unreachable;
-        try complete.complete(comp, hsh, &newctkn, flavor);
-        return .Prompt;
+        if (comp.known()) |only| {
+            // original and single, complete now
+            try tkn.replaceToken(only);
+            const newctkn = tkn.cursor_token() catch unreachable;
+            try complete.complete(comp, hsh, &newctkn, flavor);
+            return .Prompt;
+        }
+        mode.* = .completing;
     }
 
     comp.drawAll(&hsh.draw, hsh.draw.term_size) catch |err| {
@@ -89,8 +87,21 @@ pub fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *complet
 
     if (mode.* == .completing) {
         switch (buffer) {
-            '\x1B' => mode.* = .typing,
-            '\x20'...'\x7E' => return .Redraw,
+            '\x1B' => {
+                mode.* = .typing;
+            },
+            '\x7f' => {
+                comp.searchPop() catch {
+                    mode.* = .typing;
+                    return .Redraw;
+                };
+                return doComplete(hsh, tkn, comp, mode);
+            },
+            '\x30'...'\x7E' => |c| {
+                try comp.searchChar(c);
+                return doComplete(hsh, tkn, comp, mode);
+            },
+            '\x09' => return doComplete(hsh, tkn, comp, mode),
             else => {},
         }
     }

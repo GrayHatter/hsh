@@ -38,6 +38,7 @@ pub const Attr = enum {
     underline,
     reverse,
     reverse_bold, // Not in standard
+    reverse_dim,
     strikeout,
 };
 
@@ -148,8 +149,10 @@ fn setAttr(buf: *DrawBuf, attr: ?Attr) Err!void {
     if (attr) |a| {
         switch (a) {
             .bold => buf.appendSlice("\x1B[1m") catch return Err.Memory,
+            .dim => buf.appendSlice("\x1B[2m") catch return Err.Memory,
             .reverse => buf.appendSlice("\x1B[7m") catch return Err.Memory,
             .reverse_bold => buf.appendSlice("\x1B[1m\x1B[7m") catch return Err.Memory,
+            .reverse_dim => buf.appendSlice("\x1B[2m\x1B[7m") catch return Err.Memory,
             else => buf.appendSlice("\x1B[0m") catch return Err.Memory,
         }
     }
