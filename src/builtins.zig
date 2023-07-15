@@ -49,6 +49,10 @@ pub const Builtins = enum {
     tty,
 };
 
+pub const BuiltinOptionals = enum {
+    status,
+};
+
 pub fn builtinToName(comptime bi: Builtins) []const u8 {
     return @tagName(bi);
 }
@@ -70,18 +74,34 @@ pub fn exec(self: Builtins) BuiltinFn {
         .tty => tty,
     };
 }
+pub fn execOpt(self: BuiltinOptionals) BuiltinFn {
+    return switch (self) {
+        .status => status,
+    };
+}
 
-/// Caller must ensure this builtin exists.
+/// Caller must ensure this builtin exists by calling exists, or optionalExists
 pub fn strExec(str: []const u8) BuiltinFn {
     inline for (@typeInfo(Builtins).Enum.fields[0..]) |f| {
         if (std.mem.eql(u8, f.name, str)) return exec(@enumFromInt(f.value));
     }
-    std.debug.print("strExec panic on {s}\n", .{str});
+    inline for (@typeInfo(BuiltinOptionals).Enum.fields[0..]) |f| {
+        if (std.mem.eql(u8, f.name, str)) return execOpt(@enumFromInt(f.value));
+    }
+    log.err("strExec panic on {s}\n", .{str});
     unreachable;
 }
 
 pub fn exists(str: []const u8) bool {
     inline for (@typeInfo(Builtins).Enum.fields[0..]) |f| {
+        if (std.mem.eql(u8, f.name, str)) return true;
+    }
+    return false;
+}
+
+/// Optional builtins "exist" only if they don't already exist on the system.
+pub fn optionalExists(str: []const u8) bool {
+    inline for (@typeInfo(BuiltinOptionals).Enum.fields[0..]) |f| {
         if (std.mem.eql(u8, f.name, str)) return true;
     }
     return false;
@@ -219,5 +239,10 @@ fn tty(hsh: *HSH, pi: *ParsedIterator) Err!u8 {
         }
     }
 
+    return 0;
+}
+
+fn status(_: *HSH, _: *ParsedIterator) Err!u8 {
+    print("status not yet implemented\n", .{}) catch return Err.Unknown;
     return 0;
 }

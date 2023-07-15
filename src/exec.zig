@@ -71,7 +71,7 @@ pub fn executable(h: *HSH, str: []const u8) bool {
     paths = h.hfs.names.paths.items;
     var plsfree = makeAbsExecutable(h.alloc, str) catch return false;
     h.alloc.free(plsfree);
-    return true;
+    return bi.optionalExists(str);
 }
 
 fn validPath(path: []const u8) bool {
