@@ -70,12 +70,11 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet, mode: *Mode) 
         mode.* = .completing;
     }
 
+    target = comp.next();
     comp.drawAll(&hsh.draw, hsh.draw.term_size) catch |err| {
         if (err == Draw.Layout.Error.ItemCount) return .Prompt else return err;
     };
 
-    //for (comp.list.items) |c| std.debug.print("comp {}\n", .{c});
-    target = comp.next();
     try tkn.replaceToken(target);
     return .Redraw;
 }
@@ -102,6 +101,10 @@ pub fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *complet
                 return doComplete(hsh, tkn, comp, mode);
             },
             '\x09' => return doComplete(hsh, tkn, comp, mode),
+            '\n' => {
+                mode.* = .typing;
+                return .Redraw;
+            },
             else => {},
         }
     }
@@ -117,14 +120,13 @@ pub fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *complet
                         .Up => {
                             var hist = &(hsh.hist orelse return .None);
                             if (hist.cnt == 0) {
-                                if (tkn.prev_exec) |pe| {
-                                    if (tkn.raw.items.len > 0) tkn.saveLine();
+                                if (tkn.raw.items.len > 0) {
+                                    tkn.saveLine();
+                                } else if (tkn.prev_exec) |pe| {
                                     tkn.raw = pe;
                                     tkn.prev_exec = null;
                                     tkn.c_idx = tkn.raw.items.len;
                                     return .Redraw;
-                                } else if (tkn.user_data) {
-                                    tkn.saveLine();
                                 }
                             }
                             tkn.resetRaw();

@@ -125,21 +125,26 @@ fn styleToggle(lex: *Draw.Lexeme) void {
 }
 
 fn styleActive(lex: *Draw.Lexeme) void {
-    lex.style.attr = switch (lex.style.attr.?) {
-        .reset => .reverse,
-        .bold => .reverse_bold,
-        .dim => .reverse_dim,
-        else => .reset,
-    };
+    if (lex.style.attr) |*attr| {
+        attr.* = switch (attr.*) {
+            .reset => .reverse,
+            .bold => .reverse_bold,
+            .dim => .reverse,
+            else => .reset,
+        };
+    }
 }
 
 fn styleInactive(lex: *Draw.Lexeme) void {
-    lex.style.attr = switch (lex.style.attr.?) {
-        .reverse => .reset,
-        .reverse_bold => .bold,
-        .reverse_dim => .dim,
-        else => .reset,
-    };
+    if (lex.style.attr) |*attr| {
+        attr.* = switch (attr.*) {
+            .reverse => .reset,
+            .reverse_bold => .bold,
+            .reverse_dim => .dim,
+            .dim => if (lex.style.fg != null) .bold else .reset, // TODO fixme
+            else => attr.*,
+        };
+    }
 }
 
 /// For when groups gets dynamic alloc
@@ -199,23 +204,19 @@ pub const CompSet = struct {
         if (self.err) self.reset();
 
         var maybe = &self.group.items[self.index];
+        defer self.skip();
         if (self.search.items.len > 0) {
             while (!searchMatch(maybe.name, self.search.items)) {
                 self.skip();
-                maybe = @constCast(self.next());
+                maybe = &self.group.items[self.index];
             }
         }
-        defer self.skip();
         return maybe;
     }
 
     pub fn skip(self: *CompSet) void {
         std.debug.assert(self.count() > 0);
         self.index += 1;
-        if (self.group.items.len > self.index) {
-            return;
-        }
-
         while (self.index >= self.group.items.len) {
             self.index = 0;
             self.group_index = (self.group_index + 1) % self.groups.len;
@@ -238,32 +239,26 @@ pub const CompSet = struct {
 
         if (self.draw_cache[g_int]) |*dc| {
             const mod: usize = dc.*[0].siblings.len;
-            var last_row = (self.index -% 1) / mod;
-            var last_col = (self.index -% 1) % mod;
-            const this_row = (self.index) / mod;
-            const this_col = (self.index) % mod;
-
-            if (!current_group and self.index == 0) {
-                last_row = (group.items.len - 1) / mod;
-                last_col = (group.items.len - 1) % mod;
-            }
+            var index = if (self.index == 0) 0 else self.index - 1;
+            const this_row = (index) / mod;
+            const this_col = (index) % mod;
 
             for (dc.*, 0..) |tree, row| {
+                var plz_draw = false;
                 for (tree.siblings) |*sib| {
                     if (!searchMatch(sib.char, self.search.items)) {
                         sib.style.attr = .dim;
                     } else {
-                        sib.style.attr = .reset;
+                        styleInactive(sib);
+                        plz_draw = true;
                     }
                 }
 
-                if (row == last_row) {
-                    styleToggle(&tree.siblings[last_col]);
-                }
                 if (current_group and row == this_row) {
-                    styleToggle(&tree.siblings[this_col]);
+                    styleActive(&tree.siblings[this_col]);
                 }
-                try Draw.drawAfter(d, tree);
+
+                if (plz_draw) try Draw.drawAfter(d, tree);
             }
             return;
         }
