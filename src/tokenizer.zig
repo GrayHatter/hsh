@@ -1,10 +1,11 @@
+const std = @import("std");
+const log = @import("log");
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const File = std.fs.File;
 const Reader = io.Reader(File, File.ReadError, File.read);
 const io = std.io;
 const mem = std.mem;
-const std = @import("std");
 const CompOption = @import("completion.zig").CompOption;
 
 const BREAKING_TOKENS = " \t\"'`${|><#;";
@@ -239,11 +240,12 @@ pub const CursorMotion = enum(u8) {
 pub const Tokenizer = struct {
     alloc: Allocator,
     raw: ArrayList(u8),
-    prev_raw: ?ArrayList(u8) = null,
+    prev_exec: ?ArrayList(u8) = null,
     hist_z: ?ArrayList(u8) = null,
     c_idx: usize = 0,
     c_tkn: usize = 0, // cursor is over this token
     err_idx: usize = 0,
+    user_data: bool = false,
 
     pub fn init(a: Allocator) Tokenizer {
         return Tokenizer{
@@ -625,27 +627,30 @@ pub const Tokenizer = struct {
         self.err_idx = @min(self.c_idx, self.err_idx);
     }
 
+    pub fn consumes(self: *Tokenizer, str: []const u8) Error!void {
+        for (str) |s| try self.consumec(s);
+    }
+
     pub fn consumec(self: *Tokenizer, c: u8) Error!void {
         self.raw.insert(self.c_idx, @bitCast(c)) catch return Error.Unknown;
         self.c_idx += 1;
+        self.user_data = true;
     }
 
-    pub fn pushLine(self: *Tokenizer) void {
+    pub fn saveLine(self: *Tokenizer) void {
         self.resetHist();
         self.hist_z = self.raw;
         self.raw = ArrayList(u8).init(self.alloc);
+        self.user_data = false;
     }
 
-    pub fn pushHist(self: *Tokenizer) void {
-        self.c_idx = self.raw.items.len;
-    }
-
-    pub fn popLine(self: *Tokenizer) void {
+    pub fn restoreLine(self: *Tokenizer) void {
         self.resetRaw();
         if (self.hist_z) |h| {
             self.raw = h;
             self.hist_z = null;
         }
+        self.user_data = true;
         self.c_idx = self.raw.items.len;
     }
 
@@ -664,22 +669,19 @@ pub const Tokenizer = struct {
         self.c_idx = 0;
         self.err_idx = 0;
         self.c_tkn = 0;
+        self.user_data = false;
     }
 
     /// Doesn't exec, called to save previous "local" command
     pub fn exec(self: *Tokenizer) void {
-        if (self.prev_raw) |*pr| pr.clearAndFree();
-        self.prev_raw = self.raw;
+        if (self.prev_exec) |*pr| pr.clearAndFree();
+        self.prev_exec = self.raw;
         self.raw = ArrayList(u8).init(self.alloc);
         self.resetRaw();
     }
 
     pub fn raze(self: *Tokenizer) void {
         self.reset();
-    }
-
-    pub fn consumes(self: *Tokenizer, str: []const u8) Error!void {
-        for (str) |s| try self.consumec(s);
     }
 };
 

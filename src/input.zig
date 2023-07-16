@@ -116,15 +116,25 @@ pub fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *complet
                     switch (a) {
                         .Up => {
                             var hist = &(hsh.hist orelse return .None);
-                            if (hist.cnt == 0) tkn.pushLine();
+                            if (hist.cnt == 0) {
+                                if (tkn.prev_exec) |pe| {
+                                    if (tkn.raw.items.len > 0) tkn.saveLine();
+                                    tkn.raw = pe;
+                                    tkn.prev_exec = null;
+                                    tkn.c_idx = tkn.raw.items.len;
+                                    return .Redraw;
+                                } else if (tkn.user_data) {
+                                    tkn.saveLine();
+                                }
+                            }
                             tkn.resetRaw();
                             hist.cnt += 1;
                             if (tkn.hist_z) |hz| {
                                 _ = hist.readAtFiltered(&tkn.raw, hz.items) catch unreachable;
                             } else {
-                                _ = hist.readAtFiltered(&tkn.raw, tkn.raw.items) catch unreachable;
+                                _ = hist.readAt(&tkn.raw) catch unreachable;
                             }
-                            tkn.pushHist();
+                            tkn.c_idx = tkn.raw.items.len;
                         },
                         .Down => {
                             var hist = &(hsh.hist orelse return .None);
@@ -134,13 +144,15 @@ pub fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *complet
                                 if (tkn.hist_z) |hz| {
                                     _ = hist.readAtFiltered(&tkn.raw, hz.items) catch unreachable;
                                 } else {
-                                    _ = hist.readAtFiltered(&tkn.raw, tkn.raw.items) catch unreachable;
+                                    _ = hist.readAt(&tkn.raw) catch unreachable;
                                 }
-                                tkn.pushHist();
+                                tkn.c_idx = tkn.raw.items.len;
                             } else if (hist.cnt == 1) {
                                 hist.cnt -= 1;
-                                tkn.popLine();
-                            } else {}
+                                tkn.restoreLine();
+                            } else {
+                                tkn.restoreLine();
+                            }
                         },
                         .Left => tkn.cPos(.dec),
                         .Right => tkn.cPos(.inc),
