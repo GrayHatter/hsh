@@ -56,21 +56,27 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet, mode: *Mode) 
     if (tkn.c_tkn == 0) {
         flavor = .path_exe;
     }
-    var target: *const complete.CompOption = undefined;
     if (mode.* == .typing) {
         try complete.complete(comp, hsh, &ctkn, flavor);
-
-        if (comp.known()) |only| {
-            // original and single, complete now
-            try tkn.replaceToken(only);
-            const newctkn = tkn.cursor_token() catch unreachable;
-            try complete.complete(comp, hsh, &newctkn, flavor);
-            return .Prompt;
-        }
         mode.* = .completing;
     }
 
-    target = comp.next();
+    //
+    // The crashing bug is here, comp.known() is supposed to only work with
+    // count == 2, otherwise the filtering thing tries to replace the
+    // only==original
+    //
+    if (comp.known()) |only| {
+        // original and single, complete now
+        try tkn.replaceToken(only);
+        try tkn.replaceCommit(only);
+        //const newctkn = tkn.cursor_token() catch unreachable;
+        //try complete.complete(comp, hsh, &newctkn, flavor);
+        mode.* = .typing;
+        return .Prompt;
+    }
+
+    var target = comp.next();
     comp.drawAll(&hsh.draw, hsh.draw.term_size) catch |err| {
         if (err == Draw.Layout.Error.ItemCount) return .Prompt else return err;
     };
@@ -87,7 +93,9 @@ pub fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *complet
     if (mode.* == .completing) {
         switch (buffer) {
             '\x1B' => {
+                // There's a bug with mouse in/out triggering this code
                 mode.* = .typing;
+                tkn.raw_maybe = null;
             },
             '\x7f' => {
                 comp.searchPop() catch {
@@ -98,7 +106,12 @@ pub fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *complet
             },
             '\x30'...'\x7E' => |c| {
                 try comp.searchChar(c);
-                return doComplete(hsh, tkn, comp, mode);
+                const exit = doComplete(hsh, tkn, comp, mode);
+                if (mode.* == .completing) {
+                    try tkn.dropMaybe();
+                    try tkn.addMaybe(comp.search.items);
+                }
+                return exit;
             },
             '\x09' => return doComplete(hsh, tkn, comp, mode),
             '\n' => {

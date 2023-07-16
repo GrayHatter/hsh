@@ -64,13 +64,11 @@ pub const Kind = union(Flavors) {
 };
 
 pub const CompOption = struct {
-    full: []const u8,
-    /// name is normally a simple subslice of full.
-    name: []const u8,
+    str: []const u8,
     kind: Kind = Kind{ .any = {} },
     pub fn format(self: CompOption, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
         if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
-        try std.fmt.format(out, "CompOption{{{s}, {s}}}", .{ self.full, @tagName(self.kind) });
+        try std.fmt.format(out, "CompOption{{{s}, {s}}}", .{ self.str, @tagName(self.kind) });
     }
 
     pub fn style(self: CompOption, active: bool) Draw.Style {
@@ -81,7 +79,10 @@ pub const CompOption = struct {
                         .attr = if (active) .reverse_bold else .bold,
                         .fg = f_s.color(),
                     },
-                    else => return .{ .fg = f_s.color() },
+                    else => return .{
+                        .attr = .reset,
+                        .fg = f_s.color(),
+                    },
                 }
             },
             else => return .{
@@ -92,17 +93,22 @@ pub const CompOption = struct {
 
     pub fn lexeme(self: CompOption, active: bool) Draw.Lexeme {
         return Draw.Lexeme{
-            .char = self.name,
+            .char = self.str,
             .style = self.style(active),
         };
     }
 };
 
 fn searchMatch(items: []const u8, search: []const u8) bool {
+    if (search.len > items.len) return false;
+
     var offset: usize = 0;
     for (search) |s| {
         if (offset >= items.len) break;
         if (std.mem.indexOfScalar(u8, items[offset..], s)) |i| {
+            offset += i;
+            continue;
+        } else if (std.mem.indexOfScalar(u8, items[offset..], std.ascii.toUpper(s))) |i| {
             offset += i;
             continue;
         } else {
@@ -177,6 +183,18 @@ pub const CompSet = struct {
         return c;
     }
 
+    fn countFiltered(self: *const CompSet) usize {
+        var c: usize = 0;
+        for (self.groups) |grp| {
+            for (grp.items) |item| {
+                if (searchMatch(item.str, self.search.items)) {
+                    c += 1;
+                }
+            }
+        }
+        return c;
+    }
+
     /// Returns the "only" completion if there's a single option known completion,
     /// ignoring the original. If there's multiple or only the original, null.
     pub fn known(self: *CompSet) ?*const CompOption {
@@ -185,6 +203,12 @@ pub const CompSet = struct {
             _ = self.next();
             return self.next();
         }
+
+        if (self.search.items.len > 0 and self.countFiltered() == 1) {
+            self.reset();
+            return self.next();
+        }
+
         return null;
     }
 
@@ -205,8 +229,8 @@ pub const CompSet = struct {
 
         var maybe = &self.group.items[self.index];
         defer self.skip();
-        if (self.search.items.len > 0) {
-            while (!searchMatch(maybe.name, self.search.items)) {
+        if (self.search.items.len > 0 and self.countFiltered() > 0) {
+            while (!searchMatch(maybe.str, self.search.items)) {
                 self.skip();
                 maybe = &self.group.items[self.index];
             }
@@ -304,6 +328,7 @@ pub const CompSet = struct {
 
     pub fn searchChar(self: *CompSet, char: u8) !void {
         try self.search.append(char);
+        //if (self.countFiltered() == 0) {}
     }
 
     pub fn searchPop(self: *CompSet) !void {
@@ -316,7 +341,7 @@ pub const CompSet = struct {
     pub fn raze(self: *CompSet) void {
         for (&self.groups) |*group| {
             for (group.items) |opt| {
-                self.alloc.free(opt.full);
+                self.alloc.free(opt.str);
             }
             group.clearAndFree();
         }
@@ -342,11 +367,13 @@ pub const CompSet = struct {
 
 fn completeDir(cs: *CompSet, cwdi: IterableDir) !void {
     var itr = cwdi.iterate();
+    try cs.push(CompOption{
+        .str = try cs.alloc.dupe(u8, ""),
+        .kind = Kind{ .original = true },
+    });
     while (try itr.next()) |each| {
-        const full = try cs.alloc.dupe(u8, each.name);
         try cs.push(CompOption{
-            .full = full,
-            .name = full,
+            .str = try cs.alloc.dupe(u8, each.name),
             .kind = Kind{
                 .file_system = FSKind.fromFsKind(each.kind),
             },
@@ -356,12 +383,14 @@ fn completeDir(cs: *CompSet, cwdi: IterableDir) !void {
 
 fn completeDirBase(cs: *CompSet, cwdi: IterableDir, base: []const u8) !void {
     var itr = cwdi.iterate();
+    try cs.push(CompOption{
+        .str = try cs.alloc.dupe(u8, base),
+        .kind = Kind{ .original = false },
+    });
     while (try itr.next()) |each| {
         if (!std.mem.startsWith(u8, each.name, base)) continue;
-        var full = try cs.alloc.dupe(u8, each.name);
         try cs.push(CompOption{
-            .full = full,
-            .name = full,
+            .str = try cs.alloc.dupe(u8, each.name),
             .kind = Kind{
                 .file_system = FSKind.fromFsKind(each.kind),
             },
@@ -387,19 +416,17 @@ fn completePath(cs: *CompSet, _: *HSH, target: []const u8) !void {
         dir = std.fs.cwd().openIterableDir(path, .{}) catch return;
     }
 
+    try cs.push(CompOption{
+        .str = try cs.alloc.dupe(u8, base),
+        .kind = Kind{ .original = false },
+    });
     var itr = dir.iterate();
     while (try itr.next()) |each| {
         if (!std.mem.startsWith(u8, each.name, base)) continue;
         if (each.name[0] == '.' and (base.len == 0 or base[0] != '.')) continue;
 
-        var full = try cs.alloc.alloc(u8, path.len + each.name.len + 1);
-        var name = full[path.len + 1 ..];
-        @memcpy(full[0..path.len], path);
-        full[path.len] = '/';
-        @memcpy(name, each.name);
         try cs.push(CompOption{
-            .full = full,
-            .name = name,
+            .str = try cs.alloc.dupe(u8, each.name),
             .kind = Kind{
                 .file_system = FSKind.fromFsKind(each.kind),
             },
@@ -411,6 +438,11 @@ fn completeSysPath(cs: *CompSet, h: *HSH, target: []const u8) !void {
     if (std.mem.indexOf(u8, target, "/")) |_| {
         return completePath(cs, h, target);
     }
+
+    try cs.push(CompOption{
+        .str = try cs.alloc.dupe(u8, target),
+        .kind = Kind{ .original = false },
+    });
 
     for (h.hfs.names.paths.items) |path| {
         var dir = std.fs.openIterableDirAbsolute(path, .{}) catch return;
@@ -435,10 +467,8 @@ fn completeSysPath(cs: *CompSet, h: *HSH, target: []const u8) !void {
                 return;
             }
 
-            var full = try cs.alloc.dupe(u8, each.name);
             try cs.push(CompOption{
-                .full = full,
-                .name = full,
+                .str = try cs.alloc.dupe(u8, each.name),
                 .kind = Kind{ .path_exe = {} },
             });
         }
@@ -451,12 +481,6 @@ pub fn complete(cs: *CompSet, hsh: *HSH, t: *const Token, hint: Flavors) !void {
     cs.kind = t.kind;
     cs.index = 0;
 
-    const full = try cs.alloc.dupe(u8, t.cannon());
-    try cs.push(CompOption{
-        .full = full,
-        .name = full,
-        .kind = Kind{ .original = t.kind == .WhiteSpace },
-    });
     switch (hint) {
         .path_exe => {
             try completeSysPath(cs, hsh, t.cannon());

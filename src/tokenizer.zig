@@ -240,6 +240,7 @@ pub const CursorMotion = enum(u8) {
 pub const Tokenizer = struct {
     alloc: Allocator,
     raw: ArrayList(u8),
+    raw_maybe: ?[]const u8 = null,
     prev_exec: ?ArrayList(u8) = null,
     hist_z: ?ArrayList(u8) = null,
     c_idx: usize = 0,
@@ -531,36 +532,50 @@ pub const Tokenizer = struct {
         return t;
     }
 
+    pub fn dropMaybe(self: *Tokenizer) !void {
+        if (self.raw_maybe) |rm| {
+            self.popRange(rm.len) catch {
+                log.err("Unable to drop maybe {s} len = {}\n", .{ rm, rm.len });
+                log.err("Unable to drop maybe {s} len = {}\n", .{ rm, rm.len });
+                @panic("dropMaybe");
+            };
+            self.raw_maybe = null;
+        }
+    }
+
+    /// str must be safe to insert directly as is
+    pub fn addMaybe(self: *Tokenizer, str: []const u8) !void {
+        self.raw_maybe = str;
+        try self.consumes(str);
+    }
+
     /// This function edits user text, so extra care must be taken to ensure
     /// it's something the user asked for!
     pub fn replaceToken(self: *Tokenizer, new: *const CompOption) !void {
-        _ = try self.cursor_token();
-        var tokens_rem = self.c_tkn;
-        var old: Token = any(self.raw.items) catch return Error.Unknown;
-        var i: usize = old.raw.len;
-        while (tokens_rem > 0) {
-            tokens_rem -= 1;
-            old = try any(self.raw.items[i..]);
-            if (old.raw.len == 0) return Error.Unknown;
-            i += old.raw.len;
+        if (self.raw_maybe) |_| {
+            try self.dropMaybe();
+        } else if (new.kind == .original) {
+            self.raw_maybe = new.str;
         }
+        //try self.addMaybe(new.str);
 
-        self.c_idx = i;
-        if (old.kind != .WhiteSpace) try self.popRange(old.raw.len);
-        if (new.kind == .original and mem.eql(u8, new.full, " ")) return;
+        if (new.kind == .original) return;
+        self.raw_maybe = new.str;
 
-        try self.consumeSafeish(new.full);
+        try self.consumeSafeish(new.str);
+    }
 
-        switch (new.kind) {
-            .original => {
-                if (mem.eql(u8, new.full, " ")) return;
-            },
-            .file_system => |fs| {
-                if (fs == .Dir) {
-                    try self.consumec('/');
-                }
-            },
-            else => {},
+    pub fn replaceCommit(self: *Tokenizer, new: ?*const CompOption) !void {
+        self.raw_maybe = null;
+        if (new) |n| {
+            switch (n.kind) {
+                .file_system => |fs| {
+                    if (fs == .Dir) {
+                        try self.consumec('/');
+                    }
+                },
+                else => {},
+            }
         }
     }
 
@@ -888,24 +903,26 @@ test "replace token" {
     var tokens = try titr.toSliceAny(a);
     try expect(tokens.len == 5);
 
-    try expect(eql(u8, tokens[2].cannon(), "two"));
-    t.c_idx = 5;
+    try std.testing.expectEqualStrings(tokens[2].cannon(), "two");
+    t.c_idx = 7;
+    try t.replaceToken(&CompOption{
+        .str = "two",
+        .kind = .{ .original = true },
+    });
 
     try t.replaceToken(&CompOption{
-        .full = "TWO",
-        .name = "TWO",
+        .str = "TWO",
     });
     titr = t.iterator();
     a.free(tokens);
     tokens = try titr.toSliceAny(a);
 
+    try std.testing.expectEqualStrings(t.raw.items, "one TWO three");
+    try std.testing.expectEqualStrings(tokens[2].cannon(), "TWO");
     try expect(tokens.len == 5);
-    try expect(eql(u8, tokens[2].cannon(), "TWO"));
-    try expect(eql(u8, t.raw.items, "one TWO three"));
 
     try t.replaceToken(&CompOption{
-        .full = "TWO THREE",
-        .name = "TWO THREE",
+        .str = "TWO THREE",
     });
     titr = t.iterator();
     a.free(tokens);
