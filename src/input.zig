@@ -61,11 +61,6 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet, mode: *Mode) 
         mode.* = .completing;
     }
 
-    //
-    // The crashing bug is here, comp.known() is supposed to only work with
-    // count == 2, otherwise the filtering thing tries to replace the
-    // only==original
-    //
     if (comp.known()) |only| {
         // original and single, complete now
         try tkn.replaceToken(only);
@@ -85,11 +80,7 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet, mode: *Mode) 
     return .Redraw;
 }
 
-pub fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *complete.CompSet) !Event {
-    // I no longer like this way of tokenization. I'd like to generate
-    // Tokens as an n=2 state machine at time of keypress. It might actually
-    // be required to unbreak a bug in history.
-
+fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *complete.CompSet) !Event {
     if (mode.* == .completing) {
         switch (buffer) {
             '\x1B' => {
@@ -121,7 +112,21 @@ pub fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *complet
             else => {},
         }
     }
+    return simple(hsh, tkn, buffer, mode, comp);
+}
 
+pub fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *complete.CompSet) !Event {
+    // I no longer like this way of tokenization. I'd like to generate
+    // Tokens as an n=2 state machine at time of keypress. It might actually
+    // be required to unbreak a bug in history.
+
+    return switch (mode.*) {
+        .completing => completing(hsh, tkn, buffer, mode, comp),
+        else => simple(hsh, tkn, buffer, mode, comp),
+    };
+}
+
+pub fn simple(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *complete.CompSet) !Event {
     switch (buffer) {
         '\x1B' => {
             const to_reset = tkn.err_idx != 0;
