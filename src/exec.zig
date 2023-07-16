@@ -69,9 +69,9 @@ var paths: []const []const u8 = undefined;
 pub fn executable(h: *HSH, str: []const u8) bool {
     if (bi.exists(str)) return true;
     paths = h.hfs.names.paths.items;
-    var plsfree = makeAbsExecutable(h.alloc, str) catch return false;
+    var plsfree = makeAbsExecutable(h.alloc, str) catch return bi.optionalExists(str);
     h.alloc.free(plsfree);
-    return bi.optionalExists(str);
+    return true;
 }
 
 fn validPath(path: []const u8) bool {
