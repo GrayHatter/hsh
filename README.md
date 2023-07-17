@@ -76,14 +76,13 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
     - [ ] unalias
     - [ ] unset
     - [ ] wait
-
     - [ ] the rest?
   - [ ] HSH builtins
     - [ ] help
     - [ ] show
     - [ ] state
     - [ ] status
-  - [-] globs
+  - [x] globs
     - [x] simple globs
     - [ ] recursive globs
     - [ ] enumerated globs (name.{ext,exe,md,txt})
