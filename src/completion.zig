@@ -217,6 +217,7 @@ pub const CompSet = struct {
 
     pub fn reset(self: *CompSet) void {
         self.index = 0;
+        self.groupSet(.any);
     }
 
     pub fn first(self: *CompSet) *const CompOption {
@@ -229,8 +230,8 @@ pub const CompSet = struct {
         std.debug.assert(self.count() > 0);
         if (self.err) self.reset();
 
+        self.skip();
         var maybe = &self.group.items[self.index];
-        defer self.skip();
         if (self.search.items.len > 0 and self.countFiltered() > 0) {
             while (!searchMatch(maybe.str, self.search.items)) {
                 self.skip();
@@ -238,6 +239,10 @@ pub const CompSet = struct {
             }
         }
         return maybe;
+    }
+
+    pub fn current(self: *const CompSet) *const CompOption {
+        return &self.group.items[self.index];
     }
 
     pub fn skip(self: *CompSet) void {
@@ -267,15 +272,16 @@ pub const CompSet = struct {
         //defer list.clearAndFree();
         const g_int = @intFromEnum(f);
         var group = &self.groups[g_int];
-        var current_group = if (g_int == self.group_index) true else false;
+        var current_group = g_int == self.group_index;
 
         if (group.items.len == 0) return;
 
         if (self.draw_cache[g_int]) |*dc| {
             const mod: usize = dc.*[0].siblings.len;
-            var index = if (self.index == 0) 0 else self.index - 1;
-            const this_row = (index) / mod;
-            const this_col = (index) % mod;
+            // self.index points to the next item, current item is index - 1
+
+            const this_row = (self.index) / mod;
+            const this_col = (self.index) % mod;
 
             for (dc.*, 0..) |tree, row| {
                 var plz_draw = false;
@@ -296,11 +302,16 @@ pub const CompSet = struct {
             }
             return;
         }
+        return self.drawGroupBuild(f, d, wh);
+    }
+
+    pub fn drawGroupBuild(self: *CompSet, f: Flavors, d: *Draw.Drawable, wh: Cord) !void {
+        const g_int = @intFromEnum(f);
+        var group = &self.groups[g_int];
 
         var list = ArrayList(Draw.Lexeme).init(self.alloc);
-        for (group.items, 0..) |itm, i| {
-            const active = current_group and i == self.index;
-            const lex = itm.lexeme(active);
+        for (group.items) |itm| {
+            const lex = itm.lexeme(false);
             list.append(lex) catch break;
         }
         var items = try list.toOwnedSlice();

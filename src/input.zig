@@ -99,6 +99,10 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *comple
                 // There's a bug with mouse in/out triggering this code
                 mode.* = .typing;
                 try tkn.dropMaybe();
+                if (comp.original) |o| {
+                    try tkn.addMaybe(o.str);
+                    try tkn.replaceCommit(null);
+                }
             },
             '\x7f' => {
                 // backspace
@@ -131,6 +135,8 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *comple
                 return doComplete(hsh, tkn, comp, mode);
             },
             '\n' => {
+                try tkn.replaceToken(comp.current());
+                try tkn.replaceCommit(comp.current());
                 mode.* = .typing;
                 return .Redraw;
             },
