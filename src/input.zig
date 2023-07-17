@@ -58,7 +58,9 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet, mode: *Mode) 
     }
     if (mode.* == .typing) {
         try complete.complete(comp, hsh, &ctkn, flavor);
-        mode.* = .completing;
+        if (tkn.raw_maybe == null) {
+            tkn.raw_maybe = comp.original.?.str;
+        }
     }
 
     if (comp.known()) |only| {
@@ -69,8 +71,18 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet, mode: *Mode) 
         //try complete.complete(comp, hsh, &newctkn, flavor);
         mode.* = .typing;
         return .Prompt;
+    } else if (mode.* == .typing) {
+        comp.drawAll(&hsh.draw, hsh.draw.term_size) catch |err| {
+            if (err == Draw.Layout.Error.ItemCount) return .Prompt else return err;
+        };
+        mode.* = .completing;
+        return .Redraw;
     }
 
+    if (comp.countFiltered() == 0) {
+        // TODO print error
+        return .None;
+    }
     var target = comp.next();
     comp.drawAll(&hsh.draw, hsh.draw.term_size) catch |err| {
         if (err == Draw.Layout.Error.ItemCount) return .Prompt else return err;
@@ -86,16 +98,26 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *comple
             '\x1B' => {
                 // There's a bug with mouse in/out triggering this code
                 mode.* = .typing;
-                tkn.raw_maybe = null;
+                try tkn.dropMaybe();
             },
             '\x7f' => {
+                // backspace
                 comp.searchPop() catch {
                     mode.* = .typing;
+                    tkn.raw_maybe = null;
                     return .Redraw;
                 };
-                return doComplete(hsh, tkn, comp, mode);
+                const exit = doComplete(hsh, tkn, comp, mode);
+                try tkn.dropMaybe();
+                try tkn.addMaybe(comp.search.items);
+                return exit;
             },
-            '\x30'...'\x7E' => |c| {
+            '0'...'9',
+            'A'...'Z',
+            'a'...'z',
+            ','...'.',
+            '_',
+            => |c| {
                 try comp.searchChar(c);
                 const exit = doComplete(hsh, tkn, comp, mode);
                 if (mode.* == .completing) {
@@ -104,12 +126,20 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *comple
                 }
                 return exit;
             },
-            '\x09' => return doComplete(hsh, tkn, comp, mode),
+            '\x09' => {
+                // tab \t
+                return doComplete(hsh, tkn, comp, mode);
+            },
             '\n' => {
                 mode.* = .typing;
                 return .Redraw;
             },
-            else => {},
+            else => {
+                mode.* = .typing;
+                try tkn.replaceCommit(null);
+                _ = try simple(hsh, tkn, buffer, mode, comp);
+                return .Redraw;
+            },
         }
     }
     return simple(hsh, tkn, buffer, mode, comp);

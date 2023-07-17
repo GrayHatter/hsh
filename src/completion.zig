@@ -51,7 +51,6 @@ pub const Flavors = enum(u3) {
     any,
     path_exe,
     file_system,
-    original, // Should remain last for error order semantics
 };
 
 const flavors_len = @typeInfo(Flavors).Enum.fields.len;
@@ -59,20 +58,24 @@ const flavors_len = @typeInfo(Flavors).Enum.fields.len;
 pub const Kind = union(Flavors) {
     any: void,
     path_exe: void,
-    original: bool,
     file_system: FSKind,
 };
 
 pub const CompOption = struct {
     str: []const u8,
-    kind: Kind = Kind{ .any = {} },
+    /// the original user text has kind == null
+    kind: ?Kind = Kind{ .any = {} },
     pub fn format(self: CompOption, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
         if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
         try std.fmt.format(out, "CompOption{{{s}, {s}}}", .{ self.str, @tagName(self.kind) });
     }
 
     pub fn style(self: CompOption, active: bool) Draw.Style {
-        switch (self.kind) {
+        const default = Draw.Style{
+            .attr = if (active) .reverse else .reset,
+        };
+        if (self.kind == null) return default;
+        switch (self.kind.?) {
             .file_system => |f_s| {
                 switch (f_s) {
                     .Dir => return .{
@@ -85,9 +88,7 @@ pub const CompOption = struct {
                     },
                 }
             },
-            else => return .{
-                .attr = if (active) .reverse else .reset,
-            },
+            else => return default,
         }
     }
 
@@ -162,6 +163,7 @@ const ERRSTR = "[Not enough room to print {} items]";
 
 pub const CompSet = struct {
     alloc: Allocator,
+    original: ?CompOption,
     /// Eventually groups should be dynamically allocated if it gets bigger
     groups: [flavors_len]CompList,
     group: *CompList,
@@ -173,9 +175,10 @@ pub const CompSet = struct {
     //orig_token: ?*const Token = null,
     kind: tokenizer.Kind = undefined,
     err: bool = false,
-    draw_cache: [flavors_len]?[]Draw.LexTree = .{ null, null, null, null },
+    draw_cache: [flavors_len]?[]Draw.LexTree = .{null} ** 3,
 
-    fn count(self: *const CompSet) usize {
+    /// Intentionally excludes original from the count
+    pub fn count(self: *const CompSet) usize {
         var c: usize = 0;
         for (self.groups) |grp| {
             c += grp.items.len;
@@ -183,7 +186,7 @@ pub const CompSet = struct {
         return c;
     }
 
-    fn countFiltered(self: *const CompSet) usize {
+    pub fn countFiltered(self: *const CompSet) usize {
         var c: usize = 0;
         for (self.groups) |grp| {
             for (grp.items) |item| {
@@ -198,7 +201,7 @@ pub const CompSet = struct {
     /// Returns the "only" completion if there's a single option known completion,
     /// ignoring the original. If there's multiple or only the original, null.
     pub fn known(self: *CompSet) ?*const CompOption {
-        if (self.count() == 2) {
+        if (self.count() == 1) {
             self.reset();
             _ = self.next();
             return self.next();
@@ -214,8 +217,6 @@ pub const CompSet = struct {
 
     pub fn reset(self: *CompSet) void {
         self.index = 0;
-        self.group_index = @intFromEnum(Flavors.original);
-        self.group = &self.groups[self.group_index];
     }
 
     pub fn first(self: *CompSet) *const CompOption {
@@ -223,6 +224,7 @@ pub const CompSet = struct {
         return self.next();
     }
 
+    // behavior is undefined when count <= 0
     pub fn next(self: *CompSet) *const CompOption {
         std.debug.assert(self.count() > 0);
         if (self.err) self.reset();
@@ -243,14 +245,22 @@ pub const CompSet = struct {
         self.index += 1;
         while (self.index >= self.group.items.len) {
             self.index = 0;
-            self.group_index = (self.group_index + 1) % self.groups.len;
-            self.group = &self.groups[self.group_index];
+            self.groupSet(null);
         }
     }
 
+    pub fn groupSet(self: *CompSet, grp: ?Flavors) void {
+        if (grp) |g| {
+            self.group_index = @intFromEnum(g);
+        } else {
+            self.group_index = (self.group_index + 1) % self.groups.len;
+        }
+        self.group = &self.groups[self.group_index];
+    }
+
     pub fn push(self: *CompSet, o: CompOption) !void {
-        var group = &self.groups[@intFromEnum(o.kind)];
-        try group.append(o);
+        self.groupSet(o.kind.?);
+        try self.group.append(o);
     }
 
     pub fn drawGroup(self: *CompSet, f: Flavors, d: *Draw.Drawable, wh: Cord) !void {
@@ -345,6 +355,9 @@ pub const CompSet = struct {
             }
             group.clearAndFree();
         }
+        if (self.original) |o| {
+            self.alloc.free(o.str);
+        }
         for (&self.draw_cache) |*cache_group| {
             if (cache_group.*) |*trees| {
                 var real_size: usize = 0;
@@ -367,10 +380,7 @@ pub const CompSet = struct {
 
 fn completeDir(cs: *CompSet, cwdi: IterableDir) !void {
     var itr = cwdi.iterate();
-    try cs.push(CompOption{
-        .str = try cs.alloc.dupe(u8, ""),
-        .kind = Kind{ .original = true },
-    });
+    cs.original = CompOption{ .str = try cs.alloc.dupe(u8, ""), .kind = null };
     while (try itr.next()) |each| {
         try cs.push(CompOption{
             .str = try cs.alloc.dupe(u8, each.name),
@@ -383,10 +393,7 @@ fn completeDir(cs: *CompSet, cwdi: IterableDir) !void {
 
 fn completeDirBase(cs: *CompSet, cwdi: IterableDir, base: []const u8) !void {
     var itr = cwdi.iterate();
-    try cs.push(CompOption{
-        .str = try cs.alloc.dupe(u8, base),
-        .kind = Kind{ .original = false },
-    });
+    cs.original = CompOption{ .str = try cs.alloc.dupe(u8, base), .kind = null };
     while (try itr.next()) |each| {
         if (!std.mem.startsWith(u8, each.name, base)) continue;
         try cs.push(CompOption{
@@ -416,10 +423,7 @@ fn completePath(cs: *CompSet, _: *HSH, target: []const u8) !void {
         dir = std.fs.cwd().openIterableDir(path, .{}) catch return;
     }
 
-    try cs.push(CompOption{
-        .str = try cs.alloc.dupe(u8, base),
-        .kind = Kind{ .original = false },
-    });
+    cs.original = CompOption{ .str = try cs.alloc.dupe(u8, base), .kind = null };
     var itr = dir.iterate();
     while (try itr.next()) |each| {
         if (!std.mem.startsWith(u8, each.name, base)) continue;
@@ -439,10 +443,7 @@ fn completeSysPath(cs: *CompSet, h: *HSH, target: []const u8) !void {
         return completePath(cs, h, target);
     }
 
-    try cs.push(CompOption{
-        .str = try cs.alloc.dupe(u8, target),
-        .kind = Kind{ .original = false },
-    });
+    cs.original = CompOption{ .str = try cs.alloc.dupe(u8, target), .kind = null };
 
     for (h.hfs.names.paths.items) |path| {
         var dir = std.fs.openIterableDirAbsolute(path, .{}) catch return;
@@ -507,9 +508,9 @@ pub fn complete(cs: *CompSet, hsh: *HSH, t: *const Token, hint: Flavors) !void {
 pub fn init(hsh: *HSH) !CompSet {
     var compset = CompSet{
         .alloc = hsh.alloc,
+        .original = null,
         .group = undefined,
         .groups = .{
-            CompList.init(hsh.alloc),
             CompList.init(hsh.alloc),
             CompList.init(hsh.alloc),
             CompList.init(hsh.alloc),

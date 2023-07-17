@@ -554,12 +554,12 @@ pub const Tokenizer = struct {
     pub fn replaceToken(self: *Tokenizer, new: *const CompOption) !void {
         if (self.raw_maybe) |_| {
             try self.dropMaybe();
-        } else if (new.kind == .original) {
+        } else if (new.kind == null) {
             self.raw_maybe = new.str;
         }
         //try self.addMaybe(new.str);
 
-        if (new.kind == .original) return;
+        if (new.kind == null) return;
         self.raw_maybe = new.str;
 
         try self.consumeSafeish(new.str);
@@ -568,7 +568,7 @@ pub const Tokenizer = struct {
     pub fn replaceCommit(self: *Tokenizer, new: ?*const CompOption) !void {
         self.raw_maybe = null;
         if (new) |n| {
-            switch (n.kind) {
+            switch (n.kind.?) {
                 .file_system => |fs| {
                     if (fs == .Dir) {
                         try self.consumec('/');
@@ -907,7 +907,7 @@ test "replace token" {
     t.c_idx = 7;
     try t.replaceToken(&CompOption{
         .str = "two",
-        .kind = .{ .original = true },
+        .kind = null,
     });
 
     try t.replaceToken(&CompOption{
