@@ -2,7 +2,9 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const os = std.os;
 const Queue = std.atomic.Queue;
+const HSH = @import("hsh.zig").HSH;
 const log = @import("log");
+const jobs = @import("jobs.zig");
 
 const Self = @This();
 
@@ -15,6 +17,15 @@ const cust_siginfo = extern struct {
 pub const Signal = struct {
     signal: c_int,
     info: os.siginfo_t,
+};
+
+const SI_CODE = enum(u6) {
+    EXITED = 1,
+    KILLED,
+    DUMPED,
+    TRAPPED,
+    STOPPED,
+    CONTINUED,
 };
 
 var alloc: Allocator = undefined;
@@ -93,6 +104,108 @@ pub fn init(a: Allocator) !void {
             .mask = os.empty_sigset,
             .flags = SA.SIGINFO | SA.NOCLDWAIT | SA.RESTART,
         }, null);
+    }
+}
+
+pub fn do(hsh: *HSH) void {
+    while (get()) |node| {
+        var sig = node.data;
+        const pid = sig.info.fields.common.first.piduid.pid;
+        switch (sig.signal) {
+            std.os.SIG.INT => {
+                // TODO move this branch to a better location
+                std.debug.print("^C\n\r", .{});
+                hsh.tkn.reset();
+                hsh.draw.reset();
+                hsh.hist.?.cnt = 0;
+                //std.debug.print("\n\rSIGNAL INT(oopsies)\n", .{});
+            },
+            std.os.SIG.CHLD => {
+                const child = jobs.get(pid) catch {
+                    // TODO we should never not know about a job, but it's not a
+                    // reason to die just yet.
+                    //std.debug.print("Unknown child on {} {}\n", .{ sig.info.code, pid });
+                    continue;
+                };
+                switch (@as(SI_CODE, @enumFromInt(sig.info.code))) {
+                    SI_CODE.STOPPED => {
+                        if (child.*.status == .Running) {
+                            child.*.termattr = hsh.tty.popTTY() catch unreachable;
+                        }
+                        child.*.status = .Paused;
+                    },
+                    SI_CODE.EXITED,
+                    SI_CODE.KILLED,
+                    => {
+                        if (child.*.status == .Running) {
+                            child.*.termattr = hsh.tty.popTTY() catch |e| {
+                                std.debug.print("Unable to pop for (reasons) {}\n", .{e});
+                                unreachable;
+                            };
+                        }
+                        const status = sig.info.fields.common.second.sigchld.status;
+                        child.*.exit_code = @intCast(status);
+                        child.*.status = .Ded;
+                    },
+                    SI_CODE.CONTINUED => {
+                        child.*.status = .Running;
+                    },
+                    SI_CODE.DUMPED,
+                    SI_CODE.TRAPPED,
+                    => {
+                        log.err("CHLD CRASH on {}\n", .{pid});
+                        child.*.status = .Crashed;
+                        const status = sig.info.fields.common.second.sigchld.status;
+                        child.*.exit_code = @intCast(status);
+                    },
+                }
+            },
+            std.os.SIG.TSTP => {
+                if (pid != 0) {
+                    const child = jobs.get(pid) catch {
+                        // TODO we should never not know about a job, but it's not a
+                        // reason to die just yet.
+                        std.debug.print("Unknown child on {} {}\n", .{ pid, sig.info.code });
+                        return;
+                    };
+                    if (child.*.status == .Running) {
+                        child.*.termattr = hsh.tty.popTTY() catch unreachable;
+                    }
+                    child.*.status = .Waiting;
+                }
+                log.err("SIGNAL TSTP {} => ({any})", .{ pid, sig.info });
+                //std.debug.print("\n{}\n", .{child});
+            },
+            std.os.SIG.CONT => {
+                log.warning("Unexpected cont from pid({})\n", .{pid});
+                hsh.waiting = false;
+            },
+            std.os.SIG.WINCH => {
+                hsh.draw.term_size = hsh.tty.geom() catch unreachable;
+            },
+            std.os.SIG.USR1 => {
+                _ = jobs.haltActive() catch @panic("Signal unable to pause job");
+                hsh.tty.pushRaw() catch unreachable;
+                log.err("Assuming control of TTY!\n", .{});
+            },
+            std.os.SIG.TTOU => {
+                log.err("TTOU RIP us!\n", .{});
+                //hsh.tty.pwnTTY();
+            },
+            std.os.SIG.TTIN => {
+                log.err("TTIN RIP us! ({} -> {})\n", .{ hsh.pid, pid });
+                hsh.waiting = true;
+                //hsh.tty.pwnTTY();
+            },
+            else => {
+                std.debug.print("\n\rUnknown signal {} => ({})\n", .{ sig.signal, sig.info });
+                std.debug.print("\n\r dump = {}\n", .{std.fmt.fmtSliceHexUpper(std.mem.asBytes(&sig.info))});
+                std.debug.print("\n\rpid = {}", .{sig.info.fields.common.first.piduid.pid});
+                std.debug.print("\n\ruid = {}", .{sig.info.fields.common.first.piduid.uid});
+                std.debug.print("\n", .{});
+                @panic("unexpected signal");
+            },
+        }
     }
 }
 

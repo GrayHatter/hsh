@@ -104,6 +104,18 @@ pub fn getWaiting() Error!?*Job {
     return null;
 }
 
+pub fn haltActive() Error!usize {
+    var count: usize = 0;
+    for (jobs.items) |*j| {
+        if (j.*.status == .Running) {
+            j.status = .Paused;
+            // TODO send signal
+            count += 1;
+        }
+    }
+    return count;
+}
+
 pub fn contNext(h: *HSH, comptime fg: bool) Error!void {
     const job: ?*Job = try getWaiting();
     if (job) |j| {
