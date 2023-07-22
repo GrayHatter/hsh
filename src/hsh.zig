@@ -95,7 +95,7 @@ fn readFromRC(hsh: *HSH) !void {
             defer a.free(tokens);
             var pitr = Parser.parse(&a, tokens) catch continue;
 
-            if (pitr.first().kind != .Builtin) {
+            if (pitr.first().kind != .builtin) {
                 log.warning("Unknown rc line \n    {s}\n", .{line});
                 continue;
             }

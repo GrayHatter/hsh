@@ -61,7 +61,9 @@ pub fn alias(h: *HSH, titr: *ParsedIterator) Err!u8 {
     var mode: ?[]const u8 = null;
     while (titr.next()) |t| {
         switch (t.kind) {
-            .Operator => {},
+            .oper => {
+                unreachable;
+            },
             else => {
                 if (name) |_| {
                     value = t.cannon();

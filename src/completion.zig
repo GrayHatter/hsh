@@ -173,7 +173,7 @@ pub const CompSet = struct {
     // actually using most of orig_token is much danger, such UB
     // the pointers contained within are likely already invalid!
     //orig_token: ?*const Token = null,
-    kind: tokenizer.Kind = undefined,
+    kind: tokenizer.Kind = .nos,
     err: bool = false,
     draw_cache: [flavors_len]?[]Draw.LexTree = .{null} ** 3,
 
@@ -499,15 +499,17 @@ pub fn complete(cs: *CompSet, hsh: *HSH, t: *const Token, hint: Flavors) !void {
         },
         else => {
             switch (t.kind) {
-                .WhiteSpace => try completeDir(cs, try std.fs.cwd().openIterableDir(".", .{})),
-                .String, .Path => {
+                .ws => try completeDir(cs, try std.fs.cwd().openIterableDir(".", .{})),
+                .word, .path => {
                     if (std.mem.indexOfScalar(u8, t.cannon(), '/')) |_| {
                         try completePath(cs, hsh, t.cannon());
                     } else {
                         try completeDirBase(cs, try std.fs.cwd().openIterableDir(".", .{}), t.cannon());
                     }
                 },
-                .IoRedir => {},
+                .io => {
+                    // TODO pipeline integration
+                },
                 else => {},
             }
         },

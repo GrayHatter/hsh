@@ -55,16 +55,16 @@ pub const ParsedIterator = struct {
 
         if (self.subtokens) |_| return self.nextSubtoken(token);
 
-        if (i == 0 and token.kind == .String) {
+        if (i == 0 and token.kind == .word) {
             if (self.nextSubtoken(token)) |tk| return tk;
             return token;
         } else {
             switch (token.kind) {
-                .WhiteSpace, .IoRedir, .Operator => {
+                .ws, .io, .oper => {
                     self.index.? += 1;
                     return self.next();
                 },
-                .String => {
+                .word => {
                     if (self.nextSubtoken(token)) |tk| return tk;
                 },
                 else => {},
@@ -222,7 +222,7 @@ pub const Parser = struct {
         if (token.raw.len == 0) return token;
 
         switch (token.kind) {
-            .Quote => {
+            .quote => {
                 var needle = [2]u8{ '\\', token.subtoken };
                 if (mem.indexOfScalar(u8, token.raw, '\\')) |_| {} else return token;
 
@@ -238,16 +238,16 @@ pub const Parser = struct {
                 }
                 return token;
             },
-            .Var => {
+            .vari => {
                 return try variable(token);
             },
-            .String => {
+            .word => {
                 if (mem.indexOf(u8, token.raw, "/")) |_| {
-                    token.kind = .Path;
+                    token.kind = .path;
                     return token;
                 } else return token;
             },
-            .Path => {
+            .path => {
                 if (token.cannon()[0] != '~') return token;
 
                 _ = token.upgrade(a) catch return Error.Unknown;
@@ -287,7 +287,7 @@ pub const Parser = struct {
 
     fn builtin(tkn: *Token) Error!*Token {
         if (Builtins.exists(tkn.cannon())) {
-            tkn.*.kind = .Builtin;
+            tkn.*.kind = .builtin;
             return tkn;
         }
         return Error.Empty;
@@ -453,7 +453,7 @@ test "iterator alias is builtin" {
     var a = std.testing.allocator;
 
     var ts = [_]Token{
-        Token{ .kind = .String, .raw = "alias" },
+        Token{ .kind = .word, .raw = "alias" },
     };
 
     var itr = try Parser.parse(&a, &ts);
@@ -464,7 +464,7 @@ test "iterator alias is builtin" {
     try expectEql(i, 1);
     try std.testing.expectEqualStrings("alias", itr.first().cannon());
     try expect(itr.next() == null);
-    try std.testing.expect(itr.first().kind == .Builtin);
+    try std.testing.expect(itr.first().kind == .builtin);
 }
 
 test "iterator aliased" {
@@ -477,9 +477,9 @@ test "iterator aliased" {
     });
 
     var ts = [_]Token{
-        Token{ .kind = .String, .raw = "la" },
-        Token{ .kind = .WhiteSpace, .raw = " " },
-        Token{ .kind = .String, .raw = "src" },
+        Token{ .kind = .word, .raw = "la" },
+        Token{ .kind = .ws, .raw = " " },
+        Token{ .kind = .word, .raw = "src" },
     };
 
     var itr = try Parser.parse(&a, &ts);
@@ -504,9 +504,9 @@ test "iterator aliased self" {
     });
 
     var ts = [_]Token{
-        Token{ .kind = .String, .raw = "ls" },
-        Token{ .kind = .WhiteSpace, .raw = " " },
-        Token{ .kind = .String, .raw = "src" },
+        Token{ .kind = .word, .raw = "ls" },
+        Token{ .kind = .ws, .raw = " " },
+        Token{ .kind = .word, .raw = "src" },
     };
 
     var itr = try Parser.parse(&a, &ts);
@@ -537,9 +537,9 @@ test "iterator aliased recurse" {
     });
 
     var ts = [_]Token{
-        Token{ .kind = .String, .raw = "la" },
-        Token{ .kind = .WhiteSpace, .raw = " " },
-        Token{ .kind = .String, .raw = "src" },
+        Token{ .kind = .word, .raw = "la" },
+        Token{ .kind = .ws, .raw = " " },
+        Token{ .kind = .word, .raw = "src" },
     };
 
     var itr = try Parser.parse(&a, &ts);
@@ -578,7 +578,7 @@ test "parse vars" {
     var first = itr.first().cannon();
     try eqlStr("echo", first);
     try eqlStr("string", itr.peek().?.cannon());
-    try expect(itr.next().?.kind == .Var);
+    try expect(itr.next().?.kind == .vari);
     try eqlStr("blerg", itr.next().?.cannon());
     try expect(itr.next() == null);
 }
@@ -609,7 +609,7 @@ test "parse vars existing" {
     var first = itr.first().cannon();
     try eqlStr("echo", first);
     try eqlStr("value", itr.peek().?.cannon());
-    try expect(itr.next().?.kind == .Var);
+    try expect(itr.next().?.kind == .vari);
     try eqlStr("blerg", itr.next().?.cannon());
     try expect(itr.next() == null);
 }
@@ -643,7 +643,7 @@ test "parse vars existing braces" {
     // the following is a bug, itr[1] should be "valueextra"
     // It's possible I may disallow this outside of double quotes
     try eqlStr("value", itr.peek().?.cannon());
-    try expect(itr.next().?.kind == .Var);
+    try expect(itr.next().?.kind == .vari);
     try eqlStr("extra", itr.next().?.cannon());
     try eqlStr("blerg", itr.next().?.cannon());
     try expect(itr.next() == null);
@@ -676,7 +676,7 @@ test "parse vars existing braces inline" {
 
     try eqlStr("extra", itr.next().?.cannon());
     try eqlStr("value", itr.peek().?.cannon());
-    try expect(itr.next().?.kind == .Var);
+    try expect(itr.next().?.kind == .vari);
     try eqlStr("blerg", itr.next().?.cannon());
     try expect(itr.next() == null);
 }
@@ -701,7 +701,7 @@ test "parse path" {
     var first = itr.first().cannon();
     try eqlStr("ls", first);
 
-    try std.testing.expect(itr.next().?.kind == .Path);
+    try std.testing.expect(itr.next().?.kind == .path);
     try std.testing.expect(itr.next() == null);
 
     // Should be done by tokenizer, but ¯\_(ツ)_/¯
@@ -734,7 +734,7 @@ test "parse path ~" {
     var first = itr.first().cannon();
     try eqlStr("ls", first);
 
-    try std.testing.expect(itr.peek().?.kind == .Path);
+    try std.testing.expect(itr.peek().?.kind == .path);
     try eqlStr("/home/user", itr.next().?.cannon());
     try std.testing.expect(itr.next() == null);
 
@@ -768,7 +768,7 @@ test "parse path ~/" {
     var first = itr.first().cannon();
     try eqlStr("ls", first);
 
-    try std.testing.expect(itr.peek().?.kind == .Path);
+    try std.testing.expect(itr.peek().?.kind == .path);
     try eqlStr("/home/user/", itr.next().?.cannon());
     try std.testing.expect(itr.next() == null);
 
@@ -802,7 +802,7 @@ test "parse path ~/place" {
     var first = itr.first().cannon();
     try eqlStr("ls", first);
 
-    try std.testing.expect(itr.peek().?.kind == .Path);
+    try std.testing.expect(itr.peek().?.kind == .path);
     try eqlStr("/home/user/place", itr.next().?.cannon());
     try std.testing.expect(itr.next() == null);
 
@@ -836,7 +836,7 @@ test "parse path /~/otherplace" {
     var first = itr.first().cannon();
     try eqlStr("ls", first);
 
-    try std.testing.expect(itr.peek().?.kind == .Path);
+    try std.testing.expect(itr.peek().?.kind == .path);
     try eqlStr("/~/otherplace", itr.next().?.cannon());
     try std.testing.expect(itr.next() == null);
 

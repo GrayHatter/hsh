@@ -134,7 +134,7 @@ fn cd(hsh: *HSH, titr: *ParsedIterator) Err!u8 {
 
     while (titr.next()) |t| {
         switch (t.kind) {
-            .String, .Quote, .Var, .Path => {
+            .word, .quote, .vari, .path => {
                 hsh.hfs.cd(t.cannon()) catch |err| {
                     log.err("Unable to change directory because {}\n", .{err});
                     return 1;

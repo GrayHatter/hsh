@@ -7,7 +7,6 @@ const Allocator = mem.Allocator;
 const Tokenizer = tokenizer.Tokenizer;
 const ArrayList = std.ArrayList;
 const Kind = tokenizer.Kind;
-const KindExt = tokenizer.KindExt;
 const TokenIterator = tokenizer.TokenIterator;
 const parse = @import("parse.zig");
 const Parser = parse.Parser;
@@ -184,8 +183,8 @@ fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
         var condition: ?Conditional = conditional_rule;
 
         // peek is now the exec operator because of how the iterator works :<
-        if (peek.kindext == .oper) {
-            switch (peek.kindext.oper) {
+        if (peek.kind == .oper) {
+            switch (peek.kind.oper) {
                 .Pipe => {
                     const pipe = std.os.pipe2(0) catch return Error.OSErr;
                     io.pipe = true;
@@ -206,8 +205,8 @@ fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
         }
 
         for (eslice) |maybeio| {
-            if (maybeio.kindext == .io) {
-                switch (maybeio.kindext.io) {
+            if (maybeio.kind == .io) {
+                switch (maybeio.kind.io) {
                     .Out, .Append => {
                         if (fs.openFile(maybeio.cannon(), true)) |file| {
                             io.out = file.handle;
@@ -229,7 +228,7 @@ fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
 
         var stk = CallableStack{
             .callable = switch (parsed.first().kind) {
-                .Builtin => .{ .builtin = try builtin(a.*, parsed) },
+                .builtin => .{ .builtin = try builtin(a.*, parsed) },
                 else => .{ .exec = try binary(a.*, parsed) },
             },
             .stdio = io,

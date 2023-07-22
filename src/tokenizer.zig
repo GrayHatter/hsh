@@ -11,19 +11,6 @@ const CompOption = @import("completion.zig").CompOption;
 const BREAKING_TOKENS = " \t\"'`${|><#;";
 const BSLH = '\\';
 
-/// Deprecated, use KindExt. Eventually KindExt will replace Kind by name.
-pub const Kind = enum(u8) {
-    WhiteSpace,
-    String,
-    Builtin,
-    Quote,
-    IoRedir,
-    Operator,
-    Path,
-    Var,
-    Aliased,
-};
-
 pub const IOKind = enum {
     In,
     HDoc,
@@ -40,7 +27,16 @@ pub const OpKind = enum {
     Background,
 };
 
-pub const KindExt = union(enum) {
+pub const Kind = union(enum) {
+    // legacy types, TODO REMOVE
+    ws: void,
+    builtin: void,
+    quote: void,
+    path: void,
+    vari: void,
+    aliased: void,
+
+    // new types
     nos: void,
     word: void,
     io: IOKind,
@@ -94,7 +90,7 @@ pub const TokenIterator = struct {
     pub fn next(self: *Self) ?*const Token {
         const n = self.nextAny() orelse return null;
 
-        if (n.kind == .WhiteSpace) {
+        if (n.kind == .ws) {
             return self.next();
         }
         return n;
@@ -109,7 +105,7 @@ pub const TokenIterator = struct {
 
         const t_ = self.next();
         if (t_) |t| {
-            switch (t.kindext) {
+            switch (t.kind) {
                 .oper => {
                     self.index.? -= t.raw.len;
                     return null;
@@ -149,7 +145,7 @@ pub const TokenIterator = struct {
         if (self.nextExec()) |n| {
             try list.append(n.*);
         } else if (self.next()) |n| {
-            if (n.kindext != .oper) {
+            if (n.kind != .oper) {
                 try list.append(n.*);
             }
         }
@@ -192,8 +188,7 @@ pub const Token = struct {
     raw: []const u8, // "full" Slice, you probably want to use cannon()
     i: u16 = 0,
     backing: ?ArrayList(u8) = null,
-    kind: Kind,
-    kindext: KindExt = .nos,
+    kind: Kind = .nos,
     parsed: bool = false,
     subtoken: u8 = 0,
     // I hate this but I've spent too much time on this already #YOLO
@@ -210,8 +205,8 @@ pub const Token = struct {
         //if (self.resolved) |r| return r;
 
         return switch (self.kind) {
-            .Quote => return self.raw[1 .. self.raw.len - 1],
-            .IoRedir, .Var, .Path => return self.resolved orelse self.raw,
+            .quote => return self.raw[1 .. self.raw.len - 1],
+            .io, .vari, .path => return self.resolved orelse self.raw,
             else => self.raw,
         };
     }
@@ -339,7 +334,7 @@ pub const Tokenizer = struct {
         } else end += 1;
         return Token{
             .raw = src[0..end],
-            .kind = Kind.String,
+            .kind = .word,
         };
     }
 
@@ -348,20 +343,20 @@ pub const Tokenizer = struct {
         var i: usize = std.mem.indexOfAny(u8, src, " \t") orelse return Error.InvalidSrc;
         var t = Token{
             .raw = src[0..1],
-            .kind = .IoRedir,
+            .kind = .{ .io = .Err },
         };
         switch (src[0]) {
             '<' => {
                 t.raw = if (src.len > 1 and src[1] == '<') src[0..2] else src[0..1];
-                t.kindext = KindExt{ .io = .In };
+                t.kind = .{ .io = .In };
             },
             '>' => {
                 if (src[1] == '>') {
                     t.raw = src[0..2];
-                    t.kindext = KindExt{ .io = .Append };
+                    t.kind = .{ .io = .Append };
                 } else {
                     t.raw = src[0..1];
-                    t.kindext = KindExt{ .io = .Out };
+                    t.kind = .{ .io = .Out };
                 }
             },
             else => return Error.InvalidSrc,
@@ -377,35 +372,30 @@ pub const Tokenizer = struct {
         switch (src[0]) {
             ';' => return Token{
                 .raw = src[0..1],
-                .kind = .Operator,
-                .kindext = KindExt{ .oper = .Next },
+                .kind = .{ .oper = .Next },
             },
             '&' => {
                 if (src.len > 1 and src[1] == '&') {
                     return Token{
                         .raw = src[0..2],
-                        .kind = .Operator,
-                        .kindext = KindExt{ .oper = .Success },
+                        .kind = .{ .oper = .Success },
                     };
                 }
                 return Token{
                     .raw = src[0..1],
-                    .kind = .Operator,
-                    .kindext = KindExt{ .oper = .Background },
+                    .kind = .{ .oper = .Background },
                 };
             },
             '|' => {
                 if (src.len > 1 and src[1] == '|') {
                     return Token{
                         .raw = src[0..2],
-                        .kind = .Operator,
-                        .kindext = KindExt{ .oper = .Fail },
+                        .kind = .{ .oper = .Fail },
                     };
                 }
                 return Token{
                     .raw = src[0..1],
-                    .kind = .Operator,
-                    .kindext = KindExt{ .oper = .Pipe },
+                    .kind = .{ .oper = .Pipe },
                 };
             },
             else => return Error.InvalidSrc,
@@ -421,7 +411,7 @@ pub const Tokenizer = struct {
                 var t = try word(src[2..end]);
                 t.resolved = t.raw;
                 t.raw = src[0 .. t.raw.len + 3];
-                t.kind = .Var;
+                t.kind = .vari;
                 return t;
             } else return Error.InvalidSrc;
         }
@@ -429,7 +419,7 @@ pub const Tokenizer = struct {
         var t = try word(src[1..]);
         t.resolved = t.raw;
         t.raw = src[0 .. t.raw.len + 1];
-        t.kind = .Var;
+        t.kind = .vari;
 
         return t;
     }
@@ -440,7 +430,7 @@ pub const Tokenizer = struct {
         while (i < src.len and (src[i] == '_' or std.ascii.isAlphabetic(src[i]))) : (i += 1) {}
         return Token{
             .raw = src[0..i],
-            .kind = .String,
+            .kind = .word,
         };
     }
 
@@ -448,7 +438,7 @@ pub const Tokenizer = struct {
         switch (src[0]) {
             '=' => return Token{
                 .raw = src[0..1],
-                .kind = .Operator,
+                .kind = .{ .io = .Err },
             },
             else => return Error.InvalidSrc,
         }
@@ -509,7 +499,7 @@ pub const Tokenizer = struct {
 
         return Token{
             .raw = src[0..end],
-            .kind = Kind.Quote,
+            .kind = .quote,
             .subtoken = subt,
         };
     }
@@ -520,15 +510,12 @@ pub const Tokenizer = struct {
             if (s != ' ') break;
             end += 1;
         }
-        return Token{
-            .raw = src[0..end],
-            .kind = Kind.WhiteSpace,
-        };
+        return Token{ .raw = src[0..end], .kind = .ws };
     }
 
     fn path(src: []const u8) Error!Token {
         var t = try Tokenizer.string(src);
-        t.kind = Kind.Path;
+        t.kind = .path;
         return t;
     }
 
@@ -877,7 +864,7 @@ test "tokenize path" {
     var tokens = try titr.toSliceAny(a);
     try expectEql(t.raw.items.len, "blerg ~/dir".len);
     try expectEql(tokens.len, 3);
-    try expect(tokens[2].kind == Kind.Path);
+    try expect(tokens[2].kind == .path);
     try expect(eql(u8, tokens[2].raw, "~/dir"));
     a.free(tokens);
 
@@ -887,7 +874,7 @@ test "tokenize path" {
     tokens = try titr.toSliceAny(a);
     try expectEql(t.raw.items.len, "blerg /home/user/something".len);
     try expectEql(tokens.len, 3);
-    try expect(tokens[2].kind == Kind.Path);
+    try expect(tokens[2].kind == .path);
     try expect(eql(u8, tokens[2].raw, "/home/user/something"));
     a.free(tokens);
 }
@@ -1139,8 +1126,7 @@ test "token > file" {
     try eqlStr("ls", ti.first().cannon());
     var iot = ti.next().?;
     try eqlStr("file.txt", iot.cannon());
-    try std.testing.expect(iot.kind == .IoRedir);
-    try std.testing.expect(iot.kindext.io == .Out);
+    try std.testing.expect(iot.kind.io == .Out);
 }
 
 test "token > file extra ws" {
@@ -1172,8 +1158,7 @@ test "token > execSlice" {
     try eqlStr("ls", ti.first().cannon());
     var iot = ti.next().?;
     try eqlStr("file.txt", iot.cannon());
-    try std.testing.expect(iot.kind == .IoRedir);
-    try std.testing.expect(iot.kindext.io == .Out);
+    try std.testing.expect(iot.kind.io == .Out);
 
     ti.restart();
     try std.testing.expect(ti.peek() != null);
@@ -1199,8 +1184,7 @@ test "token >> file" {
     try eqlStr("ls", ti.first().cannon());
     var iot = ti.next().?;
     try eqlStr("file.txt", iot.cannon());
-    try std.testing.expect(iot.kind == .IoRedir);
-    try std.testing.expect(iot.kindext.io == .Append);
+    try std.testing.expect(iot.kind.io == .Append);
 }
 
 test "token < file" {
@@ -1247,9 +1231,8 @@ test "token &&" {
     try eqlStr("ls", ti.first().cannon());
     const n = ti.next().?;
     try eqlStr("&&", n.cannon());
-    try std.testing.expect(n.kind == .Operator);
-    try std.testing.expect(n.kindext == .oper);
-    try std.testing.expect(n.kindext.oper == .Success);
+    try std.testing.expect(n.kind == .oper);
+    try std.testing.expect(n.kind.oper == .Success);
     try eqlStr("success", ti.next().?.cannon());
 }
 
@@ -1269,9 +1252,8 @@ test "token ||" {
     try eqlStr("ls", ti.first().cannon());
     const n = ti.next().?;
     try eqlStr("||", n.cannon());
-    try std.testing.expect(n.kind == .Operator);
-    try std.testing.expect(n.kindext == .oper);
-    try std.testing.expect(n.kindext.oper == .Fail);
+    try std.testing.expect(n.kind == .oper);
+    try std.testing.expect(n.kind.oper == .Fail);
     try eqlStr("fail", ti.next().?.cannon());
 }
 
