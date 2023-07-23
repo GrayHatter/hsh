@@ -3,7 +3,6 @@ const log = @import("log");
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const File = std.fs.File;
-const Reader = io.Reader(File, File.ReadError, File.read);
 const io = std.io;
 const mem = std.mem;
 const CompOption = @import("completion.zig").CompOption;
