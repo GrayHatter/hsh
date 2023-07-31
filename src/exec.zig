@@ -427,11 +427,7 @@ test "mkstack" {
     var stk = try mkCallableStack(&a, &ti);
     try std.testing.expect(stk.len == 2);
     for (stk) |*s| {
-        var argl = std.mem.len(s.callable.exec.arg) + 1;
-        var arg = s.callable.exec.arg[0..argl];
-        a.free(@as([]u8, arg));
-        var argv = s.callable.exec.argv;
-        a.free(@as([]?[*]u8, argv[0..2]));
+        free(a, s);
     }
     a.free(stk);
 }
