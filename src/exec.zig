@@ -149,9 +149,9 @@ fn builtin(a: Allocator, parsed: ParsedIterator) Error!Builtin {
 }
 
 /// Caller owns memory of argv, and the open fds
-fn binary(a: Allocator, titr: ParsedIterator) Error!Binary {
+fn binary(a: Allocator, itr: *ParsedIterator) Error!Binary {
     var argv = ArrayList(?ARG).init(a);
-    var itr = titr;
+    defer itr.close();
 
     var exeZ: ?ARG = makeExeZ(a, itr.first().cannon()) catch |e| {
         log.err("path missing {s}\n", .{itr.first().cannon()});
@@ -229,7 +229,7 @@ fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
         var stk = CallableStack{
             .callable = switch (parsed.first().kind) {
                 .builtin => .{ .builtin = try builtin(a.*, parsed) },
-                else => .{ .exec = try binary(a.*, parsed) },
+                else => .{ .exec = try binary(a.*, &parsed) },
             },
             .stdio = io,
             .conditional = condition,

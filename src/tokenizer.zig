@@ -663,6 +663,8 @@ pub const Tokenizer = struct {
     fn resetHist(self: *Tokenizer) void {
         if (self.hist_z) |*hz| hz.clearAndFree();
         self.hist_z = null;
+        if (self.prev_exec) |*pr| pr.clearAndFree();
+        self.prev_exec = null;
     }
 
     pub fn resetRaw(self: *Tokenizer) void {
