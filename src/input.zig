@@ -151,10 +151,11 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *comple
     return simple(hsh, tkn, buffer, mode, comp);
 }
 
-pub fn input(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *complete.CompSet) !Event {
+pub fn input(hsh: *HSH, buffer: u8, mode: *Mode, comp: *complete.CompSet) !Event {
     // I no longer like this way of tokenization. I'd like to generate
     // Tokens as an n=2 state machine at time of keypress. It might actually
     // be required to unbreak a bug in history.
+    const tkn = &hsh.tkn;
 
     return switch (mode.*) {
         .completing => completing(hsh, tkn, buffer, mode, comp),

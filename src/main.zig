@@ -62,7 +62,7 @@ fn core(hsh: *HSH) !bool {
         if (nbyte == 0) {
             continue;
         }
-        const event = try input.input(hsh, tkn, buffer[0], &mode, &comp);
+        const event = try input.input(hsh, buffer[0], &mode, &comp);
         switch (event) {
             .None => continue,
             .ExitHSH => return false,
