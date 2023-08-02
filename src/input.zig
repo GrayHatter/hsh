@@ -58,7 +58,7 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet, mode: *Mode) 
     }
     if (mode.* == .typing) {
         try complete.complete(comp, hsh, &ctkn, flavor);
-        if (tkn.raw_maybe == null) {
+        if (tkn.raw_maybe == null and comp.original != null) {
             tkn.raw_maybe = comp.original.?.str;
         }
     }

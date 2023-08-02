@@ -9,6 +9,9 @@ const Token = tokenizer.Token;
 const Draw = @import("draw.zig");
 const Cord = Draw.Cord;
 const log = @import("log");
+const STRINGS = @import("strings.zig");
+const ERRSTR_TOOBIG = STRINGS.COMPLETE_TOOBIG;
+const ERRSTR_NOOPTS = STRINGS.COMPLETE_NOOPTS;
 
 const Self = @This();
 
@@ -159,7 +162,6 @@ fn styleInactive(lex: *Draw.Lexeme) void {
 //    flavor: Flavors,
 //    list: CompList,
 //};
-const ERRSTR = "[Not enough room to print {} items]";
 
 pub const CompSet = struct {
     alloc: Allocator,
@@ -321,7 +323,7 @@ pub const CompSet = struct {
         } else |err| {
             if (err == Draw.Layout.Error.ItemCount) {
                 var fbuf: [128]u8 = undefined;
-                const str = try std.fmt.bufPrint(&fbuf, ERRSTR, .{self.count()});
+                const str = try std.fmt.bufPrint(&fbuf, ERRSTR_TOOBIG, .{self.count()});
                 try Draw.drawAfter(d, Draw.LexTree{
                     .lex = Draw.Lexeme{ .char = str, .style = .{ .attr = .bold, .fg = .red } },
                 });
@@ -334,12 +336,19 @@ pub const CompSet = struct {
     pub fn drawAll(self: *CompSet, d: *Draw.Drawable, wh: Cord) !void {
         if (self.err) {
             var fbuf: [128]u8 = undefined;
-            const str = try std.fmt.bufPrint(&fbuf, ERRSTR, .{self.count()});
+            const str = try std.fmt.bufPrint(&fbuf, ERRSTR_TOOBIG, .{self.count()});
             try Draw.drawAfter(d, Draw.LexTree{
                 .lex = Draw.Lexeme{ .char = str, .style = .{ .attr = .bold, .fg = .red } },
             });
             return;
         }
+        if (self.count() <= 1) {
+            try Draw.drawAfter(d, Draw.LexTree{
+                .lex = Draw.Lexeme{ .char = ERRSTR_NOOPTS, .style = .{ .attr = .bold, .fg = .red } },
+            });
+            return;
+        }
+
         // Yeah... I know
         for (0..flavors_len) |flavor| {
             // TODO Draw name
