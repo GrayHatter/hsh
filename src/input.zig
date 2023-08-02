@@ -135,8 +135,10 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *comple
                 return doComplete(hsh, tkn, comp, mode);
             },
             '\n' => {
-                try tkn.replaceToken(comp.current());
-                try tkn.replaceCommit(comp.current());
+                if (comp.count() > 0) {
+                    try tkn.replaceToken(comp.current());
+                    try tkn.replaceCommit(comp.current());
+                }
                 mode.* = .typing;
                 return .Redraw;
             },
