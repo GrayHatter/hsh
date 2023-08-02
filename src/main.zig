@@ -36,7 +36,6 @@ test "main" {
 
 fn core(hsh: *HSH) !bool {
     var tkn = &hsh.tkn;
-    defer hsh.tty.print("\n", .{}) catch {};
     defer hsh.draw.reset();
     var buffer: [1]u8 = undefined;
     var mode: input.Mode = .typing;
@@ -44,9 +43,15 @@ fn core(hsh: *HSH) !bool {
     var comp = try complete.init(hsh);
     defer comp.raze();
 
+    var redraw = true;
+
     while (true) {
         hsh.draw.cursor = @truncate(tkn.cadj());
-        hsh.spin();
+        if (hsh.spin()) {
+            Draw.clearCtx(&hsh.draw);
+            try Draw.render(&hsh.draw);
+            redraw = true;
+        }
 
         //Draw.clearCtx(&hsh.draw);
 
@@ -55,9 +60,11 @@ fn core(hsh: *HSH) !bool {
         try jobsContext(hsh, bgjobs.items);
         //try ctxContext(hsh, try Context.fetch(hsh, .git));
         bgjobs.clearAndFree();
-        try prompt(hsh, tkn);
-        try Draw.render(&hsh.draw);
-
+        if (redraw) {
+            try prompt(hsh, tkn);
+            try Draw.render(&hsh.draw);
+            redraw = false;
+        }
         const nbyte = try input.read(hsh.input, &buffer);
         if (nbyte == 0) {
             continue;
@@ -71,7 +78,7 @@ fn core(hsh: *HSH) !bool {
                 Draw.clearCtx(&hsh.draw);
                 try Draw.render(&hsh.draw);
 
-                //try prompt(hsh, tkn);
+                redraw = true;
                 continue;
             },
             .Advice => {},
@@ -171,13 +178,22 @@ pub fn main() !void {
                     const first = ps.first().cannon();
                     defer ps.close();
                     if (!Exec.executable(&hsh, first)) {
-                        std.debug.print("Unable to find {s}\n", .{first});
+                        const estr = "[ Unable to find {s} ]";
+                        const size = first.len + estr.len;
+                        var fbuf: []u8 = hsh.alloc.alloc(u8, size) catch @panic("memory");
+                        defer hsh.alloc.free(fbuf);
+                        const str = try std.fmt.bufPrint(fbuf, estr, .{first});
+                        try Draw.drawAfter(&hsh.draw, Draw.LexTree{
+                            .lex = Draw.Lexeme{ .char = str, .style = .{ .attr = .bold, .fg = .red } },
+                        });
+                        try Draw.render(&hsh.draw);
+
                         continue :root;
                     }
                     while (itr.nextExec()) |_| {}
                     _ = itr.next();
                 }
-
+                try Draw.newLine(&hsh.draw);
                 exec(&hsh, &itr) catch |err| {
                     if (err == Exec.Error.ExeNotFound) {
                         std.debug.print("exe pipe error {}\n", .{err});

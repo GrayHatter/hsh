@@ -107,18 +107,21 @@ pub fn init(a: Allocator) !void {
     }
 }
 
-pub fn do(hsh: *HSH) void {
+pub const SigEvent = enum {
+    none,
+    clear,
+};
+
+pub fn do(hsh: *HSH) SigEvent {
     while (get()) |node| {
         var sig = node.data;
         const pid = sig.info.fields.common.first.piduid.pid;
         switch (sig.signal) {
             std.os.SIG.INT => {
-                // TODO move this branch to a better location
-                std.debug.print("^C\n\r", .{});
                 hsh.tkn.reset();
-                hsh.draw.reset();
+                _ = hsh.draw.write("^C\n\r") catch {};
                 hsh.hist.?.cnt = 0;
-                //std.debug.print("\n\rSIGNAL INT(oopsies)\n", .{});
+                return .clear;
             },
             std.os.SIG.CHLD => {
                 const child = jobs.get(pid) catch {
@@ -166,7 +169,7 @@ pub fn do(hsh: *HSH) void {
                         // TODO we should never not know about a job, but it's not a
                         // reason to die just yet.
                         std.debug.print("Unknown child on {} {}\n", .{ pid, sig.info.code });
-                        return;
+                        return .none;
                     };
                     if (child.*.status == .Running) {
                         child.*.termattr = hsh.tty.popTTY() catch unreachable;
@@ -207,6 +210,7 @@ pub fn do(hsh: *HSH) void {
             },
         }
     }
+    return .none;
 }
 
 pub fn raze() void {

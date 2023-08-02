@@ -290,6 +290,10 @@ pub fn clearCtx(d: *Drawable) void {
 /// prompt before exec.
 pub fn clear_before_exec(_: *Drawable) void {}
 
+pub fn newLine(d: *Drawable) Err!void {
+    _ = try d.write("\n");
+}
+
 // TODO rm -rf
 /// feeling lazy, might delete later
 pub fn printAfter(d: *const Drawable, comptime c: []const u8, a: anytype) !void {

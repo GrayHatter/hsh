@@ -232,20 +232,23 @@ pub const HSH = struct {
         std.time.sleep(10 * 1000 * 1000);
     }
 
-    pub fn spin(hsh: *HSH) void {
-        hsh.doSignals();
+    /// Returns true if there was an event requiring a redraw
+    pub fn spin(hsh: *HSH) bool {
+        var redraw = false;
+        redraw = redraw or hsh.doSignals();
         while (jobs.getFg()) |_| {
-            hsh.doSignals();
+            redraw = redraw or hsh.doSignals();
             hsh.sleep();
         }
         while (hsh.waiting) {
-            hsh.doSignals();
+            redraw = redraw or hsh.doSignals();
             hsh.sleep();
         }
         _ = hsh.hfs.watchCheck();
+        return redraw;
     }
 
-    fn doSignals(hsh: *HSH) void {
-        Signals.do(hsh);
+    fn doSignals(hsh: *HSH) bool {
+        return Signals.do(hsh) != .none;
     }
 };

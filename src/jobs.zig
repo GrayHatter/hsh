@@ -154,6 +154,6 @@ pub fn getFg() ?*const Job {
 /// waits for the job to complete, and reports true if it exited successfully
 pub fn waitFor(h: *HSH, jid: std.os.pid_t) Error!bool {
     var job = try get(jid);
-    while (job.alive()) h.spin();
+    while (job.alive()) _ = h.spin();
     return job.exit_code == 0;
 }
