@@ -294,7 +294,7 @@ pub fn simple(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *comple
         '\x20'...'\x7E' => |b| { // Normal printable ascii
             try tkn.consumec(b);
             try hsh.tty.print("{c}", .{b});
-            return .None;
+            return if (tkn.cadj() == 0) .None else .Redraw;
         },
         '\x7F' => { // backspace
             tkn.pop() catch |err| {
