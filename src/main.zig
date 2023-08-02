@@ -157,9 +157,10 @@ pub fn main() !void {
                 var titr = hsh.tkn.iterator();
                 var tokens = try titr.toSlice(hsh.alloc);
                 defer hsh.alloc.free(tokens);
-                var pitr = Parser.parse(&hsh.tkn.alloc, tokens) catch continue;
-                while (pitr.next()) |t| log.debug("{}\n", .{t});
-                pitr.close();
+
+                // var pitr = Parser.parse(&hsh.tkn.alloc, tokens) catch continue;
+                // while (pitr.next()) |t| log.debug("{}\n", .{t});
+                // pitr.close();
 
                 if (hsh.hist) |*hist| try hist.push(hsh.tkn.raw.items);
                 var itr = hsh.tkn.iterator();
