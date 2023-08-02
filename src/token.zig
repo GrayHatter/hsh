@@ -45,7 +45,7 @@ pub const Kind = union(enum) {
 };
 
 pub const Token = struct {
-    raw: []const u8, // "full" Slice, you probably want to use cannon()
+    str: []const u8,
     i: u16 = 0,
     backing: ?ArrayList(u8) = null,
     kind: Kind = .nos,
@@ -54,10 +54,17 @@ pub const Token = struct {
     // I hate this but I've spent too much time on this already #YOLO
     resolved: ?[]const u8 = null,
 
+    pub fn make(str: []const u8, k: Kind) Token {
+        return Token{
+            .str = str,
+            .kind = k,
+        };
+    }
+
     pub fn format(self: Token, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
         // this is what net.zig does, so it's what I do
         if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
-        try std.fmt.format(out, "Token({}){{{s}}}", .{ self.kind, self.raw });
+        try std.fmt.format(out, "Token({}){{{s}}}", .{ self.kind, self.str });
     }
 
     pub fn cannon(self: Token) []const u8 {
@@ -65,13 +72,13 @@ pub const Token = struct {
         //if (self.resolved) |r| return r;
 
         return switch (self.kind) {
-            .quote => return self.raw[1 .. self.raw.len - 1],
-            .io, .vari, .path => return self.resolved orelse self.raw,
-            else => self.raw,
+            .quote => return self.str[1 .. self.str.len - 1],
+            .io, .vari, .path => return self.resolved orelse self.str,
+            else => self.str,
         };
     }
 
-    // Don't upgrade raw, it must "always" point to the user prompt
+    // Don't upgrade str, it must "always" point to the user prompt
     // string[citation needed]
     pub fn upgrade(self: *Token, a: *Allocator) Error![]u8 {
         if (self.*.backing) |_| return self.*.backing.?.items;
@@ -104,7 +111,7 @@ pub const TokenIterator = struct {
             }
             if (Tokenizer.any(self.raw[i..])) |t| {
                 self.token = t;
-                self.index = i + t.raw.len;
+                self.index = i + t.str.len;
                 return &self.token;
             } else |e| {
                 std.debug.print("tokenizer error {}\n", .{e});
@@ -137,7 +144,7 @@ pub const TokenIterator = struct {
         if (t_) |t| {
             switch (t.kind) {
                 .oper => {
-                    self.index.? -= t.raw.len;
+                    self.index.? -= t.str.len;
                     return null;
                 },
                 else => {},
@@ -190,7 +197,7 @@ pub const TokenIterator = struct {
         var i: usize = 0;
         while (i < self.raw.len) {
             const t = try Tokenizer.any(self.raw[i..]);
-            i += t.raw.len;
+            i += t.str.len;
         }
         self.index = 0;
         return self.toSlice(a) catch return Error.Memory;

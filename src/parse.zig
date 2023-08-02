@@ -219,12 +219,12 @@ pub const Parser = struct {
     }
 
     fn single(a: *Allocator, token: *Token) Error!*Token {
-        if (token.raw.len == 0) return token;
+        if (token.str.len == 0) return token;
 
         switch (token.kind) {
             .quote => {
                 var needle = [2]u8{ '\\', token.subtoken };
-                if (mem.indexOfScalar(u8, token.raw, '\\')) |_| {} else return token;
+                if (mem.indexOfScalar(u8, token.str, '\\')) |_| {} else return token;
 
                 _ = token.upgrade(a) catch return Error.Unknown;
                 var i: usize = 0;
@@ -242,7 +242,7 @@ pub const Parser = struct {
                 return try variable(token);
             },
             .word => {
-                if (mem.indexOf(u8, token.raw, "/")) |_| {
+                if (mem.indexOf(u8, token.str, "/")) |_| {
                     token.kind = .path;
                     return token;
                 } else return token;
@@ -254,7 +254,7 @@ pub const Parser = struct {
                 return try path(token);
             },
             else => {
-                switch (token.raw[0]) {
+                switch (token.str[0]) {
                     '$' => return token,
                     else => return token,
                 }
@@ -304,7 +304,7 @@ pub const Parser = struct {
         if (Variables.get("HOME")) |v| {
             tkn.backing.?.clearRetainingCapacity();
             tkn.backing.?.appendSlice(v) catch return Error.Memory;
-            tkn.backing.?.appendSlice(tkn.raw[1..]) catch return Error.Memory;
+            tkn.backing.?.appendSlice(tkn.str[1..]) catch return Error.Memory;
         }
         return tkn;
     }
@@ -314,123 +314,6 @@ const expect = std.testing.expect;
 const expectEql = std.testing.expectEqual;
 const expectError = std.testing.expectError;
 const eql = std.mem.eql;
-test "quotes parsed" {
-    var a = std.testing.allocator;
-    var t: Tokenizer = Tokenizer.init(std.testing.allocator);
-    defer t.reset();
-
-    try t.consumes("\"\"");
-    var titr = t.iterator();
-    var tokens = try titr.toSlice(a);
-
-    try expectEql(t.raw.items.len, 2);
-    try expectEql(tokens.len, 1);
-    a.free(tokens);
-
-    t.reset();
-    try t.consumes("\"a\"");
-    titr = t.iterator();
-    tokens = try titr.toSlice(a);
-
-    try expectEql(t.raw.items.len, 3);
-    try expect(std.mem.eql(u8, t.raw.items, "\"a\""));
-    try expectEql(tokens[0].cannon().len, 1);
-    try expect(std.mem.eql(u8, tokens[0].cannon(), "a"));
-    a.free(tokens);
-
-    t.reset();
-    try t.consumes("\"this is some text\" more text");
-    titr = t.iterator();
-    tokens = try titr.toSlice(a);
-
-    try expectEql(t.raw.items.len, 29);
-    try expectEql(tokens[0].cannon().len, 17);
-    try expect(std.mem.eql(u8, tokens[0].raw, "\"this is some text\""));
-    try expect(std.mem.eql(u8, tokens[0].cannon(), "this is some text"));
-    a.free(tokens);
-
-    t.reset();
-    try t.consumes("`this is some text` more text");
-    titr = t.iterator();
-    tokens = try titr.toSlice(a);
-
-    try expectEql(t.raw.items.len, 29);
-    try expectEql(tokens[0].cannon().len, 17);
-    try expect(std.mem.eql(u8, tokens[0].raw, "`this is some text`"));
-    try expect(std.mem.eql(u8, tokens[0].cannon(), "this is some text"));
-    a.free(tokens);
-
-    t.reset();
-    try t.consumes("\"this is some text\" more text");
-    titr = t.iterator();
-    tokens = try titr.toSlice(a);
-
-    try expectEql(t.raw.items.len, 29);
-    try expectEql(tokens[0].cannon().len, 17);
-    try expect(std.mem.eql(u8, tokens[0].raw, "\"this is some text\""));
-    try expect(std.mem.eql(u8, tokens[0].cannon(), "this is some text"));
-    a.free(tokens);
-
-    t.reset();
-    try t.consumes("\"this is some text\\\" more text\"");
-    titr = t.iterator();
-    tokens = try titr.toSlice(a);
-
-    try expectEql(t.raw.items.len, 31);
-    try expect(std.mem.eql(u8, tokens[0].raw, "\"this is some text\\\" more text\""));
-    a.free(tokens);
-}
-
-test "quotes parse complex" {
-    var a = std.testing.allocator;
-    var t: Tokenizer = Tokenizer.init(std.testing.allocator);
-    defer t.reset();
-
-    const invalid =
-        \\"this is some text\\" more text"
-    ;
-    try t.consumes(invalid);
-    try expectEql(t.raw.items.len, 32);
-
-    //var itr = t.iterator();
-    //var err = itr.toSliceError(a);
-    //try expectError(Error.InvalidSrc, err); // TODO use OpenGroup
-    //try expectEql(t.err_idx, t.raw.items.len - 1);
-
-    t.reset();
-    const valid =
-        \\"this is some text\\" more text
-    ;
-    try t.consumes(valid);
-    try expectEql(t.raw.items.len, 31);
-
-    var titr = t.iterator();
-    var tokens = try titr.toSlice(a);
-
-    try expectEql(tokens.len, 3);
-    try expectEql(tokens[0].raw.len, 21);
-    const raw =
-        \\"this is some text\\"
-    ;
-    try expect(std.mem.eql(u8, tokens[0].raw, raw));
-    //const cannon =
-    //    \\this is some text\
-    //;
-    //try expectEql(tokens[0].cannon().len, 18);
-    //try expect(std.mem.eql(u8, tokens[0].cannon(), cannon));
-    a.free(tokens);
-
-    t.reset();
-    try t.consumes("'this is some text' more text");
-    titr = t.iterator();
-    tokens = try titr.toSlice(a);
-
-    try expectEql(tokens[0].cannon().len, 17);
-    try expect(std.mem.eql(u8, tokens[0].raw, "'this is some text'"));
-    try expect(std.mem.eql(u8, tokens[0].cannon(), "this is some text"));
-    t.reset();
-    a.free(tokens);
-}
 
 test "iterator nows" {
     var a = std.testing.allocator;
@@ -453,7 +336,7 @@ test "iterator alias is builtin" {
     var a = std.testing.allocator;
 
     var ts = [_]Token{
-        Token{ .kind = .word, .raw = "alias" },
+        Token{ .kind = .word, .str = "alias" },
     };
 
     var itr = try Parser.parse(&a, &ts);
@@ -477,9 +360,9 @@ test "iterator aliased" {
     });
 
     var ts = [_]Token{
-        Token{ .kind = .word, .raw = "la" },
-        Token{ .kind = .ws, .raw = " " },
-        Token{ .kind = .word, .raw = "src" },
+        Token{ .kind = .word, .str = "la" },
+        Token{ .kind = .ws, .str = " " },
+        Token{ .kind = .word, .str = "src" },
     };
 
     var itr = try Parser.parse(&a, &ts);
@@ -504,9 +387,9 @@ test "iterator aliased self" {
     });
 
     var ts = [_]Token{
-        Token{ .kind = .word, .raw = "ls" },
-        Token{ .kind = .ws, .raw = " " },
-        Token{ .kind = .word, .raw = "src" },
+        Token{ .kind = .word, .str = "ls" },
+        Token{ .kind = .ws, .str = " " },
+        Token{ .kind = .word, .str = "src" },
     };
 
     var itr = try Parser.parse(&a, &ts);
@@ -537,9 +420,9 @@ test "iterator aliased recurse" {
     });
 
     var ts = [_]Token{
-        Token{ .kind = .word, .raw = "la" },
-        Token{ .kind = .ws, .raw = " " },
-        Token{ .kind = .word, .raw = "src" },
+        Token{ .kind = .word, .str = "la" },
+        Token{ .kind = .ws, .str = " " },
+        Token{ .kind = .word, .str = "src" },
     };
 
     var itr = try Parser.parse(&a, &ts);

@@ -113,8 +113,8 @@ pub const Tokenizer = struct {
         self.c_tkn = 0;
         while (i < self.raw.items.len) {
             var t = try any(self.raw.items[i..]);
-            if (t.raw.len == 0) return Error.TokenizeFailed;
-            i += t.raw.len;
+            if (t.str.len == 0) return Error.TokenizeFailed;
+            i += t.str.len;
             if (i >= self.c_idx) return t;
             self.c_tkn += 1;
         }
@@ -150,71 +150,50 @@ pub const Tokenizer = struct {
             end = i;
             if (mem.indexOfAny(u8, src[i .. i + 1], BREAKING_TOKENS)) |_| break else continue;
         } else end += 1;
-        return Token{
-            .raw = src[0..end],
-            .kind = .word,
-        };
+        return Token.make(src[0..end], .word);
     }
 
     fn ioredir(src: []const u8) Error!Token {
         if (src.len < 3) return Error.InvalidSrc;
         var i: usize = std.mem.indexOfAny(u8, src, " \t") orelse return Error.InvalidSrc;
-        var t = Token{
-            .raw = src[0..1],
-            .kind = .{ .io = .Err },
-        };
+        var t = Token.make(src[0..1], .{ .io = .Err });
         switch (src[0]) {
             '<' => {
-                t.raw = if (src.len > 1 and src[1] == '<') src[0..2] else src[0..1];
+                t.str = if (src.len > 1 and src[1] == '<') src[0..2] else src[0..1];
                 t.kind = .{ .io = .In };
             },
             '>' => {
                 if (src[1] == '>') {
-                    t.raw = src[0..2];
+                    t.str = src[0..2];
                     t.kind = .{ .io = .Append };
                 } else {
-                    t.raw = src[0..1];
+                    t.str = src[0..1];
                     t.kind = .{ .io = .Out };
                 }
             },
             else => return Error.InvalidSrc,
         }
         while (src[i] == ' ' or src[i] == '\t') : (i += 1) {}
-        var target = (try any(src[i..])).raw;
+        var target = (try any(src[i..])).str;
         t.resolved = target;
-        t.raw = src[0 .. i + target.len];
+        t.str = src[0 .. i + target.len];
         return t;
     }
 
     fn execOp(src: []const u8) Error!Token {
         switch (src[0]) {
-            ';' => return Token{
-                .raw = src[0..1],
-                .kind = .{ .oper = .Next },
-            },
+            ';' => return Token.make(src[0..1], .{ .oper = .Next }),
             '&' => {
                 if (src.len > 1 and src[1] == '&') {
-                    return Token{
-                        .raw = src[0..2],
-                        .kind = .{ .oper = .Success },
-                    };
+                    return Token.make(src[0..2], .{ .oper = .Success });
                 }
-                return Token{
-                    .raw = src[0..1],
-                    .kind = .{ .oper = .Background },
-                };
+                return Token.make(src[0..1], .{ .oper = .Background });
             },
             '|' => {
                 if (src.len > 1 and src[1] == '|') {
-                    return Token{
-                        .raw = src[0..2],
-                        .kind = .{ .oper = .Fail },
-                    };
+                    return Token.make(src[0..2], .{ .oper = .Fail });
                 }
-                return Token{
-                    .raw = src[0..1],
-                    .kind = .{ .oper = .Pipe },
-                };
+                return Token.make(src[0..1], .{ .oper = .Pipe });
             },
             else => return Error.InvalidSrc,
         }
@@ -227,16 +206,16 @@ pub const Tokenizer = struct {
         if (src[1] == '{') {
             if (std.mem.indexOf(u8, src, "}")) |end| {
                 var t = try word(src[2..end]);
-                t.resolved = t.raw;
-                t.raw = src[0 .. t.raw.len + 3];
+                t.resolved = t.str;
+                t.str = src[0 .. t.str.len + 3];
                 t.kind = .vari;
                 return t;
             } else return Error.InvalidSrc;
         }
 
         var t = try word(src[1..]);
-        t.resolved = t.raw;
-        t.raw = src[0 .. t.raw.len + 1];
+        t.resolved = t.str;
+        t.str = src[0 .. t.str.len + 1];
         t.kind = .vari;
 
         return t;
@@ -246,18 +225,12 @@ pub const Tokenizer = struct {
     pub fn word(src: []const u8) Error!Token {
         var i: usize = 0;
         while (i < src.len and (src[i] == '_' or std.ascii.isAlphabetic(src[i]))) : (i += 1) {}
-        return Token{
-            .raw = src[0..i],
-            .kind = .word,
-        };
+        return Token.make(src[0..i], .word);
     }
 
     pub fn oper(src: []const u8) Error!Token {
         switch (src[0]) {
-            '=' => return Token{
-                .raw = src[0..1],
-                .kind = .{ .io = .Err },
-            },
+            '=' => return Token.make(src[0..1], .{ .io = .Err }),
             else => return Error.InvalidSrc,
         }
     }
@@ -316,7 +289,7 @@ pub const Tokenizer = struct {
         if (src[end - 1] != subt) return Error.OpenGroup;
 
         return Token{
-            .raw = src[0..end],
+            .str = src[0..end],
             .kind = .quote,
             .subtoken = subt,
         };
@@ -328,7 +301,7 @@ pub const Tokenizer = struct {
             if (s != ' ') break;
             end += 1;
         }
-        return Token{ .raw = src[0..end], .kind = .ws };
+        return Token.make(src[0..end], .ws);
     }
 
     fn path(src: []const u8) Error!Token {
@@ -513,34 +486,34 @@ const expectError = std.testing.expectError;
 const eql = std.mem.eql;
 test "quotes" {
     var t = try Tokenizer.quote("\"\"");
-    try expectEql(t.raw.len, 2);
+    try expectEql(t.str.len, 2);
     try expectEql(t.cannon().len, 0);
 
     t = try Tokenizer.quote("\"a\"");
-    try expectEql(t.raw.len, 3);
+    try expectEql(t.str.len, 3);
     try expectEql(t.cannon().len, 1);
-    try expect(std.mem.eql(u8, t.raw, "\"a\""));
+    try expect(std.mem.eql(u8, t.str, "\"a\""));
     try expect(std.mem.eql(u8, t.cannon(), "a"));
 
     var terr = Tokenizer.quote("\"this is invalid");
     try expectError(Error.OpenGroup, terr);
 
     t = try Tokenizer.quote("\"this is some text\" more text");
-    try expectEql(t.raw.len, 19);
+    try expectEql(t.str.len, 19);
     try expectEql(t.cannon().len, 17);
-    try expect(std.mem.eql(u8, t.raw, "\"this is some text\""));
+    try expect(std.mem.eql(u8, t.str, "\"this is some text\""));
     try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
 
     t = try Tokenizer.quote("`this is some text` more text");
-    try expectEql(t.raw.len, 19);
+    try expectEql(t.str.len, 19);
     try expectEql(t.cannon().len, 17);
-    try expect(std.mem.eql(u8, t.raw, "`this is some text`"));
+    try expect(std.mem.eql(u8, t.str, "`this is some text`"));
     try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
 
     t = try Tokenizer.quote("\"this is some text\" more text");
-    try expectEql(t.raw.len, 19);
+    try expectEql(t.str.len, 19);
     try expectEql(t.cannon().len, 17);
-    try expect(std.mem.eql(u8, t.raw, "\"this is some text\""));
+    try expect(std.mem.eql(u8, t.str, "\"this is some text\""));
     try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
 
     terr = Tokenizer.quote(
@@ -549,21 +522,21 @@ test "quotes" {
     try expectError(Error.OpenGroup, terr);
 
     t = try Tokenizer.quote("\"this is some text\\\" more text\"");
-    try expectEql(t.raw.len, 31);
+    try expectEql(t.str.len, 31);
     try expectEql(t.cannon().len, 29);
-    try expect(std.mem.eql(u8, t.raw, "\"this is some text\\\" more text\""));
+    try expect(std.mem.eql(u8, t.str, "\"this is some text\\\" more text\""));
     try expect(std.mem.eql(u8, t.cannon(), "this is some text\\\" more text"));
 
     t = try Tokenizer.quote("\"this is some text\\\\\" more text\"");
-    try expectEql(t.raw.len, 21);
+    try expectEql(t.str.len, 21);
     try expectEql(t.cannon().len, 19);
-    try expect(std.mem.eql(u8, t.raw, "\"this is some text\\\\\""));
+    try expect(std.mem.eql(u8, t.str, "\"this is some text\\\\\""));
     try expect(std.mem.eql(u8, t.cannon(), "this is some text\\\\"));
 
     t = try Tokenizer.quote("'this is some text' more text");
-    try expectEql(t.raw.len, 19);
+    try expectEql(t.str.len, 19);
     try expectEql(t.cannon().len, 17);
-    try expect(std.mem.eql(u8, t.raw, "'this is some text'"));
+    try expect(std.mem.eql(u8, t.str, "'this is some text'"));
     try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
 }
 
@@ -600,7 +573,7 @@ test "quotes tokened" {
     tokens = try titr.toSlice(a);
     try expectEql(t.raw.items.len, 29);
     try expectEql(tokens[0].cannon().len, 17);
-    try expect(std.mem.eql(u8, tokens[0].raw, "\"this is some text\""));
+    try expect(std.mem.eql(u8, tokens[0].str, "\"this is some text\""));
     try expect(std.mem.eql(u8, tokens[0].cannon(), "this is some text"));
 
     t.reset();
@@ -610,7 +583,7 @@ test "quotes tokened" {
     tokens = try titr.toSlice(a);
     try expectEql(t.raw.items.len, 29);
     try expectEql(tokens[0].cannon().len, 17);
-    try expect(std.mem.eql(u8, tokens[0].raw, "`this is some text`"));
+    try expect(std.mem.eql(u8, tokens[0].str, "`this is some text`"));
     try expect(std.mem.eql(u8, tokens[0].cannon(), "this is some text"));
 
     t.reset();
@@ -620,7 +593,7 @@ test "quotes tokened" {
     tokens = try titr.toSlice(a);
     try expectEql(t.raw.items.len, 29);
     try expectEql(tokens[0].cannon().len, 17);
-    try expect(std.mem.eql(u8, tokens[0].raw, "\"this is some text\""));
+    try expect(std.mem.eql(u8, tokens[0].str, "\"this is some text\""));
     try expect(std.mem.eql(u8, tokens[0].cannon(), "this is some text"));
 
     terr = Tokenizer.quote(
@@ -634,7 +607,7 @@ test "quotes tokened" {
     titr = t.iterator();
     tokens = try titr.toSlice(a);
     try expectEql(t.raw.items.len, 31);
-    try expect(std.mem.eql(u8, tokens[0].raw, "\"this is some text\\\" more text\""));
+    try expect(std.mem.eql(u8, tokens[0].str, "\"this is some text\\\" more text\""));
 
     try expectEql("this is some text\\\" more text".len, tokens[0].cannon().len);
     try expectEql(tokens[0].cannon().len, 29);
@@ -664,8 +637,8 @@ test "tokens" {
 test "tokenize string" {
     const tkn = Tokenizer.string("string is true");
     if (tkn) |tk| {
-        try expect(std.mem.eql(u8, tk.raw, "string"));
-        try expect(tk.raw.len == 6);
+        try expect(std.mem.eql(u8, tk.str, "string"));
+        try expect(tk.str.len == 6);
     } else |_| {
         try expect(false);
     }
@@ -674,7 +647,7 @@ test "tokenize string" {
 test "tokenize path" {
     var a = std.testing.allocator;
     const tokenn = try Tokenizer.path("blerg");
-    try expect(eql(u8, tokenn.raw, "blerg"));
+    try expect(eql(u8, tokenn.str, "blerg"));
 
     var t = Tokenizer.init(std.testing.allocator);
     defer t.reset();
@@ -685,7 +658,7 @@ test "tokenize path" {
     try expectEql(t.raw.items.len, "blerg ~/dir".len);
     try expectEql(tokens.len, 3);
     try expect(tokens[2].kind == .path);
-    try expect(eql(u8, tokens[2].raw, "~/dir"));
+    try expect(eql(u8, tokens[2].str, "~/dir"));
     a.free(tokens);
 
     t.reset();
@@ -695,7 +668,7 @@ test "tokenize path" {
     try expectEql(t.raw.items.len, "blerg /home/user/something".len);
     try expectEql(tokens.len, 3);
     try expect(tokens[2].kind == .path);
-    try expect(eql(u8, tokens[2].raw, "/home/user/something"));
+    try expect(eql(u8, tokens[2].str, "/home/user/something"));
     a.free(tokens);
 }
 
