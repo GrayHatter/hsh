@@ -340,13 +340,9 @@ pub fn simple(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *comple
                 return .Prompt;
             };
             defer hsh.alloc.free(tkns);
-            var run = Parser.parse(&tkn.alloc, tkns);
-            //Draw.clearCtx(&hsh.draw);
-            if (run) |*pitr| {
-                defer pitr.close();
-                if (pitr.tokens.len > 0) return .Exec;
-                return .Redraw;
-            } else |_| {}
+            var run = Parser.parse(&tkn.alloc, tkns) catch return .Redraw;
+            defer run.close();
+            if (run.tokens.len > 0) return .Exec;
             return .Redraw;
         },
         else => |b| {
