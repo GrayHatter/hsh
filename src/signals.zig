@@ -28,6 +28,7 @@ const SI_CODE = enum(u6) {
     CONTINUED,
 };
 
+var arena: std.heap.ArenaAllocator = undefined;
 var alloc: Allocator = undefined;
 var queue: Queue(Signal) = Queue(Signal).init();
 
@@ -67,7 +68,10 @@ pub fn get() ?Queue(Signal).Node {
 
 /// TODO change init to accept a GP allocator, and wrap *that* with arena
 pub fn init(a: Allocator) !void {
-    alloc = a;
+    // Using an arena allocator here to try to solve the deadlock when "freeing"
+    // heap space inside a signal.
+    arena = std.heap.ArenaAllocator.init(a);
+    alloc = arena.allocator();
 
     const SA = std.os.linux.SA;
     // zsh blocks and unblocks winch signals during most processing, collecting
@@ -214,5 +218,5 @@ pub fn do(hsh: *HSH) SigEvent {
 }
 
 pub fn raze() void {
-    //arena.deinit();
+    arena.deinit();
 }
