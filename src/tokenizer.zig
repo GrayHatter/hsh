@@ -372,6 +372,25 @@ pub const Tokenizer = struct {
         return Error.InvalidSrc;
     }
 
+    fn dropWhitespace(self: *Tokenizer) Error!usize {
+        if (!std.ascii.isWhitespace(self.raw.items[self.c_idx - 1])) {
+            return 0;
+        }
+        var count: usize = 1;
+        self.c_idx -|= 1;
+        var c = self.raw.orderedRemove(@intCast(self.c_idx));
+        while (std.ascii.isWhitespace(c) and self.c_idx > 0) {
+            self.c_idx -|= 1;
+            c = self.raw.orderedRemove(@intCast(self.c_idx));
+            count +|= 1;
+        }
+        if (!std.ascii.isWhitespace(c)) {
+            try self.consumec(c);
+            count -|= 1;
+        }
+        return count;
+    }
+
     // this clearly needs a bit more love
     pub fn popUntil(self: *Tokenizer) Error!void {
         if (self.raw.items.len == 0 or self.c_idx == 0) return;
@@ -1120,4 +1139,24 @@ test "pop" {
     }
     try std.testing.expectError(Error.Empty, t.pop());
     t.reset();
+}
+
+test "dropWhitespace" {
+    var t = Tokenizer.init(std.testing.allocator);
+    defer t.reset();
+    try t.consumes("a      ");
+    try std.testing.expect(t.raw.items.len == 7);
+    try std.testing.expect(try t.dropWhitespace() == 6);
+    try std.testing.expect(t.raw.items.len == 1);
+
+    t.reset();
+    try t.consumes("a      b      ");
+    try std.testing.expect(t.raw.items.len == 14);
+    try std.testing.expect(try t.dropWhitespace() == 6);
+    try std.testing.expect(t.raw.items.len == 8);
+    try std.testing.expect(try t.dropWhitespace() == 0);
+    try std.testing.expect(t.raw.items.len == 8);
+    try t.pop();
+    try std.testing.expect(try t.dropWhitespace() == 6);
+    try std.testing.expect(t.raw.items.len == 1);
 }
