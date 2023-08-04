@@ -373,13 +373,13 @@ pub const Tokenizer = struct {
     }
 
     fn dropWhitespace(self: *Tokenizer) Error!usize {
-        if (!std.ascii.isWhitespace(self.raw.items[self.c_idx - 1])) {
+        if (self.c_idx == 0 or !std.ascii.isWhitespace(self.raw.items[self.c_idx - 1])) {
             return 0;
         }
         var count: usize = 1;
         self.c_idx -|= 1;
         var c = self.raw.orderedRemove(@intCast(self.c_idx));
-        while (std.ascii.isWhitespace(c) and self.c_idx > 0) {
+        while (self.c_idx > 0 and std.ascii.isWhitespace(c)) {
             self.c_idx -|= 1;
             c = self.raw.orderedRemove(@intCast(self.c_idx));
             count +|= 1;
@@ -391,26 +391,41 @@ pub const Tokenizer = struct {
         return count;
     }
 
-    // this clearly needs a bit more love
-    pub fn popUntil(self: *Tokenizer) Error!void {
-        if (self.raw.items.len == 0 or self.c_idx == 0) return;
-
+    fn dropAlphanum(self: *Tokenizer) Error!usize {
+        if (self.c_idx == 0 or !std.ascii.isAlphanumeric(self.raw.items[self.c_idx - 1])) {
+            return 0;
+        }
+        var count: usize = 1;
         self.c_idx -|= 1;
-        var t = self.raw.orderedRemove(@bitCast(self.c_idx));
-        while (std.ascii.isWhitespace(t) and self.c_idx > 0) {
+        var c = self.raw.orderedRemove(@intCast(self.c_idx));
+        while (self.c_idx > 0 and std.ascii.isAlphanumeric(c)) {
             self.c_idx -|= 1;
-            t = self.raw.orderedRemove(@bitCast(self.c_idx));
+            c = self.raw.orderedRemove(@intCast(self.c_idx));
+            count +|= 1;
         }
-        while (std.ascii.isAlphanumeric(t) and self.c_idx > 0) {
-            self.c_idx -|= 1;
-            t = self.raw.orderedRemove(@bitCast(self.c_idx));
+        if (!std.ascii.isAlphanumeric(c)) {
+            try self.consumec(c);
+            count -|= 1;
         }
-        while (std.ascii.isWhitespace(t) and self.c_idx > 0) {
-            self.c_idx -|= 1;
-            t = self.raw.orderedRemove(@bitCast(self.c_idx));
+        return count;
+    }
+
+    // this clearly needs a bit more love
+    pub fn dropWord(self: *Tokenizer) Error!usize {
+        if (self.raw.items.len == 0 or self.c_idx == 0) return 0;
+
+        var count = try self.dropWhitespace();
+        var wd = try self.dropAlphanum();
+        if (wd > 0) {
+            count += wd;
+            wd = try self.dropWhitespace();
+            count += wd;
+            if (wd > 0) {
+                try self.consumec(' ');
+                count -|= 1;
+            }
         }
-        if (self.c_idx > 1 and (std.ascii.isWhitespace(t) or std.ascii.isAlphanumeric(t)))
-            try self.consumec(t);
+        return count;
     }
 
     pub fn pop(self: *Tokenizer) Error!void {
@@ -1159,4 +1174,41 @@ test "dropWhitespace" {
     try t.pop();
     try std.testing.expect(try t.dropWhitespace() == 6);
     try std.testing.expect(t.raw.items.len == 1);
+}
+
+test "dropAlpha" {
+    var t = Tokenizer.init(std.testing.allocator);
+    defer t.reset();
+    try t.consumes("a      aoeu");
+    try std.testing.expect(t.raw.items.len == 11);
+    try std.testing.expect(try t.dropAlphanum() == 4);
+    try std.testing.expect(t.raw.items.len == 7);
+
+    t.reset();
+    try t.consumes("a      b      aoeu");
+    try std.testing.expect(t.raw.items.len == 18);
+    try std.testing.expect(try t.dropAlphanum() == 4);
+    try std.testing.expect(t.raw.items.len == 14);
+    try std.testing.expect(try t.dropAlphanum() == 0);
+    try std.testing.expect(t.raw.items.len == 14);
+    _ = try t.dropWhitespace();
+    try std.testing.expect(try t.dropAlphanum() == 1);
+    try std.testing.expect(t.raw.items.len == 7);
+}
+
+test "dropWord" {
+    var t = Tokenizer.init(std.testing.allocator);
+    defer t.reset();
+    try t.consumes("a      ");
+    try std.testing.expect(t.raw.items.len == 7);
+    try std.testing.expect(try t.dropWord() == 7);
+    try std.testing.expect(t.raw.items.len == 0);
+
+    t.reset();
+    try t.consumes("a      b      aoeu aoeu");
+    try std.testing.expect(t.raw.items.len == 23);
+    try std.testing.expect(try t.dropWord() == 4);
+    try std.testing.expect(t.raw.items.len == 19);
+    try std.testing.expect(try t.dropWord() == 10);
+    try std.testing.expect(t.raw.items.len == 9);
 }

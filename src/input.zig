@@ -288,7 +288,7 @@ pub fn simple(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *comple
         '\x14' => try hsh.tty.print("^T\r\n", .{}), // DC4
         '\x1A' => try hsh.tty.print("^Z\r\n", .{}),
         '\x17' => { // ^w
-            try tkn.popUntil();
+            _ = try tkn.dropWord();
             return .Redraw;
         },
         '\x20'...'\x7E' => |b| { // Normal printable ascii
