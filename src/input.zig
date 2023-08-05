@@ -11,6 +11,8 @@ const TokenErr = tokenizer.Error;
 const parser = @import("parse.zig");
 const Parser = parser.Parser;
 
+const Input = @This();
+
 pub const Event = enum(u8) {
     None,
     HSHIntern,
@@ -25,10 +27,12 @@ pub const Event = enum(u8) {
     ExpectedError,
 };
 
-pub const Mode = enum {
-    typing,
-    completing,
+const Mode = enum {
+    TYPING,
+    COMPLETING,
 };
+
+var mode: Mode = .TYPING;
 
 pub fn read(fd: std.os.fd_t, buf: []u8) !usize {
     const rc = std.os.linux.read(fd, buf.ptr, buf.len);
@@ -50,13 +54,13 @@ pub fn read(fd: std.os.fd_t, buf: []u8) !usize {
     }
 }
 
-fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet, mode: *Mode) !Event {
+fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Event {
     const ctkn = tkn.cursor_token() catch unreachable;
     var flavor: complete.Kind = .any;
     if (tkn.c_tkn == 0) {
         flavor = .path_exe;
     }
-    if (mode.* == .typing) {
+    if (mode == .TYPING) {
         try complete.complete(comp, hsh, &ctkn, flavor);
         if (tkn.raw_maybe == null and comp.original != null) {
             tkn.raw_maybe = comp.original.?.str;
@@ -69,13 +73,13 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet, mode: *Mode) 
         try tkn.replaceCommit(only);
         //const newctkn = tkn.cursor_token() catch unreachable;
         //try complete.complete(comp, hsh, &newctkn, flavor);
-        mode.* = .typing;
+        mode = .TYPING;
         return .Prompt;
-    } else if (mode.* == .typing) {
+    } else if (mode == .TYPING) {
         comp.drawAll(&hsh.draw, hsh.draw.term_size) catch |err| {
             if (err == Draw.Layout.Error.ItemCount) return .Prompt else return err;
         };
-        mode.* = .completing;
+        mode = .COMPLETING;
         return .Redraw;
     }
 
@@ -92,12 +96,12 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet, mode: *Mode) 
     return .Redraw;
 }
 
-fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *complete.CompSet) !Event {
-    if (mode.* == .completing) {
+fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !Event {
+    if (mode == .COMPLETING) {
         switch (buffer) {
             '\x1B' => {
                 // There's a bug with mouse in/out triggering this code
-                mode.* = .typing;
+                mode = .TYPING;
                 try tkn.dropMaybe();
                 if (comp.original) |o| {
                     try tkn.addMaybe(o.str);
@@ -107,11 +111,11 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *comple
             '\x7f' => {
                 // backspace
                 comp.searchPop() catch {
-                    mode.* = .typing;
+                    mode = .TYPING;
                     tkn.raw_maybe = null;
                     return .Redraw;
                 };
-                const exit = doComplete(hsh, tkn, comp, mode);
+                const exit = doComplete(hsh, tkn, comp);
                 try tkn.dropMaybe();
                 try tkn.addMaybe(comp.search.items);
                 return exit;
@@ -123,8 +127,8 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *comple
             '_',
             => |c| {
                 try comp.searchChar(c);
-                const exit = doComplete(hsh, tkn, comp, mode);
-                if (mode.* == .completing) {
+                const exit = doComplete(hsh, tkn, comp);
+                if (mode == .COMPLETING) {
                     try tkn.dropMaybe();
                     try tkn.addMaybe(comp.search.items);
                 }
@@ -132,40 +136,48 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *comple
             },
             '\x09' => {
                 // tab \t
-                return doComplete(hsh, tkn, comp, mode);
+                return doComplete(hsh, tkn, comp);
             },
             '\n' => {
                 if (comp.count() > 0) {
                     try tkn.replaceToken(comp.current());
                     try tkn.replaceCommit(comp.current());
                 }
-                mode.* = .typing;
+                mode = .TYPING;
                 return .Redraw;
             },
             else => {
-                mode.* = .typing;
+                mode = .TYPING;
                 try tkn.replaceCommit(null);
-                _ = try simple(hsh, tkn, buffer, mode, comp);
+                _ = try simple(hsh, tkn, buffer, comp);
                 return .Redraw;
             },
         }
     }
-    return simple(hsh, tkn, buffer, mode, comp);
+    return simple(hsh, tkn, buffer, comp);
 }
 
-pub fn input(hsh: *HSH, buffer: u8, mode: *Mode, comp: *complete.CompSet) !Event {
+pub fn do(hsh: *HSH, comp: *complete.CompSet) !Event {
     // I no longer like this way of tokenization. I'd like to generate
     // Tokens as an n=2 state machine at time of keypress. It might actually
     // be required to unbreak a bug in history.
     const tkn = &hsh.tkn;
 
-    return switch (mode.*) {
-        .completing => completing(hsh, tkn, buffer, mode, comp),
-        else => simple(hsh, tkn, buffer, mode, comp),
+    var buffer: [1]u8 = undefined;
+
+    var nbyte: usize = 0;
+    while (nbyte == 0) {
+        if (hsh.spin()) return .Update;
+        nbyte = try read(hsh.input, &buffer);
+    }
+
+    return switch (mode) {
+        .COMPLETING => completing(hsh, tkn, buffer[0], comp),
+        else => simple(hsh, tkn, buffer[0], comp),
     };
 }
 
-pub fn simple(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *complete.CompSet) !Event {
+pub fn simple(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !Event {
     switch (buffer) {
         '\x1B' => {
             const to_reset = tkn.err_idx != 0;
@@ -275,7 +287,7 @@ pub fn simple(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *comple
                 try tkn.consumec(b);
                 return .Prompt;
             }
-            return doComplete(hsh, tkn, comp, mode);
+            return doComplete(hsh, tkn, comp);
         },
         '\x0C' => {
             try hsh.tty.print("^L (reset term)\x1B[J\n", .{});
@@ -315,8 +327,8 @@ pub fn simple(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *comple
         },
         '\x04' => {
             if (tkn.raw.items.len == 0) {
-                try hsh.tty.print("^D\r\n", .{});
-                try hsh.tty.print("\r\nExit caught... Bye\r\n", .{});
+                try hsh.tty.print("^D\n\n", .{});
+                try hsh.tty.print("\nExit caught... Good bye :)\n", .{});
                 return .ExitHSH;
             }
 
@@ -325,6 +337,11 @@ pub fn simple(hsh: *HSH, tkn: *Tokenizer, buffer: u8, mode: *Mode, comp: *comple
         },
         '\n', '\r' => |b| {
             hsh.draw.cursor = 0;
+            if (tkn.raw.items.len == 0) {
+                try hsh.tty.print("\n", .{});
+                return .Prompt;
+            }
+
             var titr = tkn.iterator();
 
             const tkns = titr.toSliceError(hsh.alloc) catch |e| {

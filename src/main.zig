@@ -37,8 +37,6 @@ test "main" {
 fn core(hsh: *HSH) !bool {
     var tkn = &hsh.tkn;
     defer hsh.draw.reset();
-    var buffer: [1]u8 = undefined;
-    var mode: input.Mode = .typing;
     //try Context.update(hsh, &[_]Context.Contexts{.git});
     var comp = try complete.init(hsh);
     defer comp.raze();
@@ -46,30 +44,21 @@ fn core(hsh: *HSH) !bool {
     var redraw = true;
 
     while (true) {
-        hsh.draw.cursor = @truncate(tkn.cadj());
-        if (hsh.spin()) {
-            Draw.clearCtx(&hsh.draw);
-            try Draw.render(&hsh.draw);
-            redraw = true;
-        }
-
-        //Draw.clearCtx(&hsh.draw);
+        //hsh.draw.cursor = @truncate(tkn.cadj());
 
         hsh.draw.clear();
         var bgjobs = jobs.getBg(hsh.alloc) catch unreachable;
         try jobsContext(hsh, bgjobs.items);
         //try ctxContext(hsh, try Context.fetch(hsh, .git));
         bgjobs.clearAndFree();
+
+        redraw = hsh.spin() or redraw;
         if (redraw) {
             try prompt(hsh, tkn);
             try Draw.render(&hsh.draw);
             redraw = false;
         }
-        const nbyte = try input.read(hsh.input, &buffer);
-        if (nbyte == 0) {
-            continue;
-        }
-        const event = try input.input(hsh, buffer[0], &mode, &comp);
+        const event = try input.do(hsh, &comp);
         switch (event) {
             .None => continue,
             .ExitHSH => return false,

@@ -234,18 +234,22 @@ pub const HSH = struct {
 
     /// Returns true if there was an event requiring a redraw
     pub fn spin(hsh: *HSH) bool {
-        var redraw = false;
-        redraw = redraw or hsh.doSignals();
+        var event = hsh.doSignals();
+        var was_bg = false;
         while (jobs.getFg()) |_| {
-            redraw = redraw or hsh.doSignals();
+            event = hsh.doSignals() or event;
+            was_bg = true;
             hsh.sleep();
         }
+        if (was_bg) hsh.tty.setOwner(null) catch {
+            log.err("Unable to setOwner after child event\n", .{});
+        };
         while (hsh.waiting) {
-            redraw = redraw or hsh.doSignals();
+            event = hsh.doSignals() or event;
             hsh.sleep();
         }
         _ = hsh.hfs.watchCheck();
-        return redraw;
+        return event;
     }
 
     fn doSignals(hsh: *HSH) bool {

@@ -29,6 +29,7 @@ pub const TTY = struct {
     in: Reader,
     out: Writer,
     attrs: ArrayList(os.termios),
+    pid: std.os.pid_t = undefined,
 
     /// Calling init multiple times is UB
     pub fn init(a: Allocator) !TTY {
@@ -98,22 +99,23 @@ pub const TTY = struct {
         return old;
     }
 
-    pub fn setOwner(self: *TTY, pgrp: std.os.pid_t) !void {
+    pub fn setOwner(self: *TTY, mpgrp: ?std.os.pid_t) !void {
+        const pgrp = mpgrp orelse self.pid;
         _ = try std.os.tcsetpgrp(self.dev, pgrp);
     }
 
     pub fn pwnTTY(self: *TTY) void {
-        const pid = std.os.linux.getpid();
+        self.pid = std.os.linux.getpid();
         const ssid = custom_syscalls.getsid(0);
-        log.debug("pwning {} and {} \n", .{ pid, ssid });
-        if (ssid != pid) {
-            _ = custom_syscalls.setpgid(pid, pid);
+        log.debug("pwning {} and {} \n", .{ self.pid, ssid });
+        if (ssid != self.pid) {
+            _ = custom_syscalls.setpgid(self.pid, self.pid);
         }
         log.debug("pwning tc \n", .{});
         //_ = custom_syscalls.tcsetpgrp(self.dev, &pid);
         //var res = custom_syscalls.tcsetpgrp(self.dev, &pid);
-        const res = std.os.tcsetpgrp(self.dev, pid) catch |err| {
-            log.err("Unable to tcsetpgrp to {}, error was: {}\n", .{ pid, err });
+        const res = std.os.tcsetpgrp(self.dev, self.pid) catch |err| {
+            log.err("Unable to tcsetpgrp to {}, error was: {}\n", .{ self.pid, err });
             log.err("Will attempt to tcgetpgrp\n", .{});
             const get = std.os.tcgetpgrp(self.dev) catch |err2| {
                 log.err("tcgetpgrp err {}\n", .{err2});
