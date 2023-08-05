@@ -329,8 +329,7 @@ pub fn simple(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !
         },
         '\x04' => {
             if (tkn.raw.items.len == 0) {
-                try hsh.tty.print("^D\n\n", .{});
-                try hsh.tty.print("\nExit caught... Good bye :)\n", .{});
+                try hsh.tty.print("^D\r\nExit caught... Good bye :)\n", .{});
                 return .ExitHSH;
             }
 
