@@ -2,8 +2,9 @@
 ~~Don't use this, it's not ready!~~
 You probably don't want to use this yet, but it's my current default shell (what
 could go wrong) so it might work for you if you're brave enough. I suspect you
-need `zig version` `0.11.0-dev.3061` or better to compile.
+need `zig version` `0.11.0` or better to compile.
 
+Current technological breakthrough => "fire"
 
 ## Goals
   - Support *modern* pttys
