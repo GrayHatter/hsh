@@ -232,6 +232,8 @@ pub fn simple(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !
                         .Delete => tkn.delc(),
                         else => {}, // unable to use range on Key :<
                     }
+                    // TODO find a better scope for this call
+                    hsh.draw.cursor = @truncate(tkn.cadj());
                 },
                 .ModKey => |mk| {
                     switch (mk.mods) {

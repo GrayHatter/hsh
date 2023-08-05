@@ -44,8 +44,6 @@ fn core(hsh: *HSH) !bool {
     var redraw = true;
 
     while (true) {
-        //hsh.draw.cursor = @truncate(tkn.cadj());
-
         hsh.draw.clear();
         var bgjobs = jobs.getBg(hsh.alloc) catch unreachable;
         try jobsContext(hsh, bgjobs.items);
