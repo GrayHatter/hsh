@@ -184,7 +184,7 @@ pub fn do(hsh: *HSH) SigEvent {
                 //std.debug.print("\n{}\n", .{child});
             },
             std.os.SIG.CONT => {
-                log.warning("Unexpected cont from pid({})\n", .{pid});
+                log.warn("Unexpected cont from pid({})\n", .{pid});
                 hsh.waiting = false;
             },
             std.os.SIG.WINCH => {

@@ -41,7 +41,7 @@ pub fn err(comptime format: []const u8, args: anytype) void {
     hshLogFn(.err, .default, format, args);
 }
 
-pub fn warning(comptime format: []const u8, args: anytype) void {
+pub fn warn(comptime format: []const u8, args: anytype) void {
     hshLogFn(.warning, .default, format, args);
 }
 

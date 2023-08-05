@@ -82,13 +82,14 @@ fn usage() void {
 
 fn readArgs() ?u8 {
     var args = std.process.args();
+    _ = args.next(); // argv[0] bin name
     while (args.next()) |arg| {
         log.info("arg: {s}\n", .{arg});
         if (std.mem.eql(u8, "debug", arg)) {
             log.verbosity = .debug;
         } else if (std.mem.eql(u8, "debug-trace", arg)) {
             log.verbosity = .trace;
-        } else if (std.mem.eql(u8, "--version", arg)) {
+        } else if (std.mem.eql(u8, "--version", arg) or std.mem.eql(u8, "version", arg)) {
             std.debug.print("version: {}\n", .{hsh_build.version});
             return 0;
         } else if (std.mem.eql(u8, "--help", arg)) {
@@ -99,6 +100,8 @@ fn readArgs() ?u8 {
             // ELSE print config search locations
             // and print the config file[s] that would be sourced or updated
             @panic("Not Implemented");
+        } else {
+            log.warn("unknown arg: {s}\n", .{arg});
         }
     }
     return null;
