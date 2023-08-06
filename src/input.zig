@@ -112,6 +112,16 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !
     if (mode == .COMPLETING) {
         switch (buffer) {
             '\x1B' => {
+                const key = try Keys.esc(hsh);
+                if (key == .ModKey and
+                    @intFromEnum(key.ModKey.key) == 'Z' and
+                    key.ModKey.mods == .shift)
+                {
+                    comp.revr();
+                    comp.revr();
+                    return doComplete(hsh, tkn, comp);
+                }
+
                 // There's a bug with mouse in/out triggering this code
                 mode = .TYPING;
                 try tkn.dropMaybe();

@@ -155,6 +155,10 @@ fn csi_xterm(buffer: []const u8) KeyPress {
                 },
             };
         },
+        'Z' => |key| {
+            if (buffer.len > 1) unreachable;
+            return .{ .ModKey = .{ .key = @enumFromInt(key), .mods = .shift } };
+        },
         else => |unk| {
             log.err("\n\n{c}\n\n", .{unk});
             unreachable;

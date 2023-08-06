@@ -263,6 +263,25 @@ pub const CompSet = struct {
         }
     }
 
+    pub fn revr(self: *CompSet) void {
+        if (self.count() < 3) return;
+        if (self.index == 0) {
+            while (true) {
+                if (self.group_index == 0) {
+                    self.group_index = self.groups.len - 1;
+                } else {
+                    self.group_index -= 1;
+                }
+                self.group = &self.groups[self.group_index];
+                if (self.group.items.len > 0) {
+                    self.index = self.group.items.len - 1;
+                    break;
+                }
+            }
+        }
+        self.index -= 1;
+    }
+
     pub fn groupSet(self: *CompSet, grp: ?Flavors) void {
         if (grp) |g| {
             self.group_index = @intFromEnum(g);
