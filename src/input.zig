@@ -33,6 +33,7 @@ const Mode = enum {
 };
 
 var mode: Mode = .TYPING;
+var next: ?Event = null;
 
 pub fn read(fd: std.os.fd_t, buf: []u8) !usize {
     const rc = std.os.linux.read(fd, buf.ptr, buf.len);
@@ -174,10 +175,13 @@ pub fn do(hsh: *HSH, comp: *complete.CompSet) !Event {
         nbyte = try read(hsh.input, &buffer);
     }
 
-    return switch (mode) {
+    const prevm = mode;
+    var result = switch (mode) {
         .COMPLETING => completing(hsh, tkn, buffer[0], comp),
         else => simple(hsh, tkn, buffer[0], comp),
     };
+    defer next = if (prevm == mode) null else .Redraw;
+    return next orelse result;
 }
 
 pub fn simple(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !Event {
