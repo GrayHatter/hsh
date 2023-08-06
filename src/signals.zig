@@ -124,7 +124,9 @@ pub fn do(hsh: *HSH) SigEvent {
             std.os.SIG.INT => {
                 hsh.tkn.reset();
                 _ = hsh.draw.write("^C\n\r") catch {};
-                hsh.hist.?.cnt = 0;
+                if (hsh.hist) |*hist| {
+                    hist.cnt = 0;
+                }
                 return .clear;
             },
             std.os.SIG.CHLD => {
