@@ -74,6 +74,9 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Event {
         //const newctkn = tkn.cursor_token() catch unreachable;
         //try complete.complete(comp, hsh, &newctkn, flavor);
         mode = .TYPING;
+        try Draw.drawAfter(&hsh.draw, Draw.LexTree{
+            .lex = Draw.Lexeme{ .char = "[ found ]", .style = .{ .attr = .bold, .fg = .green } },
+        });
         return .Prompt;
     } else if (mode == .TYPING) {
         comp.drawAll(&hsh.draw, hsh.draw.term_size) catch |err| {

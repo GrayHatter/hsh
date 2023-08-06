@@ -160,21 +160,25 @@ fn setAttr(buf: *DrawBuf, attr: ?Attr) Err!void {
 
 fn bgColor(buf: *DrawBuf, c: ?Color) Err!void {
     if (c) |bg| {
-        switch (bg) {
-            .red => buf.appendSlice("\x1B[41m") catch return Err.Memory,
-            .blue => buf.appendSlice("\x1B[34m") catch return Err.Memory,
-            else => buf.appendSlice("\x1B[39m") catch return Err.Memory,
-        }
+        const color = switch (bg) {
+            .red => "\x1B[41m",
+            .blue => "\x1B[34m",
+            .green => "\x1B[42m",
+            else => "\x1B[39m",
+        };
+        buf.appendSlice(color) catch return Err.Memory;
     }
 }
 
 fn fgColor(buf: *DrawBuf, c: ?Color) Err!void {
     if (c) |fg| {
-        switch (fg) {
-            .red => buf.appendSlice("\x1B[31m") catch return Err.Memory,
-            .blue => buf.appendSlice("\x1B[34m") catch return Err.Memory,
-            else => buf.appendSlice("\x1B[39m") catch return Err.Memory,
-        }
+        const color = switch (fg) {
+            .red => "\x1B[31m",
+            .blue => "\x1B[34m",
+            .green => "\x1B[32m",
+            else => "\x1B[39m",
+        };
+        buf.appendSlice(color) catch return Err.Memory;
     }
 }
 
