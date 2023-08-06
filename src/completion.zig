@@ -349,7 +349,7 @@ pub const CompSet = struct {
             });
             return;
         }
-        if (self.count() <= 1) {
+        if (self.count() == 0) {
             try Draw.drawAfter(d, Draw.LexTree{
                 .lex = Draw.Lexeme{ .char = ERRSTR_NOOPTS, .style = .{ .attr = .bold, .fg = .red } },
             });

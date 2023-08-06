@@ -66,6 +66,10 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Event {
         if (tkn.raw_maybe == null and comp.original != null) {
             tkn.raw_maybe = comp.original.?.str;
         }
+        mode = .COMPLETING;
+    } else {
+        var target = comp.next();
+        try tkn.replaceToken(target);
     }
 
     if (comp.known()) |only| {
@@ -74,17 +78,20 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Event {
         try tkn.replaceCommit(only);
         //const newctkn = tkn.cursor_token() catch unreachable;
         //try complete.complete(comp, hsh, &newctkn, flavor);
-        mode = .TYPING;
-        try Draw.drawAfter(&hsh.draw, Draw.LexTree{
-            .lex = Draw.Lexeme{ .char = "[ found ]", .style = .{ .attr = .bold, .fg = .green } },
-        });
-        return .Prompt;
-    } else if (mode == .TYPING) {
-        comp.drawAll(&hsh.draw, hsh.draw.term_size) catch |err| {
-            if (err == Draw.Layout.Error.ItemCount) return .Prompt else return err;
-        };
-        mode = .COMPLETING;
-        return .Redraw;
+
+        if (only.kind != null and only.kind.? == .file_system and only.kind.?.file_system == .Dir) {
+            const newctkn = tkn.cursor_token() catch unreachable;
+            try complete.complete(comp, hsh, &newctkn, flavor);
+            if (tkn.raw_maybe == null and comp.original != null) {
+                tkn.raw_maybe = comp.original.?.str;
+            }
+        } else {
+            mode = .TYPING;
+            try Draw.drawAfter(&hsh.draw, Draw.LexTree{
+                .lex = Draw.Lexeme{ .char = "[ found ]", .style = .{ .attr = .bold, .fg = .green } },
+            });
+            return .Prompt;
+        }
     }
 
     if (comp.countFiltered() == 0) {
@@ -92,13 +99,12 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Event {
             .lex = Draw.Lexeme{ .char = "[ nothing found ]", .style = .{ .attr = .bold, .fg = .red } },
         });
         return .Prompt;
+    } else {
+        comp.drawAll(&hsh.draw, hsh.draw.term_size) catch |err| {
+            if (err == Draw.Layout.Error.ItemCount) return .Prompt else return err;
+        };
     }
-    var target = comp.next();
-    comp.drawAll(&hsh.draw, hsh.draw.term_size) catch |err| {
-        if (err == Draw.Layout.Error.ItemCount) return .Prompt else return err;
-    };
 
-    try tkn.replaceToken(target);
     return .Redraw;
 }
 
