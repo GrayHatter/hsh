@@ -1,9 +1,17 @@
 const std = @import("std");
-pub const History = @This();
+const fs = @import("fs.zig");
 const BufArray = std.ArrayList(u8);
+
+pub const History = @This();
 
 file: std.fs.File,
 cnt: usize = 0,
+
+pub fn init(f: std.fs.File) History {
+    return .{
+        .file = f,
+    };
+}
 
 pub fn atTop(self: *History) bool {
     return 0 == self.hist.getPos() catch 0;

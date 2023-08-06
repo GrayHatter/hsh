@@ -28,11 +28,15 @@ pub const FSKind = enum {
     Pipe,
     Device,
     Socket,
-    Other,
+    whiteout,
+    door,
+    event_port,
+    unknown,
 
     pub fn color(k: FSKind) ?Draw.Color {
         return switch (k) {
             .Dir => .blue,
+            .unknown => .red,
             else => null,
         };
     }
@@ -45,7 +49,10 @@ pub const FSKind = enum {
             .named_pipe => .Pipe,
             .unix_domain_socket => .Socket,
             .block_device, .character_device => .Device,
-            else => unreachable,
+            .whiteout => .whiteout,
+            .door => .door,
+            .event_port => .event_port,
+            .unknown => .unknown,
         };
     }
 };

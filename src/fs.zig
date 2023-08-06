@@ -5,6 +5,7 @@ const Allocator = mem.Allocator;
 const log = @import("log");
 
 pub const fs = @This();
+
 const Names = struct {
     cwd: []u8,
     cwd_short: []u8,
@@ -65,7 +66,6 @@ pub const Error = error{
 };
 
 pub fn init(a: mem.Allocator, env: std.process.EnvMap) !fs {
-    var conf = try getConfigs(a, &env);
     var paths = std.ArrayList([]const u8).init(a);
     if (env.get("PATH")) |penv| {
         var mpaths = std.mem.tokenize(u8, penv, ":");
@@ -78,8 +78,7 @@ pub fn init(a: mem.Allocator, env: std.process.EnvMap) !fs {
 
     var self = fs{
         .alloc = a,
-        .rc = conf[0],
-        .history = conf[1],
+        .rc = findCoreFile(a, &env, .rc),
         .dirs = .{
             .cwd = try std.fs.cwd().openIterableDir(".", .{}),
         },
@@ -178,6 +177,7 @@ fn fileAt(
         ) catch return null;
     }
 }
+
 pub fn writeFileAt(dir: std.fs.Dir, name: []const u8, comptime create: bool) ?std.fs.File {
     return fileAt(dir, name, create, true);
 }
@@ -238,7 +238,7 @@ pub fn findPath(a: Allocator, env: *const std.process.EnvMap, name: []const u8, 
         if (std.fs.openDirAbsolute(out, .{})) |d| {
             if (writeFileAt(d, name, create)) |file| return file;
         } else |_| {
-            std.debug.print("unable to open {s}\n", .{out});
+            log.err("unable to open {s}\n", .{out});
         }
     } else if (env.get("HOME")) |home| {
         var main = try a.dupe(u8, home);
@@ -249,25 +249,30 @@ pub fn findPath(a: Allocator, env: *const std.process.EnvMap, name: []const u8, 
                     if (writeFileAt(hch, name[1..], create)) |file| {
                         return file;
                     }
-                } else |e| std.debug.print("unable to open {s} {}\n", .{ "hsh", e });
+                } else |e| log.err("unable to open {s} {}\n", .{ "hsh", e });
                 //return hc;
-            } else |e| std.debug.print("unable to open {s} {}\n", .{ "conf", e });
+            } else |e| log.err("unable to open {s} {}\n", .{ "conf", e });
             if (writeFileAt(h, name, create)) |file| {
                 return file;
             }
-        } else |e| std.debug.print("unable to open {s} {}\n", .{ "home", e });
+        } else |e| log.err("unable to open {s} {}\n", .{ "home", e });
     }
 
     return Error.Missing;
 }
 
-/// TODO fix this API, it's awful
-fn getConfigs(A: Allocator, env: *const std.process.EnvMap) !struct { ?std.fs.File, ?std.fs.File } {
-    var a = A;
-    var rc = openRcFile(a, env) catch null;
-    var hs = openHistFile(a, env) catch null;
+pub const CoreFiles = enum {
+    rc,
+    history,
+};
 
-    return .{ rc, hs };
+/// TODO fix this API, it's awful
+/// nah... let's make it worse
+pub fn findCoreFile(a: Allocator, env: *const std.process.EnvMap, cf: CoreFiles) ?std.fs.File {
+    return switch (cf) {
+        .rc => openRcFile(a, env) catch null,
+        .history => openHistFile(a, env) catch null,
+    };
 }
 
 fn openRcFile(a: Allocator, env: *const std.process.EnvMap) !?std.fs.File {
@@ -275,7 +280,10 @@ fn openRcFile(a: Allocator, env: *const std.process.EnvMap) !?std.fs.File {
 }
 
 fn openHistFile(a: Allocator, env: *const std.process.EnvMap) !?std.fs.File {
-    return try findPath(a, env, ".hsh_history", false);
+    return findPath(a, env, ".hsh_history", false) catch |e| {
+        if (e != Error.Missing) return e;
+        return try findPath(a, env, ".hsh_history", true);
+    };
 }
 
 test "fs" {

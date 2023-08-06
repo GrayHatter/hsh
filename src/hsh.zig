@@ -199,7 +199,7 @@ pub const HSH = struct {
             .pid = std.os.linux.getpid(),
             .jobs = jobs.init(a),
             .hfs = hfs,
-            .hist = if (hfs.history) |hst| History{ .file = hst } else null,
+            .hist = if (fs.findCoreFile(a, &env, .history)) |hst| History.init(hst) else null,
         };
 
         try initHSH(&hsh);
