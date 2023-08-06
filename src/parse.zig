@@ -137,7 +137,7 @@ pub const ParsedIterator = struct {
             if (index == 0) {
                 return self.resolveAlias(token);
             } else {
-                return self.resolveGlob(token);
+                return self.resolveWord(token);
             }
         }
     }
@@ -159,6 +159,39 @@ pub const ParsedIterator = struct {
                 unreachable;
             }
         }
+    }
+
+    fn resolveWord(self: *Self, token: *const Token) void {
+        var t = Tokenizer.simple(token.str) catch unreachable;
+        if (t.str.len != token.str.len) {
+            var skip: usize = 0;
+            var list = std.ArrayList(u8).init(self.alloc.*);
+            for (token.str, 0..) |c, i| {
+                if (skip > 0) {
+                    skip -%= 1;
+                    continue;
+                }
+                switch (c) {
+                    '$' => {
+                        var vari = Tokenizer.vari(token.str[i..]) catch {
+                            list.append(c) catch unreachable;
+                            continue;
+                        };
+                        skip = vari.str.len - 1;
+                        const res = Parser.single(self.alloc, &vari) catch continue;
+                        if (res.resolved) |str| {
+                            for (str) |s| list.append(s) catch unreachable;
+                        }
+                    },
+                    else => list.append(c) catch {},
+                }
+            }
+            const owned = list.toOwnedSlice() catch unreachable;
+            self.subtokensAdd(owned) catch unreachable;
+        } else if (std.mem.indexOf(u8, token.cannon(), "*")) |_| {
+            return self.resolveGlob(token);
+        }
+        return;
     }
 
     fn resolveGlob(self: *Self, token: *const Token) void {
@@ -218,7 +251,7 @@ pub const Parser = struct {
         };
     }
 
-    fn single(a: *Allocator, token: *Token) Error!*Token {
+    pub fn single(a: *Allocator, token: *Token) Error!*Token {
         if (token.str.len == 0) return token;
 
         switch (token.kind) {
@@ -553,13 +586,41 @@ test "parse vars existing braces inline" {
         //std.debug.print("{}\n", .{t});
         i += 1;
     }
-    try expectEql(i, 4);
+    try expectEql(i, 3);
     var first = itr.first().cannon();
     try eqlStr("echo", first);
 
-    try eqlStr("extra", itr.next().?.cannon());
-    try eqlStr("value", itr.peek().?.cannon());
-    try expect(itr.next().?.kind == .vari);
+    try eqlStr("extravalue", itr.next().?.cannon());
+    try eqlStr("blerg", itr.next().?.cannon());
+    try expect(itr.next() == null);
+}
+
+test "parse vars existing braces inline both" {
+    var a = std.testing.allocator;
+
+    var ti = TokenIterator{
+        .raw = "echo extra${string}thingy blerg",
+    };
+
+    Variables.init(a);
+    defer Variables.raze();
+    try Variables.put("string", "value");
+
+    try eqlStr("value", Variables.get("string").?);
+
+    const slice = try ti.toSlice(a);
+    defer a.free(slice);
+    var itr = try Parser.parse(&a, slice);
+    var i: usize = 0;
+    while (itr.next()) |_| {
+        //std.debug.print("{}\n", .{t});
+        i += 1;
+    }
+    try expectEql(i, 3);
+    var first = itr.first().cannon();
+    try eqlStr("echo", first);
+
+    try eqlStr("extravaluethingy", itr.next().?.cannon());
     try eqlStr("blerg", itr.next().?.cannon());
     try expect(itr.next() == null);
 }

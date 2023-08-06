@@ -139,19 +139,19 @@ pub const Tokenizer = struct {
             '>', '<' => Tokenizer.ioredir(src),
             '|', '&', ';' => Tokenizer.execOp(src),
             '$' => vari(src),
-            else => Tokenizer.string(src),
+            else => Tokenizer.word(src),
         };
     }
 
-    pub fn string(src: []const u8) Error!Token {
-        if (mem.indexOfAny(u8, src[0..1], BREAKING_TOKENS)) |_| return Error.InvalidSrc;
-        var end: usize = 0;
-        for (src, 0..) |_, i| {
-            end = i;
-            if (mem.indexOfAny(u8, src[i .. i + 1], BREAKING_TOKENS)) |_| break else continue;
-        } else end += 1;
-        return Token.make(src[0..end], .word);
-    }
+    //pub fn string(src: []const u8) Error!Token {
+    //    if (mem.indexOfAny(u8, src[0..1], BREAKING_TOKENS)) |_| return Error.InvalidSrc;
+    //    var end: usize = 0;
+    //    for (src, 0..) |_, i| {
+    //        end = i;
+    //        if (mem.indexOfAny(u8, src[i .. i + 1], BREAKING_TOKENS)) |_| break else continue;
+    //    } else end += 1;
+    //    return Token.make(src[0..end], .word);
+    //}
 
     fn ioredir(src: []const u8) Error!Token {
         if (src.len < 3) return Error.InvalidSrc;
@@ -199,13 +199,25 @@ pub const Tokenizer = struct {
         }
     }
 
+    pub fn uAlphaNum(src: []const u8) Error!Token {
+        var end: usize = 0;
+        for (src) |s| {
+            if (!std.ascii.isAlphanumeric(s) and s != '_')
+                break;
+            end += 1;
+        }
+        return Token.make(src[0..end], .word);
+    }
+
     pub fn vari(src: []const u8) Error!Token {
         if (src.len <= 1) return Error.InvalidSrc;
         if (src[0] != '$') return Error.InvalidSrc;
 
         if (src[1] == '{') {
+            if (src.len < 4) return Error.InvalidSrc;
+            if (std.ascii.isDigit(src[2])) return Error.InvalidSrc;
             if (std.mem.indexOf(u8, src, "}")) |end| {
-                var t = try word(src[2..end]);
+                var t = try uAlphaNum(src[2..end]);
                 t.resolved = t.str;
                 t.str = src[0 .. t.str.len + 3];
                 t.kind = .vari;
@@ -213,7 +225,8 @@ pub const Tokenizer = struct {
             } else return Error.InvalidSrc;
         }
 
-        var t = try word(src[1..]);
+        if (std.ascii.isDigit(src[1])) return Error.InvalidSrc;
+        var t = try uAlphaNum(src[1..]);
         t.resolved = t.str;
         t.str = src[0 .. t.str.len + 1];
         t.kind = .vari;
@@ -221,11 +234,37 @@ pub const Tokenizer = struct {
         return t;
     }
 
+    pub fn simple(src: []const u8) Error!Token {
+        var end: usize = 0;
+        while (end < src.len) {
+            const s = src[end];
+            if (std.mem.indexOfScalar(u8, BREAKING_TOKENS, s)) |_| break;
+            end += 1;
+        }
+        return Token.make(src[0..end], .word);
+    }
+
     // ASCII only :<
     pub fn word(src: []const u8) Error!Token {
-        var i: usize = 0;
-        while (i < src.len and (src[i] == '_' or std.ascii.isAlphabetic(src[i]))) : (i += 1) {}
-        return Token.make(src[0..i], .word);
+        var end: usize = 0;
+        while (end < src.len) {
+            const s = src[end];
+            if (std.mem.indexOfScalar(u8, BREAKING_TOKENS, s)) |_| {
+                switch (s) {
+                    // '\'', '"' => {
+                    //     const t = try any(src[end..]);
+                    //     std.debug.print("t {}\n", .{t.str.len});
+                    //     end += t.str.len;
+                    // },
+                    ' ', '\t' => break,
+                    else => {
+                        const t = try any(src[end..]);
+                        end += t.str.len;
+                    },
+                }
+            } else end += 1;
+        }
+        return Token.make(src[0..end], .word);
     }
 
     pub fn oper(src: []const u8) Error!Token {
@@ -305,7 +344,7 @@ pub const Tokenizer = struct {
     }
 
     fn path(src: []const u8) Error!Token {
-        var t = try Tokenizer.string(src);
+        var t = try Tokenizer.word(src);
         t.kind = .path;
         return t;
     }
@@ -668,16 +707,6 @@ test "tokens" {
     try expect(std.mem.eql(u8, t.raw.items, "token"));
 }
 
-test "tokenize string" {
-    const tkn = Tokenizer.string("string is true");
-    if (tkn) |tk| {
-        try expect(std.mem.eql(u8, tk.str, "string"));
-        try expect(tk.str.len == 6);
-    } else |_| {
-        try expect(false);
-    }
-}
-
 test "tokenize path" {
     var a = std.testing.allocator;
     const tokenn = try Tokenizer.path("blerg");
@@ -761,10 +790,10 @@ test "breaking" {
     try t.consumes("alias la='ls -la'");
     var titr = t.iterator();
     var tokens = try titr.toSliceAny(a);
-    try expect(tokens.len == 4);
+    try expect(tokens.len == 3);
     a.free(tokens);
     tokens = try titr.toSlice(a);
-    try expect(tokens.len == 3);
+    try expect(tokens.len == 2);
     a.free(tokens);
 }
 
@@ -1095,7 +1124,7 @@ test "token vari words" {
     try eqlStr("string", t.cannon());
 
     t = try Tokenizer.vari("$string993");
-    try eqlStr("string", t.cannon());
+    try eqlStr("string993", t.cannon());
 
     t = try Tokenizer.vari("$string 993");
     try eqlStr("string", t.cannon());
@@ -1211,4 +1240,20 @@ test "dropWord" {
     try std.testing.expect(t.raw.items.len == 19);
     try std.testing.expect(try t.dropWord() == 10);
     try std.testing.expect(t.raw.items.len == 9);
+}
+
+test "ualphanum" {
+    const t = try Tokenizer.uAlphaNum("word word");
+    try std.testing.expect(t.str.len == 4);
+    try std.testing.expectEqualStrings("word", t.cannon());
+}
+
+test "any" {
+    var t = try Tokenizer.any("word");
+    try std.testing.expectEqualStrings("word", t.cannon());
+}
+
+test "inline quotes" {
+    var t = try Tokenizer.any("--inline='quoted string'");
+    try std.testing.expectEqualStrings("--inline='quoted string'", t.cannon());
 }
