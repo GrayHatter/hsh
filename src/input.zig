@@ -88,8 +88,10 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Event {
     }
 
     if (comp.countFiltered() == 0) {
-        // TODO print error
-        return .None;
+        try Draw.drawAfter(&hsh.draw, Draw.LexTree{
+            .lex = Draw.Lexeme{ .char = "[ nothing found ]", .style = .{ .attr = .bold, .fg = .red } },
+        });
+        return .Prompt;
     }
     var target = comp.next();
     comp.drawAll(&hsh.draw, hsh.draw.term_size) catch |err| {
