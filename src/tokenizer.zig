@@ -387,8 +387,10 @@ pub const Tokenizer = struct {
         if (new) |n| {
             switch (n.kind.?) {
                 .file_system => |fs| {
-                    if (fs == .Dir) {
-                        try self.consumec('/');
+                    switch (fs) {
+                        .Dir => try self.consumec('/'),
+                        .File, .Link, .Pipe => try self.consumec(' '),
+                        else => {},
                     }
                 },
                 else => {},
