@@ -15,13 +15,18 @@ const Names = struct {
 
     /// TODO still Leaks
     fn update(self: *Names, a: mem.Allocator) !void {
+        a.free(self.cwd);
+        a.free(self.cwd_short);
         self.cwd = try std.fs.cwd().realpathAlloc(a, ".");
-        self.cwd_short = self.cwd;
         if (self.home) |home| {
             if (std.mem.startsWith(u8, self.cwd, home)) {
                 self.cwd_short = try a.dupe(u8, self.cwd[home.len - 1 ..]);
                 self.cwd_short[0] = '~';
+            } else {
+                self.cwd_short = try a.dupe(u8, self.cwd);
             }
+        } else {
+            self.cwd_short = try a.dupe(u8, self.cwd);
         }
     }
 
@@ -83,8 +88,8 @@ pub fn init(a: mem.Allocator, env: std.process.EnvMap) !fs {
             .cwd = try std.fs.cwd().openIterableDir(".", .{}),
         },
         .names = .{
-            .cwd = undefined,
-            .cwd_short = undefined,
+            .cwd = try a.dupe(u8, "???"),
+            .cwd_short = try a.dupe(u8, "???"),
             .home = env.get("HOME"),
             .path = env.get("PATH"),
             .paths = paths,
