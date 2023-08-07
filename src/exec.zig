@@ -266,7 +266,9 @@ fn execBin(e: Binary) Error!void {
 fn free(a: Allocator, s: *CallableStack) void {
     // TODO implement
     switch (s.callable) {
-        .builtin => {},
+        .builtin => |b| {
+            a.free(b.argv.tokens);
+        },
         .exec => |e| {
             // TODO validate this clears all pointers correctly
             for (e.argv) |*marg| {
@@ -293,6 +295,7 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!void {
 
     if (stack.len == 1 and stack[0].callable == .builtin) {
         _ = try execBuiltin(h, &stack[0].callable.builtin);
+        free(h.alloc, &stack[0]);
         return;
     }
 
