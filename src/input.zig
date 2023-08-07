@@ -30,6 +30,7 @@ pub const Event = enum(u8) {
 const Mode = enum {
     TYPING,
     COMPLETING,
+    COMPENDING, // Just completed a token, may or may not need more
 };
 
 var mode: Mode = .TYPING;
@@ -85,6 +86,7 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Event {
             if (tkn.raw_maybe == null and comp.original != null) {
                 tkn.raw_maybe = comp.original.?.str;
             }
+            mode = .COMPENDING;
         } else {
             mode = .TYPING;
             try Draw.drawAfter(&hsh.draw, Draw.LexTree{
@@ -109,6 +111,17 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Event {
 }
 
 fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !Event {
+    if (mode == .COMPENDING) {
+        switch (buffer) {
+            '\x7f', '\n', ' ' => {
+                mode = .TYPING;
+            },
+            else => {
+                mode = .COMPLETING;
+            },
+        }
+    }
+
     if (mode == .COMPLETING) {
         switch (buffer) {
             '\x1B' => {
@@ -196,6 +209,7 @@ pub fn do(hsh: *HSH, comp: *complete.CompSet) !Event {
     const prevm = mode;
     var result = switch (mode) {
         .COMPLETING => completing(hsh, tkn, buffer[0], comp),
+        .COMPENDING => completing(hsh, tkn, buffer[0], comp),
         else => simple(hsh, tkn, buffer[0], comp),
     };
     defer next = if (prevm == mode) null else .Redraw;

@@ -245,6 +245,7 @@ pub const CompSet = struct {
     }
 
     pub fn current(self: *const CompSet) *const CompOption {
+        if (self.group.items.len == 0) return &self.original.?;
         return &self.group.items[self.index];
     }
 
