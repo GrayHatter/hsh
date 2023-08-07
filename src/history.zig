@@ -78,9 +78,9 @@ fn samesame(any: anytype, line: []const u8) !bool {
     var stream = any;
     const size = line.len + 2;
     const seekby: isize = -@as(isize, @intCast(size));
-    try stream.seekBy(seekby);
+    stream.seekBy(seekby) catch return false;
     var buf: [2048]u8 = undefined;
-    const read = try stream.reader().read(buf[0..size]);
+    const read = stream.reader().read(buf[0..size]) catch return false;
     if (read < size) return false;
     if (buf[0] != '\n') return false;
     if (!std.mem.eql(u8, buf[1 .. size - 1], line)) return false;
