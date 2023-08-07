@@ -57,7 +57,7 @@ pub fn read(fd: std.os.fd_t, buf: []u8) !usize {
 }
 
 fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Event {
-    const ctkn = tkn.cursor_token() catch unreachable;
+    const ctkn = tkn.cursor_token() catch return .Redraw;
     var flavor: complete.Kind = .any;
     if (tkn.c_tkn == 0) {
         flavor = .path_exe;

@@ -112,8 +112,8 @@ pub const Tokenizer = struct {
         var i: usize = 0;
         self.c_tkn = 0;
         while (i < self.raw.items.len) {
-            var t = try any(self.raw.items[i..]);
-            if (t.str.len == 0) return Error.TokenizeFailed;
+            const t = any(self.raw.items[i..]) catch break;
+            if (t.str.len == 0) break;
             i += t.str.len;
             if (i >= self.c_idx) return t;
             self.c_tkn += 1;
