@@ -164,12 +164,6 @@ fn styleInactive(lex: *Draw.Lexeme) void {
     }
 }
 
-/// For when groups gets dynamic alloc
-//pub const Group = struct {
-//    flavor: Flavors,
-//    list: CompList,
-//};
-
 pub const CompSet = struct {
     alloc: Allocator,
     original: ?CompOption,
