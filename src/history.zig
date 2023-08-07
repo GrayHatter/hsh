@@ -17,22 +17,22 @@ pub fn atTop(self: *History) bool {
     return 0 == self.hist.getPos() catch 0;
 }
 
-/// Returns true if read started at beginning of the file
+/// Returns true when there's is assumed to be more history
 /// Final file pos is undefined
-pub fn readLine(self: *History, buffer: ?*BufArray) !bool {
-    if (buffer == null) return try self.file.getPos() == 0;
+fn readLine(self: *History, buffer: ?*BufArray) !bool {
+    if (buffer == null) return try self.file.getPos() != 0;
     var hist = self.file;
     const pos = try hist.getPos();
     try hist.reader().readUntilDelimiterArrayList(buffer.?, '\n', 1 << 16);
-    return pos == 0;
+    return pos != 0;
 }
 
-/// Returns true if read started at beginning of the file
-/// if buffer is null, final cursor position is at the start of the line it
-/// would have read. If buffer is valid, the cursor position will have increased
-/// some amount. (Repeated calls with a valid buffer will likely return the same
-/// line)
-pub fn readLinePrev(self: *History, buffer: ?*BufArray) !bool {
+/// Returns false if read started at beginning of the file with the assumption
+/// there's no more data, if buffer is null, final cursor position is at the
+/// start of the line it would have read. If buffer is valid, the cursor
+/// position will have increased some amount. (Repeated calls with a valid
+/// buffer will likely return the same line)
+fn readLinePrev(self: *History, buffer: ?*BufArray) !bool {
     var hist = self.file;
     var cursor = try hist.getPos();
     var buf: [1]u8 = undefined;
@@ -47,28 +47,28 @@ pub fn readLinePrev(self: *History, buffer: ?*BufArray) !bool {
     return self.readLine(buffer);
 }
 
-pub fn readAt(self: *History, buffer: *BufArray) !bool {
+pub fn readAt(self: *History, buffer: *BufArray) bool {
     var hist = self.file;
     var row = self.cnt;
-    try hist.seekFromEnd(-1);
+    hist.seekFromEnd(-1) catch return false;
     while (row > 0) {
-        if (try readLinePrev(self, null)) break;
+        if (!(readLinePrev(self, null) catch false)) break;
         row -= 1;
     }
-    return readLinePrev(self, buffer);
+    return readLinePrev(self, buffer) catch false;
 }
 
-pub fn readAtFiltered(self: *History, buffer: *BufArray, str: []const u8) !bool {
+pub fn readAtFiltered(self: *History, buffer: *BufArray, str: []const u8) bool {
     var hist = self.file;
     var row = self.cnt;
-    try hist.seekFromEnd(-1);
+    hist.seekFromEnd(-1) catch return false;
     while (row > 0) {
-        const atstart = try readLinePrev(self, buffer);
+        const mdata = readLinePrev(self, buffer) catch return false;
         if (std.mem.startsWith(u8, buffer.items, str)) row -= 1;
-        if (atstart or row == 0) return true;
-        _ = try readLinePrev(self, null);
+        if (!mdata or row == 0) return false;
+        _ = readLinePrev(self, null) catch return false;
     }
-    return readLinePrev(self, buffer);
+    return readLinePrev(self, buffer) catch false;
 }
 
 /// Moves position of stream without resetting it

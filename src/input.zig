@@ -226,9 +226,9 @@ pub fn simple(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !
                             tkn.resetRaw();
                             hist.cnt += 1;
                             if (tkn.hist_z) |hz| {
-                                _ = hist.readAtFiltered(&tkn.raw, hz.items) catch unreachable;
+                                _ = hist.readAtFiltered(&tkn.raw, hz.items);
                             } else {
-                                _ = hist.readAt(&tkn.raw) catch unreachable;
+                                _ = hist.readAt(&tkn.raw);
                             }
                             tkn.c_idx = tkn.raw.items.len;
                         },
@@ -238,15 +238,13 @@ pub fn simple(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !
                                 hist.cnt -= 1;
                                 tkn.resetRaw();
                                 if (tkn.hist_z) |hz| {
-                                    _ = hist.readAtFiltered(&tkn.raw, hz.items) catch unreachable;
+                                    _ = hist.readAtFiltered(&tkn.raw, hz.items);
                                 } else {
-                                    _ = hist.readAt(&tkn.raw) catch unreachable;
+                                    _ = hist.readAt(&tkn.raw);
                                 }
                                 tkn.c_idx = tkn.raw.items.len;
-                            } else if (hist.cnt == 1) {
-                                hist.cnt -= 1;
-                                tkn.restoreLine();
                             } else {
+                                hist.cnt -|= 1;
                                 tkn.restoreLine();
                             }
                         },
@@ -359,7 +357,7 @@ pub fn simple(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !
             }
 
             try hsh.tty.print("^D\r\n", .{});
-            return .None;
+            return .Redraw;
         },
         '\n', '\r' => |b| {
             hsh.draw.cursor = 0;
