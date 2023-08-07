@@ -9,9 +9,9 @@ const Token = tokenizer.Token;
 const Draw = @import("draw.zig");
 const Cord = Draw.Cord;
 const log = @import("log");
-const STRINGS = @import("strings.zig");
-const ERRSTR_TOOBIG = STRINGS.COMPLETE_TOOBIG;
-const ERRSTR_NOOPTS = STRINGS.COMPLETE_NOOPTS;
+const S = @import("strings.zig");
+const ERRSTR_TOOBIG = S.COMPLETE_TOOBIG;
+const ERRSTR_NOOPTS = S.COMPLETE_NOOPTS;
 
 const Self = @This();
 
