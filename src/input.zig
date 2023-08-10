@@ -57,20 +57,13 @@ pub fn read(fd: std.os.fd_t, buf: []u8) !usize {
 }
 
 fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Event {
-    const ctkn = tkn.cursor_token() catch return .Redraw;
-    var flavor: complete.Kind = .any;
-    if (tkn.c_tkn == 0) {
-        flavor = .path_exe;
-    }
     if (mode == .TYPING) {
-        try complete.complete(comp, hsh, &ctkn, flavor);
+        const ctkn = tkn.cursor_token() catch tokenizer.Token{ .str = "" };
+        try complete.complete(comp, hsh, &ctkn, tkn.c_tkn);
         if (tkn.raw_maybe == null and comp.original != null) {
             tkn.raw_maybe = comp.original.?.str;
         }
         mode = .COMPLETING;
-    } else {
-        var target = comp.next();
-        try tkn.replaceToken(target);
     }
 
     if (comp.known()) |only| {
@@ -82,7 +75,7 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Event {
 
         if (only.kind != null and only.kind.? == .file_system and only.kind.?.file_system == .Dir) {
             const newctkn = tkn.cursor_token() catch unreachable;
-            try complete.complete(comp, hsh, &newctkn, flavor);
+            try complete.complete(comp, hsh, &newctkn, tkn.c_tkn);
             if (tkn.raw_maybe == null and comp.original != null) {
                 tkn.raw_maybe = comp.original.?.str;
             }
@@ -102,6 +95,8 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Event {
         });
         return .Prompt;
     } else {
+        var target = comp.next();
+        try tkn.replaceToken(target);
         comp.drawAll(&hsh.draw, hsh.draw.term_size) catch |err| {
             if (err == Draw.Layout.Error.ItemCount) return .Prompt else return err;
         };
@@ -210,7 +205,7 @@ pub fn do(hsh: *HSH, comp: *complete.CompSet) !Event {
     var result = switch (mode) {
         .COMPLETING => completing(hsh, tkn, buffer[0], comp),
         .COMPENDING => completing(hsh, tkn, buffer[0], comp),
-        else => simple(hsh, tkn, buffer[0], comp),
+        .TYPING => simple(hsh, tkn, buffer[0], comp),
     };
     defer next = if (prevm == mode) null else .Redraw;
     return next orelse result;
@@ -316,16 +311,16 @@ pub fn simple(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !
         '\x07' => try hsh.tty.print("^bel\r\n", .{}),
         '\x08' => try hsh.tty.print("\r\ninput: backspace\r\n", .{}),
         // probably ctrl + bs
-        '\x09' => |b| { // \t
+        '\x09' => |_| { // \t
             // Tab is best effort, it shouldn't be able to crash hsh
-            var titr = tkn.iterator();
-            var tkns = titr.toSlice(hsh.alloc) catch return .Prompt;
-            defer hsh.alloc.free(tkns);
+            //var titr = tkn.iterator();
+            //var tkns = titr.toSlice(hsh.alloc) catch return .Prompt;
+            //defer hsh.alloc.free(tkns);
 
-            if (tkns.len == 0) {
-                try tkn.consumec(b);
-                return .Prompt;
-            }
+            //if (tkns.len == 0) {
+            //    try tkn.consumec(b);
+            //    return .Prompt;
+            //}
             return doComplete(hsh, tkn, comp);
         },
         '\x0C' => {

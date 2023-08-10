@@ -518,11 +518,12 @@ fn completeSysPath(cs: *CompSet, h: *HSH, target: []const u8) !void {
 }
 /// Caller owns nothing, memory is only guaranteed until `complete` is
 /// called again.
-pub fn complete(cs: *CompSet, hsh: *HSH, t: *const Token, hint: Flavors) !void {
+pub fn complete(cs: *CompSet, hsh: *HSH, t: *const Token, tidx: usize) !void {
     cs.raze();
     cs.kind = t.kind;
     cs.index = 0;
 
+    const hint: Kind = if (tidx == 0) .path_exe else .any;
     switch (hint) {
         .path_exe => {
             try completeSysPath(cs, hsh, t.cannon());

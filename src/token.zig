@@ -46,7 +46,6 @@ pub const Kind = union(enum) {
 
 pub const Token = struct {
     str: []const u8,
-    i: u16 = 0,
     backing: ?ArrayList(u8) = null,
     kind: Kind = .nos,
     parsed: bool = false,
