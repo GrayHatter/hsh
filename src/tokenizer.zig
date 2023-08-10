@@ -111,6 +111,7 @@ pub const Tokenizer = struct {
     pub fn cursor_token(self: *Tokenizer) !Token {
         var i: usize = 0;
         self.c_tkn = 0;
+        if (self.raw.items.len == 0) return Error.Empty;
         while (i < self.raw.items.len) {
             const t = any(self.raw.items[i..]) catch break;
             if (t.str.len == 0) break;
