@@ -541,6 +541,7 @@ pub const Tokenizer = struct {
         self.err_idx = 0;
         self.c_tkn = 0;
         self.user_data = false;
+        self.raw_maybe = null;
     }
 
     /// Doesn't exec, called to save previous "local" command
