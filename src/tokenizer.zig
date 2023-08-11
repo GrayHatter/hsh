@@ -468,6 +468,10 @@ pub const Tokenizer = struct {
                 count -|= 1;
             }
         }
+        if (count == 0 and self.raw.items.len > 0 and self.c_idx != 0) {
+            try self.pop();
+            return self.dropWord();
+        }
         return count;
     }
 
