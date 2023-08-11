@@ -107,6 +107,7 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !
                 tkn.raw_maybe = comp.original.?.str;
             }
             mode = .COMPLETING;
+            return completing(hsh, tkn, buffer, comp);
         },
 
         .COMPENDING => {

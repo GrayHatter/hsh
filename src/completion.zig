@@ -463,6 +463,7 @@ fn completePath(cs: *CompSet, _: *HSH, target: []const u8) !void {
     } else {
         dir = std.fs.cwd().openIterableDir(path, .{}) catch return;
     }
+    defer dir.close();
 
     cs.original = CompOption{ .str = try cs.alloc.dupe(u8, base), .kind = null };
     var itr = dir.iterate();
@@ -495,6 +496,7 @@ fn completeSysPath(cs: *CompSet, h: *HSH, target: []const u8) !void {
             if (each.name[0] == '.' and (target.len == 0 or target[0] != '.')) continue;
             if (each.kind != .file) continue; // TODO probably a bug
             const file = fs.openFileAt(dir.dir, each.name, false) orelse continue;
+            defer file.close();
             if (file.metadata()) |md| {
                 if (!md.permissions().inner.unixHas(
                     std.fs.File.PermissionsUnix.Class.other,
@@ -532,12 +534,18 @@ pub fn complete(cs: *CompSet, hsh: *HSH, ts: []const Token) !void {
         },
         else => {
             switch (t.kind) {
-                .ws => try completeDir(cs, try std.fs.cwd().openIterableDir(".", .{})),
+                .ws => {
+                    var dir = try std.fs.cwd().openIterableDir(".", .{});
+                    defer dir.close();
+                    try completeDir(cs, dir);
+                },
                 .word, .path => {
                     if (std.mem.indexOfScalar(u8, t.cannon(), '/')) |_| {
                         try completePath(cs, hsh, t.cannon());
                     } else {
-                        try completeDirBase(cs, try std.fs.cwd().openIterableDir(".", .{}), t.cannon());
+                        var dir = try std.fs.cwd().openIterableDir(".", .{});
+                        defer dir.close();
+                        try completeDirBase(cs, dir, t.cannon());
                     }
                 },
                 .io => {
