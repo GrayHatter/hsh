@@ -350,7 +350,7 @@ pub const Tokenizer = struct {
         return t;
     }
 
-    pub fn dropMaybe(self: *Tokenizer) !void {
+    pub fn maybeDrop(self: *Tokenizer) !void {
         if (self.raw_maybe) |rm| {
             self.popRange(rm.len) catch {
                 log.err("Unable to drop maybe {s} len = {}\n", .{ rm, rm.len });
@@ -362,16 +362,16 @@ pub const Tokenizer = struct {
     }
 
     /// str must be safe to insert directly as is
-    pub fn addMaybe(self: *Tokenizer, str: []const u8) !void {
+    pub fn maybeAdd(self: *Tokenizer, str: []const u8) !void {
         self.raw_maybe = str;
         try self.consumes(str);
     }
 
     /// This function edits user text, so extra care must be taken to ensure
     /// it's something the user asked for!
-    pub fn replaceToken(self: *Tokenizer, new: *const CompOption) !void {
+    pub fn maybeReplace(self: *Tokenizer, new: *const CompOption) !void {
         if (self.raw_maybe) |_| {
-            try self.dropMaybe();
+            try self.maybeDrop();
         } else if (new.kind == null) {
             self.raw_maybe = new.str;
         }
@@ -383,7 +383,7 @@ pub const Tokenizer = struct {
         try self.consumeSafeish(new.str);
     }
 
-    pub fn replaceCommit(self: *Tokenizer, new: ?*const CompOption) !void {
+    pub fn maybeCommit(self: *Tokenizer, new: ?*const CompOption) !void {
         self.raw_maybe = null;
         if (new) |n| {
             switch (n.kind.?) {
@@ -394,6 +394,7 @@ pub const Tokenizer = struct {
                         else => {},
                     }
                 },
+                .path_exe => try self.consumec(' '),
                 else => {},
             }
         }
@@ -752,12 +753,12 @@ test "replace token" {
 
     try std.testing.expectEqualStrings(tokens[2].cannon(), "two");
     t.c_idx = 7;
-    try t.replaceToken(&CompOption{
+    try t.maybeReplace(&CompOption{
         .str = "two",
         .kind = null,
     });
 
-    try t.replaceToken(&CompOption{
+    try t.maybeReplace(&CompOption{
         .str = "TWO",
     });
     titr = t.iterator();
@@ -768,7 +769,7 @@ test "replace token" {
     try std.testing.expectEqualStrings(tokens[2].cannon(), "TWO");
     try expect(tokens.len == 5);
 
-    try t.replaceToken(&CompOption{
+    try t.maybeReplace(&CompOption{
         .str = "TWO THREE",
     });
     titr = t.iterator();

@@ -59,8 +59,8 @@ pub fn read(fd: std.os.fd_t, buf: []u8) !usize {
 fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Event {
     if (comp.known()) |only| {
         // original and single, complete now
-        try tkn.replaceToken(only);
-        try tkn.replaceCommit(only);
+        try tkn.maybeReplace(only);
+        try tkn.maybeCommit(only);
 
         if (only.kind != null and only.kind.? == .file_system and only.kind.?.file_system == .Dir) {
             var iter = tkn.iterator();
@@ -72,6 +72,7 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Event {
             }
             //mode = .COMPENDING;
         } else {
+            comp.reset();
             //mode = .TYPING;
             try Draw.drawAfter(&hsh.draw, Draw.LexTree{
                 .lex = Draw.Lexeme{ .char = "[ found ]", .style = .{ .attr = .bold, .fg = .green } },
@@ -87,7 +88,7 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Event {
         return .Prompt;
     } else {
         var target = comp.next();
-        try tkn.replaceToken(target);
+        try tkn.maybeReplace(target);
         comp.drawAll(&hsh.draw, hsh.draw.term_size) catch |err| {
             if (err == Draw.Layout.Error.ItemCount) return .Prompt else return err;
         };
@@ -125,10 +126,10 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !
                 else => {
                     // There's a bug with mouse in/out triggering this code
                     mode = .TYPING;
-                    try tkn.dropMaybe();
+                    try tkn.maybeDrop();
                     if (comp.original) |o| {
-                        try tkn.addMaybe(o.str);
-                        try tkn.replaceCommit(null);
+                        try tkn.maybeAdd(o.str);
+                        try tkn.maybeCommit(null);
                     }
                 },
             }
@@ -145,8 +146,8 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !
                 return .Redraw;
             };
             const exit = doComplete(hsh, tkn, comp);
-            try tkn.dropMaybe();
-            try tkn.addMaybe(comp.search.items);
+            try tkn.maybeDrop();
+            try tkn.maybeAdd(comp.search.items);
             return exit;
         },
         ' ' => {
@@ -165,8 +166,8 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !
             try comp.searchChar(c);
             const exit = doComplete(hsh, tkn, comp);
             if (mode == .COMPLETING) {
-                try tkn.dropMaybe();
-                try tkn.addMaybe(comp.search.items);
+                try tkn.maybeDrop();
+                try tkn.maybeAdd(comp.search.items);
             }
             return exit;
         },
@@ -176,15 +177,15 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !
         },
         '\n' => {
             if (comp.count() > 0) {
-                try tkn.replaceToken(comp.current());
-                try tkn.replaceCommit(comp.current());
+                try tkn.maybeReplace(comp.current());
+                try tkn.maybeCommit(comp.current());
             }
             mode = .TYPING;
             return .Redraw;
         },
         else => {
             mode = .TYPING;
-            try tkn.replaceCommit(null);
+            try tkn.maybeCommit(null);
         },
     }
 
