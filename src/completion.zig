@@ -324,7 +324,8 @@ pub const CompSet = struct {
             }
             return;
         }
-        return self.drawGroupBuild(f, d, wh);
+        try self.drawGroupBuild(f, d, wh);
+        return self.drawGroup(f, d, wh);
     }
 
     pub fn drawGroupBuild(self: *CompSet, f: Flavors, d: *Draw.Drawable, wh: Cord) !void {
@@ -339,7 +340,6 @@ pub const CompSet = struct {
         var items = try list.toOwnedSlice();
         if (Draw.Layout.table(self.alloc, items, wh)) |trees| {
             self.draw_cache[g_int] = trees;
-            for (trees) |tree| try Draw.drawAfter(d, tree);
         } else |err| {
             if (err == Draw.Layout.Error.ItemCount) {
                 var fbuf: [128]u8 = undefined;
