@@ -56,7 +56,7 @@ pub fn read(fd: std.os.fd_t, buf: []u8) !usize {
     }
 }
 
-fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Event {
+fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Mode {
     if (comp.known()) |only| {
         // original and single, complete now
         try tkn.maybeReplace(only);
@@ -70,14 +70,13 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Event {
             if (tkn.raw_maybe == null and comp.original != null) {
                 tkn.raw_maybe = comp.original.?.str;
             }
-            //mode = .COMPENDING;
+            return .COMPENDING;
         } else {
-            comp.reset();
-            //mode = .TYPING;
+            comp.raze();
             try Draw.drawAfter(&hsh.draw, Draw.LexTree{
                 .lex = Draw.Lexeme{ .char = "[ found ]", .style = .{ .attr = .bold, .fg = .green } },
             });
-            return .Prompt;
+            return .TYPING;
         }
     }
 
@@ -85,16 +84,16 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Event {
         try Draw.drawAfter(&hsh.draw, Draw.LexTree{
             .lex = Draw.Lexeme{ .char = "[ nothing found ]", .style = .{ .attr = .bold, .fg = .red } },
         });
-        return .Prompt;
+        return .TYPING;
     } else {
         var target = comp.next();
         try tkn.maybeReplace(target);
         comp.drawAll(&hsh.draw, hsh.draw.term_size) catch |err| {
-            if (err == Draw.Layout.Error.ItemCount) return .Prompt else return err;
+            if (err == Draw.Layout.Error.ItemCount) return .COMPLETING else return err;
         };
     }
 
-    return .Redraw;
+    return .COMPLETING;
 }
 
 fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !Event {
@@ -120,7 +119,7 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !
                     {
                         comp.revr();
                         comp.revr();
-                        return doComplete(hsh, tkn, comp);
+                        mode = try doComplete(hsh, tkn, comp);
                     }
                 },
                 else => {
@@ -145,10 +144,10 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !
                 tkn.raw_maybe = null;
                 return .Redraw;
             };
-            const exit = doComplete(hsh, tkn, comp);
+            mode = try doComplete(hsh, tkn, comp);
             try tkn.maybeDrop();
             try tkn.maybeAdd(comp.search.items);
-            return exit;
+            return .Redraw;
         },
         ' ' => {
             if (mode == .COMPENDING) {
@@ -164,16 +163,17 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !
         => |c| {
             if (mode == .COMPENDING) mode = .COMPLETING;
             try comp.searchChar(c);
-            const exit = doComplete(hsh, tkn, comp);
+            mode = try doComplete(hsh, tkn, comp);
             if (mode == .COMPLETING) {
                 try tkn.maybeDrop();
                 try tkn.maybeAdd(comp.search.items);
             }
-            return exit;
+            return .Redraw;
         },
         '\x09' => {
             // tab \t
-            return doComplete(hsh, tkn, comp);
+            mode = try doComplete(hsh, tkn, comp);
+            return .Redraw;
         },
         '\n' => {
             if (comp.count() > 0) {
