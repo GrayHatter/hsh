@@ -67,7 +67,7 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Mode {
             const ts = iter.toSliceAny(hsh.alloc) catch unreachable;
             defer hsh.alloc.free(ts);
             try complete.complete(comp, hsh, ts);
-            if (tkn.raw_maybe == null and comp.original != null) {
+            if (comp.original != null) {
                 tkn.raw_maybe = comp.original.?.str;
             }
             return .COMPENDING;
@@ -84,8 +84,13 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Mode {
         try Draw.drawAfter(&hsh.draw, Draw.LexTree{
             .lex = Draw.Lexeme{ .char = "[ nothing found ]", .style = .{ .attr = .bold, .fg = .red } },
         });
+        if (comp.count() == 0) {
+            comp.raze();
+        }
         return .TYPING;
-    } else {
+    }
+
+    if (comp.countFiltered() > 1) {
         var target = comp.next();
         try tkn.maybeReplace(target);
         comp.drawAll(&hsh.draw, hsh.draw.term_size) catch |err| {
@@ -102,7 +107,7 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !
         const ts = iter.toSliceAny(hsh.alloc) catch unreachable;
         defer hsh.alloc.free(ts);
         try complete.complete(comp, hsh, ts);
-        if (tkn.raw_maybe == null and comp.original != null) {
+        if (comp.original != null) {
             tkn.raw_maybe = comp.original.?.str;
         }
         mode = .COMPLETING;
@@ -133,14 +138,14 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !
                 },
             }
         },
-        '\x7f' => {
+        '\x7f' => { // backspace
             if (mode == .COMPENDING) {
                 mode = .TYPING;
                 return .Redraw;
             }
-            // backspace
             comp.searchPop() catch {
                 mode = .TYPING;
+                comp.raze();
                 tkn.raw_maybe = null;
                 return .Redraw;
             };
