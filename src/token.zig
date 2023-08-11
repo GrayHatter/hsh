@@ -42,6 +42,7 @@ pub const Kind = union(enum) {
     word: void,
     io: IOKind,
     oper: OpKind,
+    err: void,
 };
 
 pub const Token = struct {
