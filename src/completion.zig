@@ -378,6 +378,8 @@ pub const CompSet = struct {
 
     pub fn searchChar(self: *CompSet, char: u8) !void {
         try self.search.append(char);
+        // TODO when searching, set to the lowest sum of search offsets
+        // e.g. search string hsh should auto move to result hsh before hashtool
         //if (self.countFiltered() == 0) {}
     }
 
