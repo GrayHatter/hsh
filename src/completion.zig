@@ -231,7 +231,6 @@ pub const CompSet = struct {
     // behavior is undefined when count <= 0
     pub fn next(self: *CompSet) *const CompOption {
         std.debug.assert(self.count() > 0);
-        if (self.err) self.reset();
 
         self.skip();
         var maybe = &self.group.items[self.index];
