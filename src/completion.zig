@@ -390,16 +390,7 @@ pub const CompSet = struct {
         _ = self.search.pop();
     }
 
-    pub fn raze(self: *CompSet) void {
-        for (&self.groups) |*group| {
-            for (group.items) |opt| {
-                self.alloc.free(opt.str);
-            }
-            group.clearAndFree();
-        }
-        if (self.original) |o| {
-            self.alloc.free(o.str);
-        }
+    fn razeDrawing(self: *CompSet) void {
         for (&self.draw_cache) |*cache_group| {
             if (cache_group.*) |*trees| {
                 var real_size: usize = 0;
@@ -416,6 +407,20 @@ pub const CompSet = struct {
             }
         }
         self.err = false;
+    }
+
+    pub fn raze(self: *CompSet) void {
+        for (&self.groups) |*group| {
+            for (group.items) |opt| {
+                self.alloc.free(opt.str);
+            }
+            group.clearAndFree();
+        }
+        if (self.original) |o| {
+            self.alloc.free(o.str);
+            self.original = null;
+        }
+        self.razeDrawing();
         self.search.clearAndFree();
     }
 };
