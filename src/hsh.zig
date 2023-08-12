@@ -234,8 +234,8 @@ pub const HSH = struct {
 
     /// Returns true if there was an event requiring a redraw
     pub fn spin(hsh: *HSH) bool {
-        var event = hsh.doSignals();
         var was_bg = false;
+        var event = hsh.doSignals();
         while (jobs.getFg()) |_| {
             event = hsh.doSignals() or event;
             was_bg = true;
