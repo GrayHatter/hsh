@@ -323,10 +323,10 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!void {
                 },
             }
             // repush original because spinning will revert
-            h.tty.pushOrig() catch |e| {
-                log.err("TTY didn't respond {}\n", .{e});
-                return Error.Unknown;
-            };
+            // h.tty.pushOrig() catch |e| {
+            //     log.err("TTY didn't respond {}\n", .{e});
+            //     return Error.Unknown;
+            // };
         }
 
         fpid = std.os.fork() catch return Error.OSErr;
