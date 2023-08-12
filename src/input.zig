@@ -205,14 +205,14 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, evt: Keys.Event, comp: *complete.CompS
     //return .Redraw;
 }
 
-fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8) !Event {
+fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
     switch (b) {
-        '\x03' => {
+        0x03 => {
             try hsh.tty.print("^C\n\n", .{});
             tkn.reset();
             return .Prompt;
         },
-        '\x04' => {
+        0x04 => {
             if (tkn.raw.items.len == 0) {
                 try hsh.tty.print("^D\r\nExit caught... Good bye :)\n", .{});
                 return .ExitHSH;
@@ -221,8 +221,20 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8) !Event {
             try hsh.tty.print("^D\r\n", .{});
             return .Redraw;
         },
-        '\x07' => try hsh.tty.print("^bel\r\n", .{}),
-        '\x08' => try hsh.tty.print("\r\ninput: backspace\r\n", .{}),
+        0x07 => try hsh.tty.print("^bel\r\n", .{}),
+        0x08 => try hsh.tty.print("\r\ninput: backspace\r\n", .{}),
+        0x09 => |c| { // \t
+            // Tab is best effort, it shouldn't be able to crash hsh
+            // var titr = tkn.iterator();
+            // var tkns = titr.toSlice(hsh.alloc) catch return .Prompt;
+            // defer hsh.alloc.free(tkns);
+
+            // if (tkns.len == 0) {
+            //     try tkn.consumec(b);
+            //     return .Prompt;
+            // }
+            return completing(hsh, tkn, Keys.Event.ascii(c), comp) catch unreachable;
+        },
         0x0A, 0x0D => |nl| {
             //hsh.draw.cursor = 0;
             if (tkn.raw.items.len == 0) {
@@ -333,22 +345,9 @@ fn event(hsh: *HSH, tkn: *Tokenizer, km: Keys.KeyMod) !Event {
     return .Redraw;
 }
 
-fn ascii(hsh: *HSH, tkn: *Tokenizer, buffer: u8, comp: *complete.CompSet) !Event {
-    _ = comp;
-    switch (buffer) {
-        0x00...0x1F => return ctrlCode(hsh, tkn, buffer),
-        //\x09' => |c| { // \t
-        // Tab is best effort, it shouldn't be able to crash hsh
-        //var titr = tkn.iterator();
-        //var tkns = titr.toSlice(hsh.alloc) catch return .Prompt;
-        //defer hsh.alloc.free(tkns);
-
-        //if (tkns.len == 0) {
-        //    try tkn.consumec(b);
-        //    return .Prompt;
-        //}
-        //    return completing(hsh, tkn, c, comp) catch unreachable;
-        //},
+fn ascii(hsh: *HSH, tkn: *Tokenizer, buf: u8, comp: *complete.CompSet) !Event {
+    switch (buf) {
+        0x00...0x1F => return ctrlCode(hsh, tkn, buf, comp),
         ' '...'~' => |b| { // Normal printable ascii
             try tkn.consumec(b);
             try hsh.tty.print("{c}", .{b});
@@ -385,7 +384,7 @@ pub fn do(hsh: *HSH, comp: *complete.CompSet) !Event {
 
     // No... I don't like this, but I've spent too long staring at it
     // TODO optimize later
-    const evt = try Keys.translate(buffer[0], hsh.input);
+    const evt = Keys.translate(buffer[0], hsh.input) catch unreachable;
 
     const prevm = mode;
     var result: Event = .None;

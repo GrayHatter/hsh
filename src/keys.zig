@@ -98,15 +98,14 @@ pub fn translate(c: u8, io: i32) Error!Event {
 }
 
 pub fn esc(io: i32) Error!Event {
-    var buffer: [1]u8 = undefined;
-    const in = os.read(io, &buffer) catch return Error.IO;
-    if (in != 1) return Error.UnknownEvent;
+    var buffer: [1]u8 = .{0x1B};
+    _ = os.read(io, &buffer) catch return Error.IO;
     switch (buffer[0]) {
         0x1B => return Event.key(.Esc),
         '[' => return csi(io),
         'O' => return Event.key(try sst(io)),
         else => {
-            log.debug("\n\nunknown input: escape {s} {}\n", .{ buffer, buffer[0] });
+            log.warn("\n\nunknown input: escape {s} {}\n", .{ buffer, buffer[0] });
             return Event{ .keysm = .{
                 .evt = .{
                     .ascii = buffer[0],
