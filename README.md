@@ -44,7 +44,12 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
     - [ ] << here-doc;
   - [ ] tab complete
     - [x] cwd
-    - [ ] the rest
+    - [x] path
+    - [x] subdirs
+    - [x] basic fuzzy search
+    - [ ] narrow fuzzy search
+    - [ ] ~, and glob
+    - [ ] the rest?
   - [x] history
     - [ ] advanced history
   - [ ] sane error handling
@@ -66,7 +71,7 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
     - [ ] exit
     - [ ] export
     - [ ] fg
-    - [-] jobs
+    - [x] jobs
     - [ ] kill?
     - [ ] pipeline
     - [ ] pwd
