@@ -143,6 +143,19 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, ks: Keys.KeyMod, comp: *complete.CompS
                     mode = .TYPING;
                     return .Redraw;
                 },
+                '/' => |chr| {
+                    // IFF this is an existing directory,
+                    // completion should continue
+                    if (comp.count() > 1) {
+                        if (comp.current().kind) |kind| {
+                            if (kind == .file_system and kind.file_system == .Dir) {
+                                try tkn.consumec(chr);
+                            }
+                        }
+                    }
+                    mode = .TYPING;
+                    return .Redraw;
+                },
                 else => {
                     if (mode == .COMPENDING) mode = .COMPLETING;
                     try comp.searchChar(c);
