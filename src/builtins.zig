@@ -52,6 +52,7 @@ pub const Builtins = enum {
     tty,
 };
 
+/// Optional builtins "exist" only if they don't already exist on the system.
 pub const BuiltinOptionals = enum {
     status,
 };
@@ -78,6 +79,8 @@ pub fn exec(self: Builtins) BuiltinFn {
         .tty => tty,
     };
 }
+
+/// Optional builtins "exist" only if they don't already exist on the system.
 pub fn execOpt(self: BuiltinOptionals) BuiltinFn {
     return switch (self) {
         .status => status,
@@ -104,7 +107,8 @@ pub fn exists(str: []const u8) bool {
 }
 
 /// Optional builtins "exist" only if they don't already exist on the system.
-pub fn optionalExists(str: []const u8) bool {
+/// this is not enforced internally callers are expected to behave
+pub fn existsOptional(str: []const u8) bool {
     inline for (@typeInfo(BuiltinOptionals).Enum.fields[0..]) |f| {
         if (std.mem.eql(u8, f.name, str)) return true;
     }

@@ -27,8 +27,16 @@ pub fn which(_: *HSH, itr: *ParsedIterator) bi.Err!u8 {
         if (mi) |i| cannon = a.value[0..i];
     }
 
+    if (bi.exists(cannon)) {
+        try bi.print("{s} is a builtin\n", .{cannon});
+        return 0;
+    }
     if (executable(cannon)) |exe| {
         try bi.print("{s}\n", .{exe});
+        return 0;
+    }
+    if (bi.existsOptional(cannon)) {
+        try bi.print("{s} is an optional hsh builtin; available because it doesn't exist in path\n", .{cannon});
         return 0;
     }
 
