@@ -6,18 +6,20 @@ const ParsedIterator = @import("parse.zig").ParsedIterator;
 const log = @import("log");
 
 // files should be lowercased, but #YOLO
-pub const State = @import("state.zig");
 pub const Aliases = @import("builtins/alias.zig");
-pub const Set = @import("builtins/set.zig");
-pub const Pipeline = @import("builtins/pipeline.zig");
-pub const Which = @import("builtins/which.zig");
 pub const Echo = @import("builtins/echo.zig");
+pub const Pipeline = @import("builtins/pipeline.zig");
+pub const Set = @import("builtins/set.zig");
+pub const Source = @import("builtins/source.zig");
+pub const State = @import("state.zig");
+pub const Which = @import("builtins/which.zig");
 
 const alias = Aliases.alias;
+const echo = Echo.echo;
 const pipeline = Pipeline.pipeline;
 const set = Set.set;
+const source = Source.source;
 const which = Which.which;
-const echo = Echo.echo;
 
 var Self = @This();
 
@@ -44,6 +46,7 @@ pub const Builtins = enum {
     jobs,
     pipeline,
     set,
+    source,
     which,
     // DEBUGGING BUILTINS
     tty,
@@ -69,6 +72,7 @@ pub fn exec(self: Builtins) BuiltinFn {
         .jobs => jobs,
         .pipeline => pipeline,
         .set => set,
+        .source => source,
         .which => which,
         // DEBUGGING BUILTIN
         .tty => tty,
