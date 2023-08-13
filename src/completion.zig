@@ -528,6 +528,28 @@ fn completeSysPath(cs: *CompSet, h: *HSH, target: []const u8) !void {
         }
     }
 }
+
+const TknPair = struct {
+    t: tokenizer.Token = .{ .str = "" },
+    offset: usize = 0,
+};
+
+fn findToken(tkns: *tokenizer.Tokenizer) TknPair {
+    var itr = tkns.iterator();
+    var pair: TknPair = .{};
+    var idx: usize = tkns.c_idx;
+    while (itr.nextAny()) |t| {
+        if (idx <= t.str.len) {
+            pair.t = t.*;
+            pair.offset = idx;
+            break;
+        }
+        idx -|= t.str.len;
+    }
+    pair.t.str = pair.t.str[0..pair.offset];
+    return pair;
+}
+
 /// Caller owns nothing, memory is only guaranteed until `complete` is
 /// called again.
 pub fn complete(cs: *CompSet, hsh: *HSH, tks: *tokenizer.Tokenizer) !void {
@@ -541,27 +563,27 @@ pub fn complete(cs: *CompSet, hsh: *HSH, tks: *tokenizer.Tokenizer) !void {
     cs.index = 0;
 
     // TODO need the real bug here
-    const t = if (ts.len > 0) ts[ts.len - 1] else Token{ .str = "", .kind = .nos };
+    const pair = findToken(tks);
     const hint: Kind = if (ts.len <= 1) .path_exe else .any;
 
     switch (hint) {
         .path_exe => {
-            try completeSysPath(cs, hsh, t.cannon());
+            try completeSysPath(cs, hsh, pair.t.cannon());
         },
         else => {
-            switch (t.kind) {
+            switch (pair.t.kind) {
                 .ws => {
                     var dir = try std.fs.cwd().openIterableDir(".", .{});
                     defer dir.close();
                     try completeDir(cs, dir);
                 },
                 .word, .path => {
-                    if (std.mem.indexOfScalar(u8, t.cannon(), '/')) |_| {
-                        try completePath(cs, hsh, t.cannon());
+                    if (std.mem.indexOfScalar(u8, pair.t.cannon(), '/')) |_| {
+                        try completePath(cs, hsh, pair.t.cannon());
                     } else {
                         var dir = try std.fs.cwd().openIterableDir(".", .{});
                         defer dir.close();
-                        try completeDirBase(cs, dir, t.cannon());
+                        try completeDirBase(cs, dir, pair.t.cannon());
                     }
                 },
                 .io => {
@@ -576,7 +598,11 @@ pub fn complete(cs: *CompSet, hsh: *HSH, tks: *tokenizer.Tokenizer) !void {
         tks.raw_maybe = orig.str;
         try cs.searchStr(orig.str);
     }
-    log.debug("t orig {s}\n\n", .{cs.original.?.str});
+    if (cs.original) |orig| {
+        log.debug("Completion original is {s}\n\n", .{orig.str});
+    } else {
+        log.debug("Completion original is null\n\n", .{});
+    }
 
     cs.reset();
     return;

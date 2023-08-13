@@ -22,6 +22,7 @@ pub const Event = enum(u8) {
     Advice,
     Redraw,
     Exec,
+    Signaled,
     // ...
     ExitHSH,
     ExpectedError,
@@ -351,7 +352,7 @@ pub fn do(hsh: *HSH, comp: *complete.CompSet) !Event {
     while (nbyte == 0) {
         if (hsh.spin()) {
             mode = .TYPING;
-            return .Update;
+            return .Signaled;
         }
         nbyte = try read(hsh.input, &buffer);
     }

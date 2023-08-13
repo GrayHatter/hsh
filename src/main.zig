@@ -72,6 +72,7 @@ fn core(hsh: *HSH) !bool {
             .HSHIntern => return true,
             .ExpectedError => return true,
             .EnvState => {},
+            .Signaled => {},
         }
     }
 }
@@ -145,9 +146,9 @@ pub fn main() !void {
 
     var inerr = false;
     root: while (true) {
-        if (core(&hsh)) |l| {
+        if (core(&hsh)) |actionable| {
             inerr = false;
-            if (l) {
+            if (actionable) {
                 if (hsh.tkn.raw.items.len == 0) continue;
                 // debugging data
 
