@@ -383,6 +383,10 @@ pub const CompSet = struct {
         //if (self.countFiltered() == 0) {}
     }
 
+    pub fn searchStr(self: *CompSet, str: []const u8) !void {
+        for (str) |c| try self.searchChar(c);
+    }
+
     pub fn searchPop(self: *CompSet) !void {
         if (self.search.items.len == 0) {
             return Error.search_empty;
@@ -570,6 +574,7 @@ pub fn complete(cs: *CompSet, hsh: *HSH, tks: *tokenizer.Tokenizer) !void {
 
     if (cs.original) |orig| {
         tks.raw_maybe = orig.str;
+        try cs.searchStr(orig.str);
     }
     log.debug("t orig {s}\n\n", .{cs.original.?.str});
 

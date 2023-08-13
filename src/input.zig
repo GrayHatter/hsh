@@ -96,7 +96,7 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Mode {
 }
 
 fn completing(hsh: *HSH, tkn: *Tokenizer, ks: Keys.KeyMod, comp: *complete.CompSet) !Event {
-    if (mode != .COMPLETING) {
+    if (mode == .TYPING) {
         try complete.complete(comp, hsh, tkn);
         mode = .COMPLETING;
         return completing(hsh, tkn, ks, comp);
@@ -111,11 +111,16 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, ks: Keys.KeyMod, comp: *complete.CompS
                     return .Redraw;
                 },
                 0x0A => {
+                    // newline \n
+                    if (mode == .COMPENDING) {
+                        mode = .TYPING;
+                        return .Exec;
+                    }
                     if (comp.count() > 0) {
                         try tkn.maybeReplace(comp.current());
                         try tkn.maybeCommit(comp.current());
+                        mode = .COMPENDING;
                     }
-                    mode = .TYPING;
                     return .Redraw;
                 },
                 0x7f => { // backspace
@@ -135,10 +140,8 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, ks: Keys.KeyMod, comp: *complete.CompS
                     return .Redraw;
                 },
                 ' ' => {
-                    if (mode == .COMPENDING) {
-                        mode = .TYPING;
-                        return .Redraw;
-                    }
+                    mode = .TYPING;
+                    return .Redraw;
                 },
                 else => {
                     if (mode == .COMPENDING) mode = .COMPLETING;
@@ -344,7 +347,7 @@ pub fn do(hsh: *HSH, comp: *complete.CompSet) !Event {
     // TODO optimize later
     const evt = Keys.translate(buffer[0], hsh.input) catch unreachable;
 
-    const prevm = mode;
+    //const prevm = mode;
     var result: Event = .None;
     switch (mode) {
         .COMPLETING, .COMPENDING => {
@@ -363,6 +366,6 @@ pub fn do(hsh: *HSH, comp: *complete.CompSet) !Event {
             };
         },
     }
-    defer next = if (prevm == mode) null else .Redraw;
-    return next orelse result;
+    //defer next = if (prevm == mode) null else .Redraw;
+    return result;
 }
