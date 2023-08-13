@@ -22,12 +22,12 @@ const Error = error{
 };
 
 pub const FSKind = enum {
-    File,
-    Dir,
-    Link,
-    Pipe,
-    Device,
-    Socket,
+    file,
+    dir,
+    link,
+    pipe,
+    device,
+    socket,
     whiteout,
     door,
     event_port,
@@ -35,7 +35,7 @@ pub const FSKind = enum {
 
     pub fn color(k: FSKind) ?Draw.Color {
         return switch (k) {
-            .Dir => .blue,
+            .dir => .blue,
             .unknown => .red,
             else => null,
         };
@@ -43,12 +43,12 @@ pub const FSKind = enum {
 
     pub fn fromFsKind(k: std.fs.IterableDir.Entry.Kind) FSKind {
         return switch (k) {
-            .file => .File,
-            .directory => .Dir,
-            .sym_link => .Link,
-            .named_pipe => .Pipe,
-            .unix_domain_socket => .Socket,
-            .block_device, .character_device => .Device,
+            .file => .file,
+            .directory => .dir,
+            .sym_link => .link,
+            .named_pipe => .pipe,
+            .unix_domain_socket => .socket,
+            .block_device, .character_device => .device,
             .whiteout => .whiteout,
             .door => .door,
             .event_port => .event_port,
@@ -88,7 +88,7 @@ pub const CompOption = struct {
         switch (self.kind.?) {
             .file_system => |f_s| {
                 switch (f_s) {
-                    .Dir => return .{
+                    .dir => return .{
                         .attr = if (active) .reverse_bold else .bold,
                         .fg = f_s.color(),
                     },

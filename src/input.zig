@@ -62,7 +62,7 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Mode {
         try tkn.maybeReplace(only);
         try tkn.maybeCommit(only);
 
-        if (only.kind != null and only.kind.? == .file_system and only.kind.?.file_system == .Dir) {
+        if (only.kind != null and only.kind.? == .file_system and only.kind.?.file_system == .dir) {
             try complete.complete(comp, hsh, tkn);
             return .COMPENDING;
         } else {
@@ -148,7 +148,7 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, ks: Keys.KeyMod, comp: *complete.CompS
                     // completion should continue
                     if (comp.count() > 1) {
                         if (comp.current().kind) |kind| {
-                            if (kind == .file_system and kind.file_system == .Dir) {
+                            if (kind == .file_system and kind.file_system == .dir) {
                                 try tkn.consumec(chr);
                             }
                         }
