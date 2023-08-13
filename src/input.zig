@@ -63,13 +63,7 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Mode {
         try tkn.maybeCommit(only);
 
         if (only.kind != null and only.kind.? == .file_system and only.kind.?.file_system == .Dir) {
-            var iter = tkn.iterator();
-            const ts = iter.toSliceAny(hsh.alloc) catch unreachable;
-            defer hsh.alloc.free(ts);
-            try complete.complete(comp, hsh, ts);
-            if (comp.original != null) {
-                tkn.raw_maybe = comp.original.?.str;
-            }
+            try complete.complete(comp, hsh, tkn);
             return .COMPENDING;
         } else {
             comp.raze();
@@ -101,108 +95,82 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Mode {
     return .COMPLETING;
 }
 
-fn completing(hsh: *HSH, tkn: *Tokenizer, evt: Keys.Event, comp: *complete.CompSet) !Event {
-    var buffer: u8 = switch (evt) {
-        .ascii => |a| a,
-        .keysm => return .Redraw,
-        .mouse => return .Redraw,
-    };
-
+fn completing(hsh: *HSH, tkn: *Tokenizer, ks: Keys.KeyMod, comp: *complete.CompSet) !Event {
     if (mode != .COMPLETING) {
-        var iter = tkn.iterator();
-        const ts = iter.toSliceAny(hsh.alloc) catch unreachable;
-        defer hsh.alloc.free(ts);
-        try complete.complete(comp, hsh, ts);
-        if (comp.original != null) {
-            tkn.raw_maybe = comp.original.?.str;
-        }
+        try complete.complete(comp, hsh, tkn);
         mode = .COMPLETING;
-        return completing(hsh, tkn, evt, comp);
+        return completing(hsh, tkn, ks, comp);
     }
 
-    switch (buffer) {
-        '\x1B' => {
-            //const key = try Keys.esc(hsh.input);
-            //switch (key) {
-            //    .ModKey => {
-            //        if (@intFromEnum(key.ModKey.key) == 'Z' and
-            //            key.ModKey.mods == .shift)
-            //        {
-            //            comp.revr();
-            //            comp.revr();
-            //            mode = try doComplete(hsh, tkn, comp);
-            //        }
-            //    },
-            //    else => {
-            //        // There's a bug with mouse in/out triggering this code
-            //        mode = .TYPING;
-            //        try tkn.maybeDrop();
-            //        if (comp.original) |o| {
-            //            try tkn.maybeAdd(o.str);
-            //            try tkn.maybeCommit(null);
-            //        }
-            //    },
-            //}
-        },
-        '\x7f' => { // backspace
-            if (mode == .COMPENDING) {
-                mode = .TYPING;
-                return .Redraw;
+    switch (ks.evt) {
+        .ascii => |c| {
+            switch (c) {
+                0x09 => {
+                    // tab \t
+                    mode = try doComplete(hsh, tkn, comp);
+                    return .Redraw;
+                },
+                0x0A => {
+                    if (comp.count() > 0) {
+                        try tkn.maybeReplace(comp.current());
+                        try tkn.maybeCommit(comp.current());
+                    }
+                    mode = .TYPING;
+                    return .Redraw;
+                },
+                0x7f => { // backspace
+                    if (mode == .COMPENDING) {
+                        mode = .TYPING;
+                        return .Redraw;
+                    }
+                    comp.searchPop() catch {
+                        mode = .TYPING;
+                        comp.raze();
+                        tkn.raw_maybe = null;
+                        return .Redraw;
+                    };
+                    mode = try doComplete(hsh, tkn, comp);
+                    try tkn.maybeDrop();
+                    try tkn.maybeAdd(comp.search.items);
+                    return .Redraw;
+                },
+                ' ' => {
+                    if (mode == .COMPENDING) {
+                        mode = .TYPING;
+                        return .Redraw;
+                    }
+                },
+                else => {
+                    if (mode == .COMPENDING) mode = .COMPLETING;
+                    try comp.searchChar(c);
+                    mode = try doComplete(hsh, tkn, comp);
+                    if (mode == .COMPLETING) {
+                        try tkn.maybeDrop();
+                        try tkn.maybeAdd(comp.search.items);
+                    }
+                    return .Redraw;
+                },
             }
-            comp.searchPop() catch {
-                mode = .TYPING;
-                comp.raze();
-                tkn.raw_maybe = null;
-                return .Redraw;
-            };
-            mode = try doComplete(hsh, tkn, comp);
-            try tkn.maybeDrop();
-            try tkn.maybeAdd(comp.search.items);
-            return .Redraw;
         },
-        ' ' => {
-            if (mode == .COMPENDING) {
-                mode = .TYPING;
-                return .Redraw;
+        .key => |k| {
+            switch (k) {
+                .Esc => {
+                    mode = .TYPING;
+                    try tkn.maybeDrop();
+                    if (comp.original) |o| {
+                        try tkn.maybeAdd(o.str);
+                        try tkn.maybeCommit(null);
+                    }
+                    return .Redraw;
+                },
+                else => {
+                    mode = .TYPING;
+                    try tkn.maybeCommit(null);
+                },
             }
-        },
-        '0'...'9',
-        'A'...'Z',
-        'a'...'z',
-        ','...'.',
-        '_',
-        => |c| {
-            if (mode == .COMPENDING) mode = .COMPLETING;
-            try comp.searchChar(c);
-            mode = try doComplete(hsh, tkn, comp);
-            if (mode == .COMPLETING) {
-                try tkn.maybeDrop();
-                try tkn.maybeAdd(comp.search.items);
-            }
-            return .Redraw;
-        },
-        '\x09' => {
-            // tab \t
-            mode = try doComplete(hsh, tkn, comp);
-            return .Redraw;
-        },
-        '\n' => {
-            if (comp.count() > 0) {
-                try tkn.maybeReplace(comp.current());
-                try tkn.maybeCommit(comp.current());
-            }
-            mode = .TYPING;
-            return .Redraw;
-        },
-        else => {
-            mode = .TYPING;
-            try tkn.maybeCommit(null);
         },
     }
-
     unreachable;
-    //_ = simple(hsh, tkn, buffer, comp) catch unreachable;
-    //return .Redraw;
 }
 
 fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
@@ -224,16 +192,7 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
         0x07 => try hsh.tty.print("^bel\r\n", .{}),
         0x08 => try hsh.tty.print("\r\ninput: backspace\r\n", .{}),
         0x09 => |c| { // \t
-            // Tab is best effort, it shouldn't be able to crash hsh
-            // var titr = tkn.iterator();
-            // var tkns = titr.toSlice(hsh.alloc) catch return .Prompt;
-            // defer hsh.alloc.free(tkns);
-
-            // if (tkns.len == 0) {
-            //     try tkn.consumec(b);
-            //     return .Prompt;
-            // }
-            return completing(hsh, tkn, Keys.Event.ascii(c), comp) catch unreachable;
+            return completing(hsh, tkn, Keys.Event.ascii(c).keysm, comp) catch unreachable;
         },
         0x0A, 0x0D => |nl| {
             //hsh.draw.cursor = 0;
@@ -266,14 +225,14 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
             return .Redraw;
         },
         // probably ctrl + bs
-        '\x0C' => try hsh.tty.print("^L (reset term)\x1B[J\n", .{}),
-        '\x0E' => try hsh.tty.print("shift in\r\n", .{}),
-        '\x0F' => try hsh.tty.print("^shift out\r\n", .{}),
-        '\x12' => try hsh.tty.print("^R\r\n", .{}), // DC2
-        '\x13' => try hsh.tty.print("^S\r\n", .{}), // DC3
-        '\x14' => try hsh.tty.print("^T\r\n", .{}), // DC4
-        '\x1A' => try hsh.tty.print("^Z\r\n", .{}),
-        '\x17' => { // ^w
+        0x0C => try hsh.tty.print("^L (reset term)\x1B[J\n", .{}),
+        0x0E => try hsh.tty.print("shift in\r\n", .{}),
+        0x0F => try hsh.tty.print("^shift out\r\n", .{}),
+        0x12 => try hsh.tty.print("^R\r\n", .{}), // DC2
+        0x13 => try hsh.tty.print("^S\r\n", .{}), // DC3
+        0x14 => try hsh.tty.print("^T\r\n", .{}), // DC4
+        0x1A => try hsh.tty.print("^Z\r\n", .{}),
+        0x17 => { // ^w
             _ = try tkn.dropWord();
             return .Redraw;
         },
@@ -284,7 +243,6 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
 
 fn event(hsh: *HSH, tkn: *Tokenizer, km: Keys.KeyMod) !Event {
     tkn.err_idx = 0;
-    //const to_reset = tkn.err_idx != 0;
     switch (km.evt) {
         .ascii => |a| {
             switch (a) {
@@ -391,7 +349,11 @@ pub fn do(hsh: *HSH, comp: *complete.CompSet) !Event {
     switch (mode) {
         .COMPLETING, .COMPENDING => {
             const e = if (evt == .ascii) Keys.Event.ascii(evt.ascii) else evt;
-            result = try completing(hsh, tkn, e, comp);
+            if (e != .keysm) {
+                mode = .TYPING;
+                return .Redraw;
+            }
+            result = try completing(hsh, tkn, e.keysm, comp);
         },
         .TYPING => {
             result = switch (evt) {

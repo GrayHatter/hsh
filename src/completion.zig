@@ -526,14 +526,20 @@ fn completeSysPath(cs: *CompSet, h: *HSH, target: []const u8) !void {
 }
 /// Caller owns nothing, memory is only guaranteed until `complete` is
 /// called again.
-pub fn complete(cs: *CompSet, hsh: *HSH, ts: []const Token) !void {
+pub fn complete(cs: *CompSet, hsh: *HSH, tks: *tokenizer.Tokenizer) !void {
     cs.raze();
+
+    var iter = tks.iterator();
+    const ts = iter.toSliceAny(hsh.alloc) catch unreachable;
+    defer hsh.alloc.free(ts);
+
     cs.kind = if (ts.len > 0) ts[0].kind else .nos;
     cs.index = 0;
 
     // TODO need the real bug here
     const t = if (ts.len > 0) ts[ts.len - 1] else Token{ .str = "", .kind = .nos };
     const hint: Kind = if (ts.len <= 1) .path_exe else .any;
+
     switch (hint) {
         .path_exe => {
             try completeSysPath(cs, hsh, t.cannon());
@@ -561,6 +567,12 @@ pub fn complete(cs: *CompSet, hsh: *HSH, ts: []const Token) !void {
             }
         },
     }
+
+    if (cs.original) |orig| {
+        tks.raw_maybe = orig.str;
+    }
+    log.debug("t orig {s}\n\n", .{cs.original.?.str});
+
     cs.reset();
     return;
 }
