@@ -257,7 +257,16 @@ pub const Tokenizer = struct {
                     //     std.debug.print("t {}\n", .{t.str.len});
                     //     end += t.str.len;
                     // },
-                    ' ', '\t' => break,
+                    ' ', '\t' => {
+                        if (end > 1 and src[end - 1] == '\\') {
+                            if (end > 2 and src[end - 2] == '\\') {
+                                break;
+                            }
+                            end += 1;
+                            continue;
+                        }
+                        break;
+                    },
                     else => {
                         const t = try any(src[end..]);
                         end += t.str.len;
@@ -1265,4 +1274,12 @@ test "any" {
 test "inline quotes" {
     var t = try Tokenizer.any("--inline='quoted string'");
     try std.testing.expectEqualStrings("--inline='quoted string'", t.cannon());
+}
+
+test "escapes" {
+    var t = try Tokenizer.any("--inline=quoted\\ string");
+    try std.testing.expectEqualStrings("--inline=quoted\\ string", t.cannon());
+
+    t = try Tokenizer.any("--inline=quoted\\\\ string");
+    try std.testing.expectEqualStrings("--inline=quoted\\\\", t.cannon());
 }
