@@ -532,6 +532,7 @@ fn completeSysPath(cs: *CompSet, h: *HSH, target: []const u8) !void {
 const TknPair = struct {
     t: tokenizer.Token = .{ .str = "" },
     offset: usize = 0,
+    count: usize = 0,
 };
 
 fn findToken(tkns: *tokenizer.Tokenizer) TknPair {
@@ -539,6 +540,7 @@ fn findToken(tkns: *tokenizer.Tokenizer) TknPair {
     var pair: TknPair = .{};
     var idx: usize = tkns.c_idx;
     while (itr.nextAny()) |t| {
+        pair.count += 1;
         if (idx <= t.str.len) {
             pair.t = t.*;
             pair.offset = idx;
