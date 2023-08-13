@@ -106,7 +106,7 @@ pub fn init(a: Allocator) !void {
         try os.sigaction(sig, &os.Sigaction{
             .handler = .{ .handler = os.SIG.IGN },
             .mask = os.empty_sigset,
-            .flags = SA.SIGINFO | SA.NOCLDWAIT | SA.RESTART,
+            .flags = SA.NOCLDWAIT | SA.RESTART,
         }, null);
     }
 }
