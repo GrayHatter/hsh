@@ -1282,4 +1282,10 @@ test "escapes" {
 
     t = try Tokenizer.any("--inline=quoted\\\\ string");
     try std.testing.expectEqualStrings("--inline=quoted\\\\", t.cannon());
+
+    t = try Tokenizer.any("one\\ two");
+    try std.testing.expectEqualStrings("one\\ two", t.cannon());
+
+    t = try Tokenizer.any("one\\\\ two");
+    try std.testing.expectEqualStrings("one\\\\", t.cannon());
 }

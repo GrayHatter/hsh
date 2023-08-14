@@ -69,7 +69,7 @@ pub const Token = struct {
 
     pub fn cannon(self: Token) []const u8 {
         if (self.backing) |b| return b.items;
-        //if (self.resolved) |r| return r;
+        if (self.resolved) |r| return r;
 
         return switch (self.kind) {
             .quote => return self.str[1 .. self.str.len - 1],

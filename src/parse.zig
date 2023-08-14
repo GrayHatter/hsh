@@ -308,6 +308,22 @@ pub const Parser = struct {
         return Error.Empty;
     }
 
+    fn word(a: *Allocator, t: *Token) *Token {
+        std.debug.assert(t.kind == .word);
+        var new = ArrayList(u8).init(a.*);
+        var esc = false;
+        for (t.str) |c| {
+            if (c == '\\' and !esc) {
+                esc = true;
+                continue;
+            }
+            esc = false;
+            new.append(c) catch @panic("memory error");
+        }
+        t.resolved = new.toOwnedSlice() catch @panic("memory error");
+        return t;
+    }
+
     /// Caller owns memory for both list of names, and each name
     fn globAt(a: *Allocator, dir: std.fs.IterableDir, token: *const Token) Error![][]const u8 {
         return fs.globAt(a.*, dir, token.cannon()) catch @panic("this error not implemented");
@@ -873,4 +889,24 @@ test "glob ." {
     try std.testing.expect(names.items.len == 0);
     try std.testing.expect(itr.next() == null);
     names.clearAndFree();
+}
+
+test "escapes" {
+    var a = std.testing.allocator;
+
+    var t = TokenIterator{ .raw = "one\\\\ two" };
+    var first = t.first();
+    try std.testing.expectEqualStrings("one\\\\", first.cannon());
+
+    var p = Parser.word(&a, @constCast(first));
+    try std.testing.expectEqualStrings("one\\", p.cannon());
+    a.free(p.resolved.?);
+
+    t = TokenIterator{ .raw = "--inline=quoted\\ string" };
+    first = t.first();
+    try std.testing.expectEqualStrings("--inline=quoted\\ string", first.cannon());
+
+    p = Parser.word(&a, @constCast(first));
+    try std.testing.expectEqualStrings("--inline=quoted string", p.cannon());
+    a.free(p.resolved.?);
 }
