@@ -450,7 +450,7 @@ pub const Tokenizer = struct {
         var count: usize = 1;
         self.c_idx -|= 1;
         var c = self.raw.orderedRemove(@intCast(self.c_idx));
-        while (self.c_idx > 0 and std.ascii.isAlphanumeric(c)) {
+        while (self.c_idx > 0 and (c == '-' or std.ascii.isAlphanumeric(c))) {
             self.c_idx -|= 1;
             c = self.raw.orderedRemove(@intCast(self.c_idx));
             count +|= 1;
@@ -479,7 +479,7 @@ pub const Tokenizer = struct {
         }
         if (count == 0 and self.raw.items.len > 0 and self.c_idx != 0) {
             try self.pop();
-            return self.dropWord();
+            return 1 + try self.dropWord();
         }
         return count;
     }
@@ -1258,6 +1258,23 @@ test "dropWord" {
     try std.testing.expect(t.raw.items.len == 19);
     try std.testing.expect(try t.dropWord() == 10);
     try std.testing.expect(t.raw.items.len == 9);
+
+    t.reset();
+    try t.consumes("ls -la /some/abs/directory/thats/long");
+
+    try eqlStr("ls -la /some/abs/directory/thats/long", t.raw.items);
+    try std.testing.expect(try t.dropWord() == 4);
+    try eqlStr("ls -la /some/abs/directory/thats/", t.raw.items);
+    try std.testing.expect(try t.dropWord() == 6);
+    try eqlStr("ls -la /some/abs/directory/", t.raw.items);
+    try std.testing.expectEqual(try t.dropWord(), 10);
+    try eqlStr("ls -la /some/abs/", t.raw.items);
+    try std.testing.expect(try t.dropWord() == 4);
+    try eqlStr("ls -la /some/", t.raw.items);
+    try std.testing.expect(try t.dropWord() == 5);
+    try eqlStr("ls -la /", t.raw.items);
+    try std.testing.expectEqual(try t.dropWord(), 5);
+    try eqlStr("ls ", t.raw.items);
 }
 
 test "ualphanum" {
