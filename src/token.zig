@@ -28,6 +28,31 @@ pub const Error = error{
     Empty,
 };
 
+pub const Reserved = enum {
+    If,
+    Then,
+    Else,
+    Elif,
+    Fi,
+    Do,
+    Done,
+    Case,
+    Esac,
+    While,
+    Until,
+    For,
+    In,
+
+    pub fn fromStr(str: []const u8) Error!Reserved {
+        var lower: [6]u8 = undefined;
+        inline for (@typeInfo(Reserved).Enum.fields) |f| {
+            const name = std.ascii.lowerString(&lower, f.name);
+            if (std.mem.eql(u8, str, name)) return @enumFromInt(f.value);
+        }
+        return Error.Unknown;
+    }
+};
+
 pub const Kind = union(enum) {
     // legacy types, TODO REMOVE
     ws: void,
@@ -42,6 +67,7 @@ pub const Kind = union(enum) {
     word: void,
     io: IOKind,
     oper: OpKind,
+    resr: Reserved,
     err: void,
 };
 

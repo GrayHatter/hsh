@@ -274,6 +274,15 @@ pub const Tokenizer = struct {
                 }
             } else end += 1;
         }
+
+        if (end <= 5) {
+            if (token.Reserved.fromStr(src[0..end])) |r| {
+                return Token.make(src[0..end], .{ .resr = r });
+            } else |e| {
+                if (e != Error.Unknown) return e;
+            }
+        }
+
         return Token.make(src[0..end], .word);
     }
 
@@ -1305,4 +1314,33 @@ test "escapes" {
 
     t = try Tokenizer.any("one\\\\ two");
     try std.testing.expectEqualStrings("one\\\\", t.cannon());
+}
+
+test "reserved" {
+    var t = try Tokenizer.any("if");
+    try std.testing.expect(t.kind == .resr);
+    t = try Tokenizer.any("then");
+    try std.testing.expect(t.kind == .resr);
+    t = try Tokenizer.any("else");
+    try std.testing.expect(t.kind == .resr);
+    t = try Tokenizer.any("elif");
+    try std.testing.expect(t.kind == .resr);
+    t = try Tokenizer.any("fi");
+    try std.testing.expect(t.kind == .resr);
+    t = try Tokenizer.any("do");
+    try std.testing.expect(t.kind == .resr);
+    t = try Tokenizer.any("done");
+    try std.testing.expect(t.kind == .resr);
+    t = try Tokenizer.any("case");
+    try std.testing.expect(t.kind == .resr);
+    t = try Tokenizer.any("esac");
+    try std.testing.expect(t.kind == .resr);
+    t = try Tokenizer.any("while");
+    try std.testing.expect(t.kind == .resr);
+    t = try Tokenizer.any("until");
+    try std.testing.expect(t.kind == .resr);
+    t = try Tokenizer.any("for");
+    try std.testing.expect(t.kind == .resr);
+    t = try Tokenizer.any("in");
+    try std.testing.expect(t.kind == .resr);
 }
