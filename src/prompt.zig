@@ -94,7 +94,7 @@ pub fn jobsContext(hsh: *HSH, jobs: []Job) !void {
         const lex = LexTree{
             .siblings = @constCast(&[_]Lexeme{
                 .{ .char = "[ " },
-                if (j.status == .Background) spinner(.dots2t3) else .{ .char = "Z" },
+                if (j.status == .background) spinner(.dots2t3) else .{ .char = "Z" },
                 .{ .char = " " },
                 .{ .char = j.name orelse "Unknown Job" },
                 .{ .char = " ]" },

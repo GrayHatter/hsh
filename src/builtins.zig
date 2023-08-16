@@ -181,7 +181,7 @@ fn exit(h: *HSH, i: *ParsedIterator) Err!u8 {
 fn fg(hsh: *HSH, _: *ParsedIterator) Err!u8 {
     var paused: usize = 0;
     for (hsh.jobs.items) |j| {
-        paused += if (j.status == .Paused or j.status == .Waiting) 1 else 0;
+        paused += if (j.status == .paused or j.status == .waiting) 1 else 0;
     }
     if (paused == 0) {
         hsh.tty.print("No resumeable jobs\n", .{}) catch {};
@@ -238,13 +238,13 @@ test "builtins alias" {
 fn tty(hsh: *HSH, pi: *ParsedIterator) Err!u8 {
     std.debug.assert(std.mem.eql(u8, "tty", pi.first().cannon()));
 
-    for (hsh.tty.attrs.items) |i| {
-        std.debug.print("attr {any}\n", .{i});
-    }
+    std.debug.print("attr {any}\n", .{hsh.tty.orig_attr});
 
     if (pi.next()) |next| {
-        if (std.mem.eql(u8, "pop", next.cannon())) {
-            _ = hsh.tty.popTTY() catch return Err.Unknown;
+        if (std.mem.eql(u8, "raw", next.cannon())) {
+            hsh.tty.setRaw() catch return Err.Unknown;
+        } else if (std.mem.eql(u8, "orig", next.cannon())) {
+            hsh.tty.setOrig() catch return Err.Unknown;
         }
     }
 

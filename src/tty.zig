@@ -1,8 +1,6 @@
 const std = @import("std");
-const Allocator = mem.Allocator;
-const ArrayList = std.ArrayList;
+const Allocator = std.mem.Allocator;
 const os = std.os;
-const mem = std.mem;
 const fs = std.fs;
 const File = fs.File;
 const io = std.io;
@@ -13,6 +11,7 @@ const custom_syscalls = @import("syscalls.zig");
 const pid_t = std.os.linux.pid_t;
 const fd_t = std.os.fd_t;
 const log = @import("log");
+const TCSA = std.os.linux.TCSA;
 
 pub const VTCmds = enum {
     CurPosGet,
@@ -28,7 +27,7 @@ pub const TTY = struct {
     dev: i32,
     in: Reader,
     out: Writer,
-    attrs: ArrayList(os.termios),
+    orig_attr: os.termios,
     pid: std.os.pid_t = undefined,
 
     /// Calling init multiple times is UB
@@ -41,21 +40,19 @@ pub const TTY = struct {
             .dev = tty,
             .in = std.io.getStdIn().reader(),
             .out = std.io.getStdOut().writer(),
-            .attrs = ArrayList(os.termios).init(a),
+            .orig_attr = tcAttr(tty),
         };
 
-        const current = self.getAttr();
-        try self.pushTTY(current);
-        try self.pushRaw();
         current_tty = self;
-
-        // Cursor focus
-
         return self;
     }
 
-    fn getAttr(self: *TTY) os.termios {
-        return os.tcgetattr(self.dev) catch unreachable;
+    fn tcAttr(tty_fd: i32) os.termios {
+        return os.tcgetattr(tty_fd) catch unreachable;
+    }
+
+    pub fn getAttr(self: *TTY) os.termios {
+        return tcAttr(self.dev);
     }
 
     fn makeRaw(orig: os.termios) os.termios {
@@ -70,33 +67,26 @@ pub const TTY = struct {
         return next;
     }
 
-    pub fn pushOrig(self: *TTY) !void {
-        try self.pushTTY(self.attrs.items[0]);
-        try self.command(.ReqMouseEvents, false);
+    fn setTTYWhen(self: *TTY, tio: os.termios, when: TCSA) !void {
+        try os.tcsetattr(self.dev, when, tio);
+    }
+
+    pub fn setTTY(self: *TTY, tio: os.termios) void {
+        self.setTTYWhen(tio, .DRAIN) catch |err| {
+            log.err("TTY ERROR encountered, {} when popping.\n", .{err});
+        };
+    }
+
+    pub fn setOrig(self: *TTY) !void {
+        try self.setTTYWhen(self.orig_attr, .DRAIN);
+        // try self.command(.ReqMouseEvents, false);
         try self.command(.ModOtherKeys, false);
     }
 
-    pub fn pushRaw(self: *TTY) !void {
-        try self.pushTTY(makeRaw(self.attrs.items[0]));
-        try self.command(.ReqMouseEvents, true);
+    pub fn setRaw(self: *TTY) !void {
+        try self.setTTYWhen(makeRaw(self.orig_attr), .DRAIN);
+        // try self.command(.ReqMouseEvents, true);
         try self.command(.ModOtherKeys, true);
-    }
-
-    pub fn pushTTY(self: *TTY, tios: os.termios) !void {
-        try self.attrs.append(self.getAttr());
-        try os.tcsetattr(self.dev, .DRAIN, tios);
-    }
-
-    pub fn popTTY(self: *TTY) !os.termios {
-        // Not using assert, because this is *always* an dangerously invalid state!
-        if (self.attrs.items.len <= 1) @panic("popTTY");
-        const old = try os.tcgetattr(self.dev);
-        const tail = self.attrs.pop();
-        os.tcsetattr(self.dev, .DRAIN, tail) catch |err| {
-            log.err("TTY ERROR encountered, {} when popping.\n", .{err});
-            return err;
-        };
-        return old;
     }
 
     pub fn setOwner(self: *TTY, mpgrp: ?std.os.pid_t) !void {
@@ -168,24 +158,24 @@ pub const TTY = struct {
         }
     }
 
-    pub fn cpos(tty: i32) !Cord {
-        std.debug.print("\x1B[6n", .{});
-        var buffer: [10]u8 = undefined;
-        const len = try os.read(tty, &buffer);
-        var splits = mem.split(u8, buffer[2..], ";");
-        var x: usize = std.fmt.parseInt(usize, splits.next().?, 10) catch 0;
-        var y: usize = 0;
-        if (splits.next()) |thing| {
-            y = std.fmt.parseInt(usize, thing[0 .. len - 3], 10) catch 0;
-        }
-        return .{
-            .x = x,
-            .y = y,
-        };
-    }
+    //pub fn cpos(tty: i32) !Cord {
+    //    std.debug.print("\x1B[6n", .{});
+    //    var buffer: [10]u8 = undefined;
+    //    const len = try os.read(tty, &buffer);
+    //    var splits = std.mem.split(u8, buffer[2..], ";");
+    //    var x: usize = std.fmt.parseInt(usize, splits.next().?, 10) catch 0;
+    //    var y: usize = 0;
+    //    if (splits.next()) |thing| {
+    //        y = std.fmt.parseInt(usize, thing[0 .. len - 3], 10) catch 0;
+    //    }
+    //    return .{
+    //        .x = x,
+    //        .y = y,
+    //    };
+    //}
 
     pub fn geom(self: *TTY) !Cord {
-        var size: os.linux.winsize = mem.zeroes(os.linux.winsize);
+        var size: os.linux.winsize = std.mem.zeroes(os.linux.winsize);
         const err = os.system.ioctl(self.dev, os.linux.T.IOCGWINSZ, @intFromPtr(&size));
         if (os.errno(err) != .SUCCESS) {
             return os.unexpectedErrno(@enumFromInt(err));
@@ -197,19 +187,12 @@ pub const TTY = struct {
     }
 
     pub fn raze(self: *TTY) void {
-        if (self.attrs.items.len == 0) return;
-        while (self.attrs.items.len > 1) {
-            _ = self.popTTY() catch continue;
-        }
-        std.debug.assert(self.attrs.items.len == 1);
-        const last = self.attrs.pop();
-        os.tcsetattr(self.dev, .NOW, last) catch |err| {
+        self.setTTYWhen(self.orig_attr, .NOW) catch |err| {
             std.debug.print(
                 "\r\n\nTTY ERROR RAZE encountered, {} when attempting to raze.\r\n\n",
                 .{err},
             );
         };
-        self.attrs.clearAndFree();
     }
 };
 

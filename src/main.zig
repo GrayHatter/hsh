@@ -59,8 +59,6 @@ fn core(hsh: *HSH) !bool {
         const event = try input.do(hsh, &comp);
         switch (event) {
             .None => continue,
-            .ExitHSH => return false,
-            .Exec => return true,
             .Redraw, .Prompt, .Update => {
                 Draw.clearCtx(&hsh.draw);
                 try Draw.render(&hsh.draw);
@@ -68,9 +66,11 @@ fn core(hsh: *HSH) !bool {
                 redraw = true;
                 continue;
             },
-            .Advice => {},
-            .HSHIntern => return true,
+            .Exec => return true,
+            .ExitHSH => return false,
             .ExpectedError => return true,
+            .HSHIntern => return true,
+            .Advice => {},
             .EnvState => {},
             .Signaled => {},
         }

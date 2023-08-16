@@ -19,7 +19,7 @@ pub const Signal = struct {
     info: os.siginfo_t,
 };
 
-const SI_CODE = enum(u6) {
+pub const SI_CODE = enum(u6) {
     EXITED = 1,
     KILLED,
     DUMPED,
@@ -131,59 +131,42 @@ pub fn do(hsh: *HSH) SigEvent {
             },
             std.os.SIG.CHLD => {
                 const child = jobs.get(pid) catch {
-                    // TODO we should never not know about a job, but it's not a
-                    // reason to die just yet.
-                    //std.debug.print("Unknown child on {} {}\n", .{ sig.info.code, pid });
+                    log.warn("Unknown child on {} {}\n", .{ sig.info.code, pid });
                     continue;
                 };
                 switch (@as(SI_CODE, @enumFromInt(sig.info.code))) {
-                    SI_CODE.STOPPED => {
-                        if (child.*.status == .Running) {
-                            child.*.termattr = hsh.tty.popTTY() catch unreachable;
+                    .STOPPED => {
+                        if (child.pause(hsh.tty.getAttr())) {
+                            hsh.tty.setRaw() catch unreachable;
                         }
-                        child.*.status = .Paused;
                     },
-                    SI_CODE.EXITED,
-                    SI_CODE.KILLED,
+                    .EXITED,
+                    .KILLED,
                     => {
-                        if (child.*.status == .Running) {
-                            child.*.termattr = hsh.tty.popTTY() catch |e| {
-                                std.debug.print("Unable to pop for (reasons) {}\n", .{e});
-                                unreachable;
-                            };
+                        if (child.exit(@intCast(sig.info.fields.common.second.sigchld.status))) {
+                            hsh.tty.setRaw() catch unreachable;
                         }
-                        const status = sig.info.fields.common.second.sigchld.status;
-                        child.*.exit_code = @intCast(status);
-                        child.*.status = .Ded;
                     },
-                    SI_CODE.CONTINUED => {
-                        child.*.status = .Running;
+                    .CONTINUED => {
+                        if (child.forground()) |tio| {
+                            hsh.tty.setTTY(tio);
+                        }
                     },
-                    SI_CODE.DUMPED,
-                    SI_CODE.TRAPPED,
-                    => {
+                    .DUMPED, .TRAPPED => {
                         log.err("CHLD CRASH on {}\n", .{pid});
-                        child.*.status = .Crashed;
-                        const status = sig.info.fields.common.second.sigchld.status;
-                        child.*.exit_code = @intCast(status);
+                        child.crash(@intCast(sig.info.fields.common.second.sigchld.status));
                     },
                 }
             },
             std.os.SIG.TSTP => {
                 if (pid != 0) {
                     const child = jobs.get(pid) catch {
-                        // TODO we should never not know about a job, but it's not a
-                        // reason to die just yet.
-                        std.debug.print("Unknown child on {} {}\n", .{ pid, sig.info.code });
+                        log.warn("Unknown child on {} {}\n", .{ sig.info.code, pid });
                         return .none;
                     };
-                    if (child.*.status == .Running) {
-                        child.*.termattr = hsh.tty.popTTY() catch unreachable;
-                    }
-                    child.*.status = .Waiting;
+                    child.waiting();
                 }
                 log.err("SIGNAL TSTP {} => ({any})", .{ pid, sig.info });
-                //std.debug.print("\n{}\n", .{child});
             },
             std.os.SIG.CONT => {
                 log.warn("Unexpected cont from pid({})\n", .{pid});
@@ -194,7 +177,7 @@ pub fn do(hsh: *HSH) SigEvent {
             },
             std.os.SIG.USR1 => {
                 _ = jobs.haltActive() catch @panic("Signal unable to pause job");
-                hsh.tty.pushRaw() catch unreachable;
+                hsh.tty.setRaw() catch unreachable;
                 log.err("Assuming control of TTY!\n", .{});
             },
             std.os.SIG.TTOU => {
@@ -207,11 +190,11 @@ pub fn do(hsh: *HSH) SigEvent {
                 //hsh.tty.pwnTTY();
             },
             else => {
-                std.debug.print("\n\rUnknown signal {} => ({})\n", .{ sig.signal, sig.info });
-                std.debug.print("\n\r dump = {}\n", .{std.fmt.fmtSliceHexUpper(std.mem.asBytes(&sig.info))});
-                std.debug.print("\n\rpid = {}", .{sig.info.fields.common.first.piduid.pid});
-                std.debug.print("\n\ruid = {}", .{sig.info.fields.common.first.piduid.uid});
-                std.debug.print("\n", .{});
+                log.err("Unknown signal {} => ({})\n", .{ sig.signal, sig.info });
+                log.err(" dump = {}\n", .{std.fmt.fmtSliceHexUpper(std.mem.asBytes(&sig.info))});
+                log.err("pid = {}", .{sig.info.fields.common.first.piduid.pid});
+                log.err("uid = {}", .{sig.info.fields.common.first.piduid.uid});
+                log.err("\n", .{});
                 @panic("unexpected signal");
             },
         }

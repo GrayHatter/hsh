@@ -299,7 +299,7 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!void {
         return;
     }
 
-    h.tty.pushOrig() catch |e| {
+    h.tty.setOrig() catch |e| {
         log.err("TTY didn't respond {}\n", .{e});
         return Error.Unknown;
     };
@@ -323,7 +323,7 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!void {
                 },
             }
             // repush original because spinning will revert
-            h.tty.pushOrig() catch |e| {
+            h.tty.setOrig() catch |e| {
                 log.err("TTY didn't respond {}\n", .{e});
                 return Error.Unknown;
             };
@@ -364,7 +364,7 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!void {
             .exec => |e| std.mem.sliceTo(e.arg, 0),
         };
         jobs.add(jobs.Job{
-            .status = if (s.stdio.pipe) .Piped else .Running,
+            .status = if (s.stdio.pipe) .piped else .running,
             .pid = fpid,
             .name = h.alloc.dupe(u8, name) catch return Error.Memory,
         }) catch return Error.Memory;

@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const HSH = @import("hsh.zig").HSH;
+const SI_CODE = @import("signals.zig").SI_CODE;
 
 pub const Error = error{
     Unknown,
@@ -10,37 +11,72 @@ pub const Error = error{
 };
 
 pub const Status = enum {
-    RIP, // reaped (user notified)
-    Crashed, // SIGQUIT
-    Ded, // zombie
-    Paused, // SIGSTOP
-    Waiting, // Stopped needs to output
-    Piped,
-    Background, // in background
-    Running, // foreground
-    Child,
-    Unknown, // :<
+    rip, // reaped (user notified)
+    crashed, // SIGQUIT
+    ded, // zombie
+    paused, // SIGSTOP
+    waiting, // Stopped needs to output
+    piped,
+    background, // in background
+    running, // foreground
+    child,
+    unknown, // :<
 };
 
 pub const Job = struct {
     name: ?[]const u8,
     pid: std.os.pid_t = -1,
     pgid: std.os.pid_t = -1,
-    exit_code: u8 = 0,
-    status: Status = .Unknown,
-    termattr: std.os.termios = undefined,
+    exit_code: ?u8 = null,
+    status: Status = .unknown,
+    termattr: ?std.os.termios = null,
 
     pub fn alive(self: Job) bool {
         return switch (self.status) {
-            .Paused,
-            .Waiting,
-            .Piped,
-            .Background,
-            .Running,
-            .Child,
+            .paused,
+            .waiting,
+            .piped,
+            .background,
+            .running,
+            .child,
             => true,
             else => false,
         };
+    }
+
+    pub fn pause(self: *Job, tio: std.os.termios) bool {
+        defer self.status = .paused;
+        if (self.status == .running) {
+            self.termattr = tio;
+            return true;
+        }
+        return false;
+    }
+
+    pub fn waiting(self: *Job) void {
+        self.status = .waiting;
+    }
+
+    pub fn background(self: *Job, tio: std.os.termios) void {
+        self.status = .background;
+        self.termattr = tio;
+    }
+
+    pub fn forground(self: *Job) ?std.os.termios {
+        defer self.status = .running;
+        if (self.status == .background) return self.termattr;
+        return null;
+    }
+
+    pub fn exit(self: *Job, code: ?u8) bool {
+        defer self.status = .ded;
+        self.exit_code = code;
+        return self.status == .running;
+    }
+
+    pub fn crash(self: *Job, code: ?u8) void {
+        self.status = .crashed;
+        self.exit_code = code;
     }
 
     pub fn format(self: Job, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
@@ -56,7 +92,7 @@ pub const Job = struct {
             @tagName(self.status),
             self.name orelse "none",
             self.pid,
-            self.exit_code,
+            self.exit_code orelse 0,
         });
     }
 };
@@ -93,8 +129,8 @@ pub fn add(j: Job) Error!void {
 pub fn getWaiting() Error!?*Job {
     for (jobs.items) |*j| {
         switch (j.status) {
-            .Paused,
-            .Waiting,
+            .paused,
+            .waiting,
             => {
                 return j;
             },
@@ -107,8 +143,8 @@ pub fn getWaiting() Error!?*Job {
 pub fn haltActive() Error!usize {
     var count: usize = 0;
     for (jobs.items) |*j| {
-        if (j.*.status == .Running) {
-            j.status = .Paused;
+        if (j.*.status == .running) {
+            j.status = .paused;
             // TODO send signal
             count += 1;
         }
@@ -120,7 +156,9 @@ pub fn contNext(h: *HSH, comptime fg: bool) Error!void {
     const job: ?*Job = try getWaiting();
     if (job) |j| {
         if (fg) {
-            h.tty.pushTTY(j.termattr) catch return Error.Memory;
+            if (j.termattr) |tio| {
+                h.tty.setTTY(tio);
+            }
         } else {}
         std.os.kill(j.pid, std.os.SIG.CONT) catch return Error.Unknown;
     }
@@ -130,9 +168,9 @@ pub fn getBg(a: Allocator) Error!ArrayList(Job) {
     var out = ArrayList(Job).init(a);
     for (jobs.items) |j| {
         switch (j.status) {
-            .Background,
-            .Waiting,
-            .Paused,
+            .background,
+            .waiting,
+            .paused,
             => {
                 out.append(j) catch return Error.Memory;
             },
@@ -144,7 +182,7 @@ pub fn getBg(a: Allocator) Error!ArrayList(Job) {
 
 pub fn getFg() ?*const Job {
     for (jobs.items) |j| {
-        if (j.status == .Running) {
+        if (j.status == .running) {
             return &j;
         }
     }
