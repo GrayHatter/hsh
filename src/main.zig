@@ -72,7 +72,7 @@ fn core(hsh: *HSH) !bool {
             .HSHIntern => return true,
             .Advice => {},
             .EnvState => {},
-            .Signaled => {},
+            .Signaled => redraw = true,
         }
     }
 }
