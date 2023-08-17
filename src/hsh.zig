@@ -248,7 +248,7 @@ pub const HSH = struct {
             event = hsh.doSignals() or event;
             hsh.sleep();
         }
-        _ = hsh.hfs.watchCheck();
+        _ = hsh.hfs.checkINotify();
         return event;
     }
 

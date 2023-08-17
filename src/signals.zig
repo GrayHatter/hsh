@@ -33,16 +33,14 @@ var alloc: Allocator = undefined;
 var queue: Queue(Signal) = Queue(Signal).init();
 
 export fn sig_cb(sig: c_int, info: *const os.siginfo_t, _: ?*const anyopaque) callconv(.C) void {
-    if (false) { // signal debugging
-        log.trace(
-            \\
-            \\ ===================
-            \\ = Incoming Signal =
-            \\ ===================
-            \\ sig int {}
-            \\
-        , .{sig});
-    }
+    log.trace(
+        \\
+        \\ ===================
+        \\ = Incoming Signal =
+        \\ ===================
+        \\ sig int ({})
+        \\
+    , .{sig});
     const sigp = alloc.create(Queue(Signal).Node) catch {
         std.debug.print(
             "ERROR: unable to allocate memory for incoming signal {}\n",

@@ -3,6 +3,7 @@ const std = @import("std");
 const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 const log = @import("log");
+const INotify = @import("inotify.zig");
 
 pub const fs = @This();
 
@@ -51,17 +52,13 @@ const Dirs = struct {
     }
 };
 
-const Watching = struct {
-    in_fd: ?i32,
-    wdes: [1]?i32,
-};
-
 alloc: mem.Allocator = undefined,
 rc: ?std.fs.File = null,
 history: ?std.fs.File = null,
 dirs: Dirs,
 names: Names,
-watches: Watching,
+inotify_fd: ?i32,
+watches: [1]?INotify,
 
 pub const Error = error{
     System,
@@ -79,8 +76,6 @@ pub fn init(a: mem.Allocator, env: std.process.EnvMap) !fs {
         }
     }
 
-    const inotify_fd = std.os.inotify_init1(std.os.linux.IN.CLOEXEC | std.os.linux.IN.NONBLOCK) catch null;
-
     var self = fs{
         .alloc = a,
         .rc = findCoreFile(a, &env, .rc),
@@ -94,57 +89,65 @@ pub fn init(a: mem.Allocator, env: std.process.EnvMap) !fs {
             .path = env.get("PATH"),
             .paths = paths,
         },
-        .watches = .{
-            .in_fd = inotify_fd,
-            .wdes = [_]?i32{
-                null,
-            },
-        },
+        .inotify_fd = std.os.inotify_init1(std.os.linux.IN.CLOEXEC | std.os.linux.IN.NONBLOCK) catch null,
+        .watches = .{null},
     };
 
     try self.names.update(self.alloc);
-    if (env.get("HOME")) |home| {
-        if (a.alloc(u8, home.len + "/.config/hsh/hshrc".len)) |path| {
-            @memcpy(path[0..home.len], home);
-            @memcpy(path[home.len..], "/.config/hsh/hshrc");
-            try self.watchAdd(path, std.os.linux.IN.ALL_EVENTS);
-            a.free(path);
-        } else |err| return err;
+    if (self.inotify_fd) |infd| {
+        if (env.get("HOME")) |home| {
+            if (a.alloc(u8, home.len + "/.config/hsh/hshrc".len)) |path| {
+                @memcpy(path[0..home.len], home);
+                @memcpy(path[home.len..], "/.config/hsh/hshrc");
+                if (INotify.init(infd, path, null)) |wd| {
+                    self.watches[0] = wd;
+                } else |_| {
+                    log.warn("unable to setup inotify for {s}\n", .{path});
+                    a.free(path);
+                }
+            } else |err| return err;
+        }
     }
     return self;
 }
 
-pub fn watchAdd(self: *fs, name: []const u8, mask: u32) !void {
-    if (self.watches.in_fd) |fd| {
-        self.watches.wdes[0] = std.os.inotify_add_watch(fd, name, mask) catch null;
-    }
-}
-
-pub fn watchDel(_: *fs, _: i32) void {}
-
-pub fn watchCheck(self: *fs) ?[]u8 {
-    if (self.watches.in_fd) |fd| {
+/// TODO rename and maybe refactor
+pub fn checkINotify(self: *fs) bool {
+    if (self.inotify_fd) |fd| {
         var buf: [4096]u8 align(@alignOf(std.os.linux.inotify_event)) = undefined;
-        const rcount = std.os.read(fd, &buf) catch return null;
+        const rcount = std.os.read(fd, &buf) catch return true;
         if (rcount > 0) {
             if (rcount < @sizeOf(std.os.linux.inotify_event)) {
                 log.err(
                     "inotify read size too small @{} expected {}\n",
                     .{ rcount, @sizeOf(std.os.linux.inotify_event) },
                 );
-                return null;
+                return true;
             }
             var event: *const std.os.linux.inotify_event = @ptrCast(&buf);
-            log.debug("inotify event {any}\n", .{event});
+            // TODO optimize
+            for (&self.watches) |*watch| {
+                if (watch.*) |*wd| {
+                    if (wd.wdes == event.wd) {
+                        wd.event(event);
+                    }
+                }
+            }
         }
     }
-    return null;
+    return true;
 }
 
 pub fn raze(self: *fs, a: mem.Allocator) void {
     self.dirs.raze();
     self.names.raze(a);
     if (self.rc) |rc| rc.close();
+    // TODO inotify_fd
+    for (&self.watches) |*watch| {
+        if (watch.*) |*w| {
+            w.raze(self.alloc);
+        }
+    }
     // don't close self.history, it's not owned by us
 }
 
