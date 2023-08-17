@@ -37,7 +37,7 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
 
 ## TODO
   - [x] basic parsing
-  - [ ] .hshrc support
+  - [x] .hshrc support
   - [x] exec
     - [x] friendly exec
     - [x] && success
