@@ -7,12 +7,13 @@ need `zig version` `0.11.0` or better to compile.
 Current technological breakthrough => "fire"
 
 Hash is a slightly different take on your shell. It's closer to a user agent
-than a POSIX shell. It's less of an instance, of a shell, and much closer to a
-system shell. E.g. when you add an alias in one instance, it becomes available
-in all others as well. Changing a setting in one, updates it all[^ephem].
+than you standard POSIX shell. It's less of an instance, of a shell, and much
+closer to a system shell. E.g. when you add an alias in one instance, it becomes
+available on all instances as well. Changing a setting in one, updates it across
+all[^ephem].
 
 [^ephem]: There ~~is~~ will eventually be an ephemeral mode to allow any instance
-    to have it's own settings without effecting the system.
+    to have it's own settings without affecting your other shells on the system.
 
 ## Goals
   - Support *modern* pttys
