@@ -18,12 +18,14 @@ const Context = @import("context.zig");
 const fs = @import("fs.zig");
 const Variables = @import("variables.zig");
 const log = @import("log");
+const INEvent = @import("inotify.zig").Event;
 
 pub const Error = error{
     Unknown,
     Memory,
     EOF,
     CorruptFile,
+    FSError,
     Other,
 } || fs.Error;
 const E = Error;
@@ -76,15 +78,29 @@ fn razeBuiltins(h: *HSH) void {
     savestates.clearAndFree();
 }
 
-fn readFromRC(hsh: *HSH) !void {
+/// TODO delete this helper
+pub fn readRCINotify(h: *HSH, e: INEvent) void {
+    // This isn't the right way, but I'm doing it this way because I'll hate
+    // this enough to fix it later.
+    if (e == .write) {
+        log.debug("Reading RC because new write detected\n", .{});
+        readFromRC(h) catch {
+            log.err("write failed during inotify event\n", .{});
+        };
+    }
+}
+
+fn readFromRC(hsh: *HSH) E!void {
     if (hsh.hfs.rc) |rc_| {
         var r = rc_.reader();
         var a = hsh.alloc;
 
         var tokenizer = Tokenizer.init(a);
         defer tokenizer.raze();
+        rc_.seekTo(0) catch return E.FSError;
         while (readLine(&a, r)) |line| {
             defer a.free(line);
+            log.trace("reading line \n    `` {s} ``\n", .{line});
             if (line.len > 0 and line[0] == '#') {
                 continue;
             }
@@ -102,13 +118,12 @@ fn readFromRC(hsh: *HSH) !void {
 
             const bi_func = bi.strExec(titr.first().cannon());
             _ = bi_func(hsh, &pitr) catch |err| {
-                std.debug.print("rc parse error {}\n", .{err});
+                log.err("rc parse error {}\n", .{err});
             };
             pitr.close();
-            //std.debug.print("tokens {any}\n", .{tokenizer.tokens.items});
         } else |err| {
             if (err != Error.EOF) {
-                std.debug.print("error {}\n", .{err});
+                log.err("error {}\n", .{err});
                 unreachable;
             }
         }
@@ -191,6 +206,9 @@ pub const HSH = struct {
         var env = std.process.getEnvMap(a) catch return E.Unknown; // TODO err handling
 
         var hfs = fs.init(a, env) catch return E.Memory;
+        hfs.inotifyInstallRc(readRCINotify) catch {
+            log.err("Unable to install rc INotify\n", .{});
+        };
         // TODO there's errors other than just mem here
         var hsh = HSH{
             .alloc = a,
@@ -248,7 +266,7 @@ pub const HSH = struct {
             event = hsh.doSignals() or event;
             hsh.sleep();
         }
-        _ = hsh.hfs.checkINotify();
+        _ = hsh.hfs.checkINotify(hsh);
         return event;
     }
 

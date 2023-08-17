@@ -4,6 +4,7 @@ const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 const log = @import("log");
 const INotify = @import("inotify.zig");
+const HSH = @import("hsh.zig").HSH;
 
 pub const fs = @This();
 
@@ -94,25 +95,38 @@ pub fn init(a: mem.Allocator, env: std.process.EnvMap) !fs {
     };
 
     try self.names.update(self.alloc);
-    if (self.inotify_fd) |infd| {
-        if (env.get("HOME")) |home| {
-            if (a.alloc(u8, home.len + "/.config/hsh/hshrc".len)) |path| {
-                @memcpy(path[0..home.len], home);
-                @memcpy(path[home.len..], "/.config/hsh/hshrc");
-                if (INotify.init(infd, path, null)) |wd| {
-                    self.watches[0] = wd;
-                } else |_| {
-                    log.warn("unable to setup inotify for {s}\n", .{path});
-                    a.free(path);
-                }
-            } else |err| return err;
-        }
-    }
     return self;
 }
 
+pub fn inotifyInstall(self: *fs, target: []const u8, cb: ?INotify.Callback) !void {
+    if (self.inotify_fd) |infd| {
+        if (self.alloc.dupe(u8, target)) |path| {
+            errdefer self.alloc.free(path);
+            // TODO dynamic size
+            self.watches[0] = INotify.init(infd, path, cb) catch |e| {
+                log.err("unable to setup inotify for {s}\n", .{path});
+                return e;
+            };
+        } else |err| return err;
+    }
+}
+
+pub fn inotifyInstallRc(self: *fs, cb: ?INotify.Callback) !void {
+    if (self.rc) |_| {
+        if (self.names.home) |home| {
+            // I know... I'm sorry you had to read this too
+            const cfile = "/.config/hsh/hshrc";
+            const path = try self.alloc.alloc(u8, home.len + cfile.len);
+            defer self.alloc.free(path);
+            @memcpy(path[0..home.len], home);
+            @memcpy(path[home.len..], cfile);
+            try self.inotifyInstall(path, cb);
+        }
+    }
+}
+
 /// TODO rename and maybe refactor
-pub fn checkINotify(self: *fs) bool {
+pub fn checkINotify(self: *fs, h: *HSH) bool {
     if (self.inotify_fd) |fd| {
         var buf: [4096]u8 align(@alignOf(std.os.linux.inotify_event)) = undefined;
         const rcount = std.os.read(fd, &buf) catch return true;
@@ -129,7 +143,7 @@ pub fn checkINotify(self: *fs) bool {
             for (&self.watches) |*watch| {
                 if (watch.*) |*wd| {
                     if (wd.wdes == event.wd) {
-                        wd.event(event);
+                        wd.event(h, event);
                     }
                 }
             }
@@ -238,7 +252,12 @@ pub fn globAt(a: Allocator, dir: std.fs.IterableDir, search: []const u8) ![][]u8
 
 /// Caller owns returned file
 /// TODO remove allocator
-pub fn findPath(a: Allocator, env: *const std.process.EnvMap, name: []const u8, comptime create: bool) !std.fs.File {
+pub fn findPath(
+    a: Allocator,
+    env: *const std.process.EnvMap,
+    name: []const u8,
+    comptime create: bool,
+) !std.fs.File {
     if (env.get("XDG_CONFIG_HOME")) |xdg| {
         var out = try a.dupe(u8, xdg);
         out = try mem.concatPath(a, out, "hsh");
