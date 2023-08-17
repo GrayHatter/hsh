@@ -132,12 +132,9 @@ pub fn main() !void {
 
     hsh.tty = try TTY.init(a);
     defer hsh.tty.raze();
-
-    const pwn_tty = true;
-    if (pwn_tty) {
-        // Look at me, I'm the captain now!
-        hsh.tty.pwnTTY();
-    }
+    try hsh.tty.setRaw();
+    // Look at me, I'm the captain now!
+    hsh.tty.pwnTTY();
 
     hsh.draw = Drawable.init(&hsh) catch unreachable;
     defer hsh.draw.raze();
