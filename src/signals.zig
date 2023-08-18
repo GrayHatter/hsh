@@ -28,6 +28,11 @@ pub const SI_CODE = enum(u6) {
     CONTINUED,
 };
 
+var flags: struct {
+    int: u8 = 0,
+    winch: bool = true,
+} = .{};
+
 var root_alloc: Allocator = undefined;
 var alloc: Allocator = undefined;
 var fba: std.heap.FixedBufferAllocator = undefined;
@@ -43,21 +48,24 @@ export fn sig_cb(sig: c_int, info: *const os.siginfo_t, _: ?*const anyopaque) ca
         \\ sig int ({})
         \\
     , .{sig});
-    const sigp = alloc.create(Queue(Signal).Node) catch {
-        std.debug.print(
-            "ERROR: unable to allocate memory for incoming signal {}\n",
-            .{sig},
-        );
-        unreachable;
-    };
-    sigp.* = Queue(Signal).Node{
-        .data = Signal{
-            .signal = sig,
-            .info = info.*,
-        },
-    };
 
-    queue.put(sigp);
+    switch (sig) {
+        os.SIG.INT => flags.int +|= 1,
+        os.SIG.WINCH => flags.winch = true,
+        else => {
+            const sigp = alloc.create(Queue(Signal).Node) catch {
+                std.debug.print(
+                    "ERROR: unable to allocate memory for incoming signal {}\n",
+                    .{sig},
+                );
+                unreachable;
+            };
+            sigp.* = Queue(Signal).Node{
+                .data = Signal{ .signal = sig, .info = info.* },
+            };
+            queue.put(sigp);
+        },
+    }
 }
 
 pub fn get() ?Queue(Signal).Node {
@@ -119,18 +127,22 @@ pub const SigEvent = enum {
 };
 
 pub fn do(hsh: *HSH) SigEvent {
+    while (flags.int > 0) {
+        flags.int -|= 1;
+        hsh.tkn.reset();
+        _ = hsh.draw.write("^C\n\r") catch {};
+        if (hsh.hist) |*hist| {
+            hist.cnt = 0;
+        }
+        return .clear;
+    }
+
     while (get()) |node| {
         var sig = node.data;
         const pid = sig.info.fields.common.first.piduid.pid;
         switch (sig.signal) {
-            std.os.SIG.INT => {
-                hsh.tkn.reset();
-                _ = hsh.draw.write("^C\n\r") catch {};
-                if (hsh.hist) |*hist| {
-                    hist.cnt = 0;
-                }
-                return .clear;
-            },
+            std.os.SIG.INT => unreachable,
+            std.os.SIG.WINCH => unreachable,
             std.os.SIG.CHLD => {
                 const child = jobs.get(pid) catch {
                     log.warn("Unknown child on {} {}\n", .{ sig.info.code, pid });
@@ -174,9 +186,6 @@ pub fn do(hsh: *HSH) SigEvent {
                 log.warn("Unexpected cont from pid({})\n", .{pid});
                 hsh.waiting = false;
             },
-            std.os.SIG.WINCH => {
-                hsh.draw.term_size = hsh.tty.geom() catch unreachable;
-            },
             std.os.SIG.USR1 => {
                 _ = jobs.haltActive() catch @panic("Signal unable to pause job");
                 hsh.tty.setRaw() catch unreachable;
@@ -200,6 +209,10 @@ pub fn do(hsh: *HSH) SigEvent {
                 @panic("unexpected signal");
             },
         }
+    }
+    if (flags.winch) {
+        hsh.draw.term_size = hsh.tty.geom() catch unreachable;
+        flags.winch = false;
     }
     return .none;
 }
