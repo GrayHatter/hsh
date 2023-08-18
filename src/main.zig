@@ -183,10 +183,7 @@ pub fn main() !void {
                 }
                 try Draw.newLine(&hsh.draw);
                 exec(&hsh, &itr) catch |err| {
-                    if (err == Exec.Error.ExeNotFound) {
-                        std.debug.print("exe pipe error {}\n", .{err});
-                    }
-                    std.debug.print("Exec error {}\n", .{err});
+                    log.err("Exec error {}\n", .{err});
                     unreachable;
                 };
                 hsh.tkn.exec();
@@ -219,11 +216,11 @@ pub fn main() !void {
 pub fn panic(msg: []const u8, trace: ?*std.builtin.StackTrace, retaddr: ?usize) noreturn {
     @setCold(true);
 
-    std.debug.print("Panic reached... your TTY is likely broken now.\n\n...sorry about that!\n", .{});
+    log.err("Panic reached... your TTY is likely broken now.\n\n      ...sorry about that!\n\n", .{});
+    std.builtin.default_panic(msg, trace, retaddr);
     if (TTY_.current_tty) |*t| {
         TTY_.current_tty = null;
         t.raze();
     }
-    std.builtin.default_panic(msg, trace, retaddr);
     std.time.sleep(1000 * 1000 * 1000 * 30);
 }
