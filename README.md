@@ -33,16 +33,14 @@ clone [hsh]<br>
 
 or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
 
-(`zig build run` does some magic that causes hsh to segv)
-
 ## TODO
   - [x] basic parsing
   - [x] .hshrc support
   - [x] exec
     - [x] friendly exec
     - [x] && success
-    - [x] || failues
-    - [ ] ; cmd
+    - [x] || failures
+    - [x] ; cmd
   - [ ] IoRedir
     - [x] | func
     - [x] > std clobber
@@ -108,6 +106,8 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
   - [ ] real path support
   - [ ] debugging configuration
 
+## notes
+(`zig build run` does some magic that causes hsh to segv)
 
 ## Hash Manifesto
   * Subsume the Unix Philosophy
@@ -117,4 +117,3 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
   * Do not clobber backlog!
     * history is immutable, once data leaves the prompt, i.e. it has been pushed
       into the scroll back, the user owns it.
-  *
