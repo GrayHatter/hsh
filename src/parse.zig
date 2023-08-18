@@ -64,7 +64,7 @@ pub const ParsedIterator = struct {
                     self.index.? += 1;
                     return self.next();
                 },
-                .word => {
+                .word, .path => {
                     if (self.nextSubtoken(token)) |tk| return tk;
                 },
                 else => {},
@@ -92,6 +92,20 @@ pub const ParsedIterator = struct {
     fn subtokensDupe(self: *Self, str: []const u8) !void {
         const raw = try self.alloc.dupe(u8, str);
         return self.subtokensAdd(raw);
+    }
+
+    fn subtokensAddSingle(self: *Self, str: []const u8) !void {
+        if (std.mem.indexOfAny(u8, str, " \t") == null) {
+            return self.subtokensDupe(str);
+        }
+
+        // TODO all breaking tokens
+        std.debug.assert(std.mem.indexOf(u8, str, "'") == null);
+        var blob = try self.alloc.alloc(u8, str.len + 2);
+        @memcpy(blob[1 .. blob.len - 1], str);
+        blob[0] = '\'';
+        blob[blob.len - 1] = '\'';
+        try self.subtokensAdd(blob);
     }
 
     fn subtokensAdd(self: *Self, str: []u8) !void {
@@ -196,22 +210,50 @@ pub const ParsedIterator = struct {
 
     fn resolveGlob(self: *Self, token: *const Token) void {
         if (std.mem.indexOf(u8, token.cannon(), "*")) |_| {} else return;
-        if (Parser.glob(self.alloc, token)) |names| {
-            for (names) |name| {
-                if (!std.mem.startsWith(u8, token.cannon(), ".") and
-                    std.mem.startsWith(u8, name, "."))
-                {
-                    self.alloc.free(name);
-                    continue;
+
+        var local = token.*;
+        var t = Parser.single(self.alloc, &local) catch unreachable;
+
+        if (std.mem.indexOf(u8, t.cannon(), "/")) |_| {
+            var bitr = std.mem.splitBackwards(u8, t.cannon(), "/");
+            var glob = bitr.first();
+            var dir = bitr.rest();
+            if (Parser.globAt(self.alloc, dir, glob)) |names| {
+                for (names) |name| {
+                    defer self.alloc.free(name);
+                    if (!std.mem.startsWith(u8, t.cannon(), ".") and
+                        std.mem.startsWith(u8, name, "."))
+                    {
+                        continue;
+                    }
+                    var path = std.mem.join(self.alloc.*, "/", &[2][]const u8{ dir, name }) catch unreachable;
+                    defer self.alloc.free(path);
+                    self.subtokensAddSingle(path) catch unreachable;
                 }
-                // as long as we own this memory, this cast is safe
-                self.subtokensAdd(@constCast(name)) catch unreachable;
+                self.alloc.free(names);
+            } else |e| {
+                if (e != Error.Empty) {
+                    std.debug.print("error resolving glob {}\n", .{e});
+                    unreachable;
+                }
             }
-            self.alloc.free(names);
-        } else |e| {
-            if (e != Error.Empty) {
-                std.debug.print("alias errr {}\n", .{e});
-                unreachable;
+        } else {
+            if (Parser.glob(self.alloc, t.cannon())) |names| {
+                for (names) |name| {
+                    if (!std.mem.startsWith(u8, t.cannon(), ".") and
+                        std.mem.startsWith(u8, name, "."))
+                    {
+                        self.alloc.free(name);
+                        continue;
+                    }
+                    self.subtokensAdd((name)) catch unreachable;
+                }
+                self.alloc.free(names);
+            } else |e| {
+                if (e != Error.Empty) {
+                    std.debug.print("error resolving glob {}\n", .{e});
+                    unreachable;
+                }
             }
         }
     }
@@ -325,13 +367,15 @@ pub const Parser = struct {
     }
 
     /// Caller owns memory for both list of names, and each name
-    fn globAt(a: *Allocator, dir: std.fs.IterableDir, token: *const Token) Error![][]const u8 {
-        return fs.globAt(a.*, dir, token.cannon()) catch @panic("this error not implemented");
+    fn globAt(a: *Allocator, d: []const u8, str: []const u8) Error![][]u8 {
+        var dir = std.fs.openIterableDirAbsolute(d, .{}) catch return Error.Unknown;
+        defer dir.close();
+        return fs.globAt(a.*, dir, str) catch @panic("this error not implemented");
     }
 
     /// Caller owns memory for both list of names, and each name
-    fn glob(a: *Allocator, token: *const Token) Error![][]const u8 {
-        return fs.globCwd(a.*, token.cannon()) catch @panic("this error not implemented");
+    fn glob(a: *Allocator, str: []const u8) Error![][]u8 {
+        return fs.globCwd(a.*, str) catch @panic("this error not implemented");
     }
 
     fn builtin(tkn: *Token) Error!*Token {
@@ -885,6 +929,67 @@ test "glob ." {
                 continue :found;
             }
         } else return error.TestingUnmatchedName;
+    }
+    try std.testing.expect(names.items.len == 0);
+    try std.testing.expect(itr.next() == null);
+    names.clearAndFree();
+}
+
+test "glob ~/*" {
+    var a = std.testing.allocator;
+
+    Variables.init(a);
+    defer Variables.raze();
+    try Variables.put("HOME", "/home/grayhatter");
+
+    var cwd = try std.fs.cwd().openIterableDir("../../", .{});
+    var di = cwd.iterate();
+    var names = std.ArrayList([]u8).init(a);
+
+    while (try di.next()) |each| {
+        if (each.name[0] == '.') continue;
+        try names.append(try a.dupe(u8, each.name));
+    }
+    errdefer {
+        for (names.items) |each| {
+            a.free(each);
+        }
+        names.clearAndFree();
+    }
+
+    var ti = TokenIterator{
+        .raw = "echo ~/* ",
+    };
+
+    const slice = try ti.toSlice(a);
+    defer a.free(slice);
+    var itr = try Parser.parse(&a, slice);
+    defer {
+        for (slice) |*s| {
+            if (s.backing) |*b| b.clearAndFree();
+        }
+    }
+
+    var count: usize = 0;
+    while (itr.next()) |next| {
+        count += 1;
+        //std.debug.print("loop {s} {any}\n", .{ next.cannon(), next.kind });
+        _ = next;
+    }
+    try std.testing.expectEqual(@as(usize, names.items.len + 1), count);
+
+    try std.testing.expectEqualStrings("echo", itr.first().cannon());
+    found: while (itr.next()) |next| {
+        if (names.items.len == 0) return error.TestingSizeMismatch;
+        for (names.items, 0..) |name, i| {
+            if (std.mem.endsWith(u8, next.cannon(), name)) {
+                a.free(names.swapRemove(i));
+                continue :found;
+            }
+        } else {
+            std.debug.print("unmatched {s}\n", .{next.cannon()});
+            return error.TestingUnmatchedName;
+        }
     }
     try std.testing.expect(names.items.len == 0);
     try std.testing.expect(itr.next() == null);
