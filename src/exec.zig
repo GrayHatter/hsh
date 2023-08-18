@@ -154,7 +154,7 @@ fn binary(a: Allocator, itr: *ParsedIterator) Error!Binary {
     defer itr.close();
 
     var exeZ: ?ARG = makeExeZ(a, itr.first().cannon()) catch |e| {
-        log.err("path missing {s}\n", .{itr.first().cannon()});
+        log.warn("path missing {s}\n", .{itr.first().cannon()});
         return e;
     };
     argv.append(exeZ) catch return Error.Memory;
@@ -226,14 +226,28 @@ fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
             }
         }
 
-        var stk = CallableStack{
-            .callable = switch (parsed.first().kind) {
-                .builtin => .{ .builtin = try builtin(a.*, parsed) },
-                else => .{ .exec = try binary(a.*, &parsed) },
-            },
-            .stdio = io,
-            .conditional = condition,
-        };
+        var stk: CallableStack = undefined;
+        if (bi.exists(parsed.first().cannon())) {
+            stk = CallableStack{
+                .callable = .{ .builtin = try builtin(a.*, parsed) },
+                .stdio = io,
+                .conditional = condition,
+            };
+        } else {
+            if (binary(a.*, &parsed)) |bin| {
+                stk = CallableStack{
+                    .callable = .{ .exec = bin },
+                    .stdio = io,
+                    .conditional = condition,
+                };
+            } else |_| {
+                stk = CallableStack{
+                    .callable = .{ .builtin = try builtin(a.*, parsed) },
+                    .stdio = io,
+                    .conditional = condition,
+                };
+            }
+        }
         stack.append(stk) catch return Error.Memory;
         a.free(eslice);
     }
@@ -303,6 +317,12 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!void {
         log.err("TTY didn't respond {}\n", .{e});
         return Error.Unknown;
     };
+
+    errdefer {
+        h.tty.setRaw() catch |e| {
+            log.err("TTY didn't respond as expected after exec error{}\n", .{e});
+        };
+    }
 
     var fpid: std.os.pid_t = 0;
     for (stack) |*s| {

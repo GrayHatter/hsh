@@ -56,11 +56,9 @@ pub const Reserved = enum {
 pub const Kind = union(enum) {
     // legacy types, TODO REMOVE
     ws: void,
-    builtin: void,
     quote: void,
     path: void,
     vari: void,
-    aliased: void,
 
     // new types
     nos: void,

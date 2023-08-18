@@ -283,7 +283,6 @@ pub const Parser = struct {
         for (tokens) |*tk| {
             _ = single(a, tk) catch unreachable;
         }
-        _ = builtin(&tokens[0]) catch {};
         return ParsedIterator{
             .alloc = a,
             .tokens = tokens,
@@ -339,7 +338,6 @@ pub const Parser = struct {
 
     fn resolve(token: *Token) Error!*Token {
         _ = try alias(token);
-        _ = try builtin(token);
         return token;
     }
 
@@ -376,14 +374,6 @@ pub const Parser = struct {
     /// Caller owns memory for both list of names, and each name
     fn glob(a: *Allocator, str: []const u8) Error![][]u8 {
         return fs.globCwd(a.*, str) catch @panic("this error not implemented");
-    }
-
-    fn builtin(tkn: *Token) Error!*Token {
-        if (Builtins.exists(tkn.cannon())) {
-            tkn.*.kind = .builtin;
-            return tkn;
-        }
-        return Error.Empty;
     }
 
     fn variable(tkn: *Token) Error!*Token {
@@ -440,7 +430,6 @@ test "iterator alias is builtin" {
     try expectEql(i, 1);
     try std.testing.expectEqualStrings("alias", itr.first().cannon());
     try expect(itr.next() == null);
-    try std.testing.expect(itr.first().kind == .builtin);
 }
 
 test "iterator aliased" {

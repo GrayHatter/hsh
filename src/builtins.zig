@@ -4,6 +4,7 @@ const HSH = @import("hsh.zig").HSH;
 const jobs_ = @import("jobs.zig");
 const ParsedIterator = @import("parse.zig").ParsedIterator;
 const log = @import("log");
+const hsh_build = @import("hsh_build");
 
 // files should be lowercased, but #YOLO
 pub const Aliases = @import("builtins/alias.zig");
@@ -55,6 +56,7 @@ pub const Builtins = enum {
 /// Optional builtins "exist" only if they don't already exist on the system.
 pub const BuiltinOptionals = enum {
     status,
+    version,
 };
 
 pub fn builtinToName(comptime bi: Builtins) []const u8 {
@@ -84,6 +86,7 @@ pub fn exec(self: Builtins) BuiltinFn {
 pub fn execOpt(self: BuiltinOptionals) BuiltinFn {
     return switch (self) {
         .status => status,
+        .version => version,
     };
 }
 
@@ -257,7 +260,14 @@ fn tty(hsh: *HSH, pi: *ParsedIterator) Err!u8 {
     return 0;
 }
 
+// Optional builtins may not be available depending on path binaries
+
 fn status(_: *HSH, _: *ParsedIterator) Err!u8 {
     print("status not yet implemented\n", .{}) catch return Err.Unknown;
+    return 0;
+}
+
+fn version(_: *HSH, _: *ParsedIterator) Err!u8 {
+    try print("version: {}\n", .{hsh_build.version});
     return 0;
 }
