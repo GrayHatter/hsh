@@ -842,15 +842,32 @@ test "parse path /~/otherplace" {
 test "glob" {
     var a = std.testing.allocator;
 
-    var cwd = try std.fs.cwd().openIterableDir(".", .{});
-    var di = cwd.iterate();
+    var oldcwd = std.fs.cwd();
+    var basecwd = try oldcwd.realpathAlloc(a, ".");
+    defer {
+        var dir = std.fs.openDirAbsolute(basecwd, .{}) catch unreachable;
+        dir.setAsCwd() catch {};
+        a.free(basecwd);
+    }
+
+    var tmpCwd = std.testing.tmpIterableDir(.{});
+    defer tmpCwd.cleanup();
+    try tmpCwd.iterable_dir.dir.setAsCwd();
+    _ = try tmpCwd.iterable_dir.dir.createFile("blerg", .{});
+    _ = try tmpCwd.iterable_dir.dir.createFile(".blerg", .{});
+    _ = try tmpCwd.iterable_dir.dir.createFile("blerg2", .{});
+    _ = try tmpCwd.iterable_dir.dir.createFile("w00t", .{});
+    _ = try tmpCwd.iterable_dir.dir.createFile("no_wai", .{});
+    _ = try tmpCwd.iterable_dir.dir.createFile("ya-wai", .{});
+    var di = tmpCwd.iterable_dir.iterate();
+
     var names = std.ArrayList([]u8).init(a);
 
     while (try di.next()) |each| {
         if (each.name[0] == '.') continue;
         try names.append(try a.dupe(u8, each.name));
     }
-    try std.testing.expectEqual(@as(usize, 6), names.items.len);
+    try std.testing.expectEqual(@as(usize, 5), names.items.len);
 
     var ti = TokenIterator{
         .raw = "echo *",
@@ -865,7 +882,7 @@ test "glob" {
         count += 1;
         _ = next;
     }
-    try std.testing.expectEqual(@as(usize, 7), count);
+    try std.testing.expectEqual(@as(usize, 6), count);
 
     try std.testing.expectEqualStrings("echo", itr.first().cannon());
     found: while (itr.next()) |next| {
@@ -885,14 +902,29 @@ test "glob" {
 test "glob ." {
     var a = std.testing.allocator;
 
-    var cwd = try std.fs.cwd().openIterableDir(".", .{});
-    var di = cwd.iterate();
+    var oldcwd = std.fs.cwd();
+    var basecwd = try oldcwd.realpathAlloc(a, ".");
+    defer {
+        var dir = std.fs.openDirAbsolute(basecwd, .{}) catch unreachable;
+        dir.setAsCwd() catch {};
+        a.free(basecwd);
+    }
+
+    var tmpCwd = std.testing.tmpIterableDir(.{});
+    defer tmpCwd.cleanup();
+    try tmpCwd.iterable_dir.dir.setAsCwd();
+    _ = try tmpCwd.iterable_dir.dir.createFile("blerg", .{});
+    _ = try tmpCwd.iterable_dir.dir.createFile(".blerg", .{});
+    _ = try tmpCwd.iterable_dir.dir.createFile("no_wai", .{});
+    _ = try tmpCwd.iterable_dir.dir.createFile("ya-wai", .{});
+    var di = tmpCwd.iterable_dir.iterate();
+
     var names = std.ArrayList([]u8).init(a);
 
     while (try di.next()) |each| {
         try names.append(try a.dupe(u8, each.name));
     }
-    try std.testing.expectEqual(@as(usize, 8), names.items.len);
+    try std.testing.expectEqual(@as(usize, 4), names.items.len);
 
     var ti = TokenIterator{
         .raw = "echo .* *",
@@ -907,7 +939,7 @@ test "glob ." {
         count += 1;
         _ = next;
     }
-    try std.testing.expectEqual(@as(usize, 9), count);
+    try std.testing.expectEqual(@as(usize, 5), count);
 
     try std.testing.expectEqualStrings("echo", itr.first().cannon());
     found: while (itr.next()) |next| {
