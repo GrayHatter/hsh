@@ -1317,30 +1317,10 @@ test "escapes" {
 }
 
 test "reserved" {
-    var t = try Tokenizer.any("if");
-    try std.testing.expect(t.kind == .resr);
-    t = try Tokenizer.any("then");
-    try std.testing.expect(t.kind == .resr);
-    t = try Tokenizer.any("else");
-    try std.testing.expect(t.kind == .resr);
-    t = try Tokenizer.any("elif");
-    try std.testing.expect(t.kind == .resr);
-    t = try Tokenizer.any("fi");
-    try std.testing.expect(t.kind == .resr);
-    t = try Tokenizer.any("do");
-    try std.testing.expect(t.kind == .resr);
-    t = try Tokenizer.any("done");
-    try std.testing.expect(t.kind == .resr);
-    t = try Tokenizer.any("case");
-    try std.testing.expect(t.kind == .resr);
-    t = try Tokenizer.any("esac");
-    try std.testing.expect(t.kind == .resr);
-    t = try Tokenizer.any("while");
-    try std.testing.expect(t.kind == .resr);
-    t = try Tokenizer.any("until");
-    try std.testing.expect(t.kind == .resr);
-    t = try Tokenizer.any("for");
-    try std.testing.expect(t.kind == .resr);
-    t = try Tokenizer.any("in");
-    try std.testing.expect(t.kind == .resr);
+    const res = [_][]const u8{ "if", "then", "else", "elif", "fi", "do", "done", "case", "esac", "while", "until", "for", "in" };
+    var t: Token = undefined;
+    for (res) |r| {
+        t = try Tokenizer.any(r);
+        try std.testing.expect(t.kind == .resr);
+    }
 }
