@@ -1317,7 +1317,13 @@ test "escapes" {
 }
 
 test "reserved" {
-    const res = [_][]const u8{ "if", "then", "else", "elif", "fi", "do", "done", "case", "esac", "while", "until", "for", "in" };
+    // zig fmt: off
+    const res = [_][]const u8{
+        "if", "then", "else", "elif", "fi",
+        "do", "done", "case", "esac", "while",
+        "until", "for", "in"
+    };
+    // zig fmt: on
     var t: Token = undefined;
     for (res) |r| {
         t = try Tokenizer.any(r);
