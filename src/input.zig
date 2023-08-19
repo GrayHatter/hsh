@@ -340,6 +340,52 @@ fn ascii(hsh: *HSH, tkn: *Tokenizer, buf: u8, comp: *complete.CompSet) !Event {
     return .None;
 }
 
+// TODO pls dry
+pub fn nonInteractive(hsh: *HSH, comp: *complete.CompSet) !Event {
+    // I no longer like this way of tokenization. I'd like to generate
+    // Tokens as an n=2 state machine at time of keypress. It might actually
+    // be required to unbreak a bug in history.
+    const tkn = &hsh.tkn;
+
+    var buffer: [1]u8 = undefined;
+
+    if (hsh.spin()) {
+        mode = .TYPING;
+        return .Signaled;
+    }
+    var nbyte: usize = try read(hsh.input, &buffer);
+    if (nbyte == 0) {
+        log.err("bye\n", .{});
+        return .ExitHSH;
+    }
+
+    // No... I don't like this, but I've spent too long staring at it
+    // TODO optimize later
+    const evt = Keys.translate(buffer[0], hsh.input) catch unreachable;
+
+    //const prevm = mode;
+    var result: Event = .None;
+    switch (mode) {
+        .COMPLETING, .COMPENDING => {
+            const e = if (evt == .ascii) Keys.Event.ascii(evt.ascii) else evt;
+            if (e != .keysm) {
+                mode = .TYPING;
+                return .Redraw;
+            }
+            result = try completing(hsh, tkn, e.keysm, comp);
+        },
+        .TYPING => {
+            result = switch (evt) {
+                .ascii => |a| try ascii(hsh, tkn, a, comp),
+                .keysm => |e| try event(hsh, tkn, e),
+                .mouse => |_| return .Redraw,
+            };
+        },
+    }
+    //defer next = if (prevm == mode) null else .Redraw;
+    return result;
+}
+
 pub fn do(hsh: *HSH, comp: *complete.CompSet) !Event {
     // I no longer like this way of tokenization. I'd like to generate
     // Tokens as an n=2 state machine at time of keypress. It might actually

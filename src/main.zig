@@ -56,7 +56,7 @@ fn core(hsh: *HSH) !bool {
             try Draw.render(&hsh.draw);
             redraw = false;
         }
-        const event = try input.do(hsh, &comp);
+        const event = if (hsh.tty.is_tty) try input.do(hsh, &comp) else try input.nonInteractive(hsh, &comp);
         switch (event) {
             .None => continue,
             .Redraw, .Prompt, .Update => {
@@ -139,7 +139,6 @@ pub fn main() !void {
     hsh.draw = Drawable.init(&hsh) catch unreachable;
     defer hsh.draw.raze();
     hsh.draw.term_size = hsh.tty.geom() catch unreachable;
-    hsh.input = hsh.tty.dev;
 
     var inerr = false;
     root: while (true) {

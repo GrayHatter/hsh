@@ -1081,8 +1081,11 @@ test "token < file" {
     }
     try std.testing.expectEqual(len, 2);
 
-    try eqlStr("ls", ti.first().cannon());
-    try eqlStr("file.txt", ti.next().?.cannon());
+    var ls = ti.first();
+    try eqlStr("ls", ls.cannon());
+    var in_file = ti.next().?;
+    try std.testing.expect(in_file.kind == .io);
+    try eqlStr("file.txt", in_file.cannon());
 }
 
 test "token < file extra ws" {

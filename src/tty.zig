@@ -25,6 +25,7 @@ pub var current_tty: ?TTY = undefined;
 pub const TTY = struct {
     alloc: Allocator,
     dev: i32,
+    is_tty: bool,
     in: Reader,
     out: Writer,
     orig_attr: os.termios,
@@ -38,6 +39,7 @@ pub const TTY = struct {
         var self = TTY{
             .alloc = a,
             .dev = tty,
+            .is_tty = std.io.getStdOut().isTty() and std.io.getStdIn().isTty(),
             .in = std.io.getStdIn().reader(),
             .out = std.io.getStdOut().writer(),
             .orig_attr = tcAttr(tty),
