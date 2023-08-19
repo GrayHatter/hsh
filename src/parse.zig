@@ -929,10 +929,17 @@ test "glob ~/*" {
 
     Variables.init(a);
     defer Variables.raze();
-    try Variables.put("HOME", "/home/grayhatter");
 
-    var cwd = try std.fs.cwd().openIterableDir("../../", .{});
-    var di = cwd.iterate();
+    var tmpCwd = std.testing.tmpIterableDir(.{});
+    defer tmpCwd.cleanup();
+    var baseCwd = try tmpCwd.iterable_dir.dir.realpathAlloc(a, ".");
+    defer a.free(baseCwd);
+
+    _ = try tmpCwd.iterable_dir.dir.createFile("blerg", .{});
+
+    try Variables.put("HOME", baseCwd);
+
+    var di = tmpCwd.iterable_dir.iterate();
     var names = std.ArrayList([]u8).init(a);
 
     while (try di.next()) |each| {
