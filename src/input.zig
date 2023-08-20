@@ -354,10 +354,7 @@ pub fn nonInteractive(hsh: *HSH, comp: *complete.CompSet) !Event {
         return .Signaled;
     }
     var nbyte: usize = try read(hsh.input, &buffer);
-    if (nbyte == 0) {
-        log.err("bye\n", .{});
-        return .ExitHSH;
-    }
+    if (nbyte == 0) return .ExitHSH;
 
     // No... I don't like this, but I've spent too long staring at it
     // TODO optimize later
