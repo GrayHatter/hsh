@@ -17,6 +17,10 @@ const fd_t = std.os.fd_t;
 const fs = @import("fs.zig");
 const bi = @import("builtins.zig");
 
+const STDIN_FILENO = std.os.STDIN_FILENO;
+const STDOUT_FILENO = std.os.STDOUT_FILENO;
+const STDERR_FILENO = std.os.STDERR_FILENO;
+
 pub const Error = error{
     InvalidSrc,
     Unknown,
@@ -26,15 +30,16 @@ pub const Error = error{
     ExecFailed,
     ExeNotFound,
     PipelineError,
+    StdIOError,
 };
 
 const ARG = [*:0]u8;
 const ARGV = [:null]?ARG;
 
 const StdIo = struct {
-    in: fd_t = std.os.STDIN_FILENO,
-    out: fd_t = std.os.STDOUT_FILENO,
-    err: fd_t = std.os.STDERR_FILENO,
+    in: fd_t = STDIN_FILENO,
+    out: fd_t = STDOUT_FILENO,
+    err: fd_t = STDERR_FILENO,
     pipe: bool = false,
 };
 
@@ -179,7 +184,7 @@ fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
         //var before: tokenizer.Token = peek.*;
         var eslice = itr.toSliceExec(a.*) catch unreachable;
         var parsed = Parser.parse(a, eslice) catch unreachable;
-        var io: StdIo = StdIo{ .in = prev_stdout orelse std.os.STDIN_FILENO };
+        var io: StdIo = StdIo{ .in = prev_stdout orelse STDIN_FILENO };
         var condition: ?Conditional = conditional_rule;
 
         // peek is now the exec operator because of how the iterator works :<
@@ -210,6 +215,9 @@ fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
                     .Out, .Append => {
                         if (fs.openFile(maybeio.cannon(), true)) |file| {
                             io.out = file.handle;
+                            if (maybeio.kind.io == .Append) {
+                                file.seekFromEnd(0) catch return Error.StdIOError;
+                            }
                         }
                     },
                     .In, .HDoc => {
@@ -307,7 +315,11 @@ pub fn exec(h: *HSH, titr: *TokenIterator) Error!void {
     };
     defer h.alloc.free(stack);
 
-    if (stack.len == 1 and stack[0].callable == .builtin) {
+    if (stack.len == 1 and
+        stack[0].callable == .builtin and
+        stack[0].stdio.in == STDIN_FILENO and
+        stack[0].stdio.out == STDOUT_FILENO)
+    {
         _ = try execBuiltin(h, &stack[0].callable.builtin);
         free(h.alloc, &stack[0]);
         return;

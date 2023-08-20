@@ -44,7 +44,7 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
   - [ ] IoRedir
     - [x] | func
     - [x] > std clobber
-    - [ ] >> std append
+    - [x] >> std append
     - [ ] 2> err clobber
     - [ ] 2>&1 err to out
     - [x] < in
