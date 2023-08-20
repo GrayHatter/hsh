@@ -47,7 +47,7 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
     - [ ] >> std append
     - [ ] 2> err clobber
     - [ ] 2>&1 err to out
-    - [ ] < in
+    - [x] < in
     - [ ] << here-doc;
   - [ ] tab complete
     - [x] cwd
