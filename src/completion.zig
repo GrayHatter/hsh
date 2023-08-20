@@ -6,6 +6,7 @@ const fs = @import("fs.zig");
 const IterableDir = std.fs.IterableDir;
 const tokenizer = @import("tokenizer.zig");
 const Token = tokenizer.Token;
+const Parser = @import("parse.zig").Parser;
 const Draw = @import("draw.zig");
 const Cord = Draw.Cord;
 const log = @import("log");
@@ -565,7 +566,7 @@ pub fn complete(cs: *CompSet, hsh: *HSH, tks: *tokenizer.Tokenizer) !void {
     cs.index = 0;
 
     // TODO need the real bug here
-    const pair = findToken(tks);
+    var pair = findToken(tks);
     const hint: Kind = if (ts.len <= 1) .path_exe else .any;
 
     switch (hint) {
@@ -580,12 +581,13 @@ pub fn complete(cs: *CompSet, hsh: *HSH, tks: *tokenizer.Tokenizer) !void {
                     try completeDir(cs, dir);
                 },
                 .word, .path => {
-                    if (std.mem.indexOfScalar(u8, pair.t.cannon(), '/')) |_| {
-                        try completePath(cs, hsh, pair.t.cannon());
+                    var t = try Parser.single(&hsh.alloc, &pair.t);
+                    if (std.mem.indexOfScalar(u8, t.cannon(), '/')) |_| {
+                        try completePath(cs, hsh, t.cannon());
                     } else {
                         var dir = try std.fs.cwd().openIterableDir(".", .{});
                         defer dir.close();
-                        try completeDirBase(cs, dir, pair.t.cannon());
+                        try completeDirBase(cs, dir, t.cannon());
                     }
                 },
                 .io => {
