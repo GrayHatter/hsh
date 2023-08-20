@@ -387,6 +387,8 @@ pub const Parser = struct {
     }
 
     fn path(tkn: *Token) Error!*Token {
+        if (tkn.str[0] != '~') return tkn;
+
         if (Variables.get("HOME")) |v| {
             if (tkn.backing) |*bk| {
                 bk.clearRetainingCapacity();

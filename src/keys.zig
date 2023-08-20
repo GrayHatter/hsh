@@ -181,11 +181,11 @@ fn csi_xterm(buffer: []const u8) Error!Event {
                 },
             };
         },
-        'Z' => |key| {
+        'Z' => |_| { // I hate this, but #YOLO
             if (buffer.len > 1) unreachable;
             return Event{
                 .keysm = .{
-                    .evt = .{ .ascii = key },
+                    .evt = .{ .ascii = 0x09 },
                     .mods = KeyMod.Mods.make(1),
                 },
             };

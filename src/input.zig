@@ -108,6 +108,10 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, ks: Keys.KeyMod, comp: *complete.CompS
             switch (c) {
                 0x09 => {
                     // tab \t
+                    if (ks.mods.shift) {
+                        comp.revr();
+                        comp.revr();
+                    }
                     mode = try doComplete(hsh, tkn, comp);
                     return .Redraw;
                 },
@@ -178,6 +182,10 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, ks: Keys.KeyMod, comp: *complete.CompS
                         try tkn.maybeAdd(o.str);
                         try tkn.maybeCommit(null);
                     }
+                    return .Redraw;
+                },
+                .Up, .Down, .Left, .Right => {
+                    // TODO implement arrows
                     return .Redraw;
                 },
                 else => {

@@ -216,6 +216,7 @@ pub fn panic(msg: []const u8, trace: ?*std.builtin.StackTrace, retaddr: ?usize) 
     @setCold(true);
 
     log.err("Panic reached... your TTY is likely broken now.\n\n      ...sorry about that!\n\n", .{});
+    std.debug.print("\n\r\x1B[J", .{});
     std.builtin.default_panic(msg, trace, retaddr);
     if (TTY_.current_tty) |*t| {
         TTY_.current_tty = null;

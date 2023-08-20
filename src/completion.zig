@@ -270,7 +270,7 @@ pub const CompSet = struct {
                 self.group = &self.groups[self.group_index];
                 if (self.group.items.len > 0) {
                     self.index = self.group.items.len - 1;
-                    break;
+                    return;
                 }
             }
         }
