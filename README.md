@@ -62,7 +62,7 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
   - [ ] sane error handling
   - [ ] complex parsing
   - [ ] context aware hints
-  - [ ] built ins
+  - [ ] POSIX builtins
     - [x] alias
     - [ ] bg
     - [x] cd
@@ -80,7 +80,6 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
     - [ ] fg
     - [x] jobs
     - [ ] kill?
-    - [ ] pipeline
     - [ ] pwd
     - [ ] read
     - [ ] set
@@ -91,6 +90,7 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
     - [ ] wait
     - [ ] the rest?
   - [ ] HSH builtins
+    - [ ] pipeline
     - [ ] help
     - [ ] show
     - [ ] state
