@@ -9,6 +9,7 @@ const hsh_build = @import("hsh_build");
 // files should be lowercased, but #YOLO
 pub const Aliases = @import("builtins/alias.zig");
 pub const Echo = @import("builtins/echo.zig");
+pub const Export = @import("builtins/export.zig");
 pub const Pipeline = @import("builtins/pipeline.zig");
 pub const Set = @import("builtins/set.zig");
 pub const Source = @import("builtins/source.zig");
@@ -17,6 +18,7 @@ pub const Which = @import("builtins/which.zig");
 
 const alias = Aliases.alias;
 const echo = Echo.echo;
+const exports = Export.exports;
 const pipeline = Pipeline.pipeline;
 const set = Set.set;
 const source = Source.source;
@@ -43,6 +45,9 @@ pub const Builtins = enum {
     die,
     echo,
     exit,
+    @"export", // the @ means it's a string literal, export is a reserved word
+    // in zig, so @"" tells zig, this is literally the enum, and not
+    // the reserved keyword
     fg,
     jobs,
     pipeline,
@@ -71,6 +76,7 @@ pub fn exec(self: Builtins) BuiltinFn {
         .die => die,
         .echo => echo,
         .exit => exit, // TODO exit should be kinder than die
+        .@"export" => exports,
         .fg => fg,
         .jobs => jobs,
         .pipeline => pipeline,

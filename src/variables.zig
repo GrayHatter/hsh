@@ -37,5 +37,10 @@ pub fn get(k: []const u8) ?[]const u8 {
 }
 
 pub fn raze() void {
+    //var itr = variables.iterator();
+    //while (itr.next()) |*ent| {
+    //    a.free(ent.key_ptr.*);
+    //    a.free(ent.value_ptr.value);
+    //}
     variables.clearAndFree();
 }

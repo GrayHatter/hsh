@@ -66,15 +66,18 @@ fn readLine(a: *Allocator, r: std.fs.File.Reader) ![]u8 {
     } else |err| return err;
 }
 
-fn initBuiltins(hsh: *HSH) !void {
-    savestates = ArrayList(State).init(hsh.alloc);
-    bi.Aliases.init(hsh.alloc);
-    bi.Set.init(hsh.alloc);
+fn initBuiltins(h: *HSH) !void {
+    // builtins that wish to save data depend on this being available
+    savestates = ArrayList(State).init(h.alloc);
+    bi.Export.init(h.alloc);
+    bi.Aliases.init(h.alloc);
+    bi.Set.init(h.alloc);
 }
 
 fn razeBuiltins(h: *HSH) void {
     bi.Set.raze();
     bi.Aliases.raze(h.alloc);
+    bi.Export.raze(h.alloc);
     savestates.clearAndFree();
 }
 
