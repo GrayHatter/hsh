@@ -182,6 +182,7 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, ks: Keys.KeyMod, comp: *complete.CompS
                         try tkn.maybeAdd(o.str);
                         try tkn.maybeCommit(null);
                     }
+                    comp.raze();
                     return .Redraw;
                 },
                 .Up, .Down, .Left, .Right => {

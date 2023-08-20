@@ -234,14 +234,12 @@ pub const CompSet = struct {
         std.debug.assert(self.count() > 0);
 
         self.skip();
-        var maybe = &self.group.items[self.index];
         if (self.search.items.len > 0 and self.countFiltered() > 0) {
-            while (!searchMatch(maybe.str, self.search.items)) {
+            while (!self.curSearchMatch()) {
                 self.skip();
-                maybe = &self.group.items[self.index];
             }
         }
-        return maybe;
+        return &self.group.items[self.index];
     }
 
     pub fn current(self: *const CompSet) *const CompOption {
@@ -258,23 +256,32 @@ pub const CompSet = struct {
         }
     }
 
+    fn curSearchMatch(self: *CompSet) bool {
+        const curr = &self.group.items[self.index];
+        return searchMatch(curr.str, self.search.items);
+    }
+
     pub fn revr(self: *CompSet) void {
-        if (self.count() < 3) return;
-        if (self.index == 0) {
-            while (true) {
-                if (self.group_index == 0) {
-                    self.group_index = self.groups.len - 1;
-                } else {
-                    self.group_index -= 1;
-                }
-                self.group = &self.groups[self.group_index];
-                if (self.group.items.len > 0) {
+        if (self.countFiltered() < 3) return;
+        while (true) {
+            if (self.index == 0) {
+                while (true) {
+                    if (self.group_index == 0) {
+                        self.group_index = self.groups.len - 1;
+                    } else {
+                        self.group_index -= 1;
+                    }
+                    self.group = &self.groups[self.group_index];
+                    if (self.group.items.len == 0) continue;
+
                     self.index = self.group.items.len - 1;
-                    return;
+                    if (self.curSearchMatch()) return;
+                    break;
                 }
             }
+            self.index -|= 1;
+            if (self.curSearchMatch()) break;
         }
-        self.index -= 1;
     }
 
     pub fn groupSet(self: *CompSet, grp: ?Flavors) void {
