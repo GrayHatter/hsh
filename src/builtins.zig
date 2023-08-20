@@ -45,9 +45,7 @@ pub const Builtins = enum {
     die,
     echo,
     exit,
-    @"export", // the @ means it's a string literal, export is a reserved word
-    // in zig, so @"" tells zig, this is literally the enum, and not
-    // the reserved keyword
+    @"export",
     fg,
     jobs,
     pipeline,
