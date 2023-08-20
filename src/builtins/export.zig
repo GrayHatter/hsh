@@ -50,7 +50,7 @@ fn save(h: *HSH, _: *anyopaque) ?[][]const u8 {
 }
 
 /// print the list of known exports to whatever builtin suggests
-fn print_all() Err!u8 {
+fn printAll() Err!u8 {
     for (export_list.items) |ex| {
         try print("{}\n", .{ex});
     }
@@ -65,7 +65,7 @@ pub fn exports(h: *HSH, pitr: *ParsedIterator) Err!u8 {
 
     const name = pitr.next();
     if (name == null or std.mem.eql(u8, name.?.cannon(), "-p")) {
-        return print_all();
+        return printAll();
     }
 
     if (std.mem.indexOf(u8, name.?.cannon(), "=")) |_| {
