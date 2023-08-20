@@ -156,17 +156,18 @@ pub const Tokenizer = struct {
 
     fn ioredir(src: []const u8) Error!Token {
         if (src.len < 3) return Error.InvalidSrc;
-        var i: usize = std.mem.indexOfAny(u8, src, " \t") orelse return Error.InvalidSrc;
+        var i: usize = 1;
         var t = Token.make(src[0..1], .{ .io = .Err });
         switch (src[0]) {
             '<' => {
-                t.str = if (src.len > 1 and src[1] == '<') src[0..2] else src[0..1];
+                t.str = if (src[1] == '<') src[0..2] else src[0..1];
                 t.kind = .{ .io = .In };
             },
             '>' => {
                 if (src[1] == '>') {
                     t.str = src[0..2];
                     t.kind = .{ .io = .Append };
+                    i = 2;
                 } else {
                     t.str = src[0..1];
                     t.kind = .{ .io = .Out };
@@ -175,7 +176,7 @@ pub const Tokenizer = struct {
             else => return Error.InvalidSrc,
         }
         while (src[i] == ' ' or src[i] == '\t') : (i += 1) {}
-        var target = (try any(src[i..])).str;
+        var target = (try word(src[i..])).str;
         t.resolved = target;
         t.str = src[0 .. i + target.len];
         return t;
@@ -1066,6 +1067,11 @@ test "token >> file" {
 
     try eqlStr("ls", ti.first().cannon());
     var iot = ti.next().?;
+    try eqlStr("file.txt", iot.cannon());
+    try std.testing.expect(iot.kind.io == .Append);
+    ti = TokenIterator{ .raw = "ls >>file.txt" };
+    try eqlStr("ls", ti.first().cannon());
+    iot = ti.next().?;
     try eqlStr("file.txt", iot.cannon());
     try std.testing.expect(iot.kind.io == .Append);
 }
