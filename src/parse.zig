@@ -316,10 +316,13 @@ pub const Parser = struct {
                 return try variable(token);
             },
             .word => {
-                if (mem.indexOf(u8, token.str, "/")) |_| {
+                if (token.str[0] == '~' or mem.indexOf(u8, token.str, "/") != null) {
                     token.kind = .path;
-                    return token;
-                } else return token;
+                    _ = token.upgrade(a) catch return Error.Unknown;
+                    return try path(token);
+                }
+
+                return token;
             },
             .path => {
                 if (token.cannon()[0] != '~') return token;
@@ -385,9 +388,11 @@ pub const Parser = struct {
 
     fn path(tkn: *Token) Error!*Token {
         if (Variables.get("HOME")) |v| {
-            tkn.backing.?.clearRetainingCapacity();
-            tkn.backing.?.appendSlice(v) catch return Error.Memory;
-            tkn.backing.?.appendSlice(tkn.str[1..]) catch return Error.Memory;
+            if (tkn.backing) |*bk| {
+                bk.clearRetainingCapacity();
+                bk.appendSlice(v) catch return Error.Memory;
+                bk.appendSlice(tkn.str[1..]) catch return Error.Memory;
+            }
         }
         return tkn;
     }
