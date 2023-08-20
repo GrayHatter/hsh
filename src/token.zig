@@ -71,12 +71,12 @@ pub const Kind = union(enum) {
 
 pub const Token = struct {
     str: []const u8,
-    backing: ?ArrayList(u8) = null,
     kind: Kind = .nos,
     parsed: bool = false,
     subtoken: u8 = 0,
     // I hate this but I've spent too much time on this already #YOLO
     resolved: ?[]const u8 = null,
+    substr: ?[]const u8 = null,
 
     pub fn make(str: []const u8, k: Kind) Token {
         return Token{
@@ -92,25 +92,13 @@ pub const Token = struct {
     }
 
     pub fn cannon(self: Token) []const u8 {
-        if (self.backing) |b| return b.items;
         if (self.resolved) |r| return r;
 
         return switch (self.kind) {
             .quote => return self.str[1 .. self.str.len - 1],
-            .io, .vari, .path => return self.resolved orelse self.str,
+            .io, .vari, .path => return self.substr orelse self.str,
             else => self.str,
         };
-    }
-
-    // Don't upgrade str, it must "always" point to the user prompt
-    // string[citation needed]
-    pub fn upgrade(self: *Token, a: *Allocator) Error![]u8 {
-        if (self.*.backing) |_| return self.*.backing.?.items;
-
-        var backing = ArrayList(u8).init(a.*);
-        backing.appendSlice(self.*.cannon()) catch return Error.Memory;
-        self.*.backing = backing;
-        return self.*.backing.?.items;
     }
 };
 

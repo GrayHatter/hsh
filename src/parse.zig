@@ -267,6 +267,12 @@ pub const ParsedIterator = struct {
         self.resolved = self.alloc.alloc([]u8, 0) catch @panic("Alloc 0 can't fail");
         while (self.subtokensDel()) {}
         self.subtokens = null;
+        //for (self.tokens) |*t| {
+        //    if (t.resolved) |r| {
+        //        self.alloc.free(r);
+        //        t.resolved = null;
+        //    }
+        //}
     }
 
     /// Alias for restart to free stored memory
@@ -300,9 +306,9 @@ pub const Parser = struct {
                 var needle = [2]u8{ '\\', token.subtoken };
                 if (mem.indexOfScalar(u8, token.str, '\\')) |_| {} else return token;
 
-                _ = token.upgrade(a) catch return Error.Unknown;
                 var i: usize = 0;
-                const backing = &token.backing.?;
+                var backing = ArrayList(u8).init(a.*);
+                backing.appendSlice(token.cannon()) catch return Error.Memory;
                 while (i + 1 < backing.items.len) : (i += 1) {
                     if (backing.items[i] == '\\') {
                         if (mem.indexOfAny(u8, backing.items[i + 1 .. i + 2], &needle)) |_| {
@@ -310,6 +316,7 @@ pub const Parser = struct {
                         }
                     }
                 }
+                token.resolved = backing.toOwnedSlice() catch return Error.Memory;
                 return token;
             },
             .vari => {
@@ -318,17 +325,14 @@ pub const Parser = struct {
             .word => {
                 if (token.str[0] == '~' or mem.indexOf(u8, token.str, "/") != null) {
                     token.kind = .path;
-                    _ = token.upgrade(a) catch return Error.Unknown;
-                    return try path(token);
+                    return try path(token, a.*);
                 }
 
                 return token;
             },
             .path => {
                 if (token.cannon()[0] != '~') return token;
-
-                _ = token.upgrade(a) catch return Error.Unknown;
-                return try path(token);
+                return try path(token, a.*);
             },
             else => {
                 switch (token.str[0]) {
@@ -386,15 +390,14 @@ pub const Parser = struct {
         return tkn;
     }
 
-    fn path(tkn: *Token) Error!*Token {
+    fn path(tkn: *Token, a: std.mem.Allocator) Error!*Token {
         if (tkn.str[0] != '~') return tkn;
 
         if (Variables.get("HOME")) |v| {
-            if (tkn.backing) |*bk| {
-                bk.clearRetainingCapacity();
-                bk.appendSlice(v) catch return Error.Memory;
-                bk.appendSlice(tkn.str[1..]) catch return Error.Memory;
-            }
+            var list = ArrayList(u8).init(a);
+            list.appendSlice(v) catch return Error.Memory;
+            list.appendSlice(tkn.str[1..]) catch return Error.Memory;
+            tkn.resolved = list.toOwnedSlice() catch return Error.Memory;
         }
         return tkn;
     }
@@ -705,9 +708,9 @@ test "parse path" {
     try std.testing.expect(itr.next() == null);
 
     // Should be done by tokenizer, but ¯\_(ツ)_/¯
-    for (slice) |*s| {
-        if (s.backing) |*b| b.clearAndFree();
-    }
+    // for (slice) |*s| {
+    //     if (s.backing) |*b| b.clearAndFree();
+    // }
 }
 
 test "parse path ~" {
@@ -740,7 +743,8 @@ test "parse path ~" {
 
     // Should be done by tokenizer, but ¯\_(ツ)_/¯
     for (slice) |*s| {
-        if (s.backing) |*b| b.clearAndFree();
+        if (s.resolved) |r| a.free(r);
+        //     if (s.backing) |*b| b.clearAndFree();
     }
 }
 
@@ -774,7 +778,8 @@ test "parse path ~/" {
 
     // Should be done by tokenizer, but ¯\_(ツ)_/¯
     for (slice) |*s| {
-        if (s.backing) |*b| b.clearAndFree();
+        if (s.resolved) |r| a.free(r);
+        //     if (s.backing) |*b| b.clearAndFree();
     }
 }
 
@@ -808,7 +813,8 @@ test "parse path ~/place" {
 
     // Should be done by tokenizer, but ¯\_(ツ)_/¯
     for (slice) |*s| {
-        if (s.backing) |*b| b.clearAndFree();
+        if (s.resolved) |r| a.free(r);
+        //     if (s.backing) |*b| b.clearAndFree();
     }
 }
 
@@ -842,7 +848,7 @@ test "parse path /~/otherplace" {
 
     // Should be done by tokenizer, but ¯\_(ツ)_/¯
     for (slice) |*s| {
-        if (s.backing) |*b| b.clearAndFree();
+        if (s.resolved) |r| a.free(r);
     }
 }
 
@@ -1001,7 +1007,7 @@ test "glob ~/*" {
     var itr = try Parser.parse(&a, slice);
     defer {
         for (slice) |*s| {
-            if (s.backing) |*b| b.clearAndFree();
+            if (s.resolved) |r| a.free(r);
         }
     }
 

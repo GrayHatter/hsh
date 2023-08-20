@@ -177,7 +177,7 @@ pub const Tokenizer = struct {
         }
         while (src[i] == ' ' or src[i] == '\t') : (i += 1) {}
         var target = (try word(src[i..])).str;
-        t.resolved = target;
+        t.substr = target;
         t.str = src[0 .. i + target.len];
         return t;
     }
@@ -220,7 +220,7 @@ pub const Tokenizer = struct {
             if (std.ascii.isDigit(src[2])) return Error.InvalidSrc;
             if (std.mem.indexOf(u8, src, "}")) |end| {
                 var t = try uAlphaNum(src[2..end]);
-                t.resolved = t.str;
+                t.substr = t.str;
                 t.str = src[0 .. t.str.len + 3];
                 t.kind = .vari;
                 return t;
@@ -229,7 +229,7 @@ pub const Tokenizer = struct {
 
         if (std.ascii.isDigit(src[1])) return Error.InvalidSrc;
         var t = try uAlphaNum(src[1..]);
-        t.resolved = t.str;
+        t.substr = t.str;
         t.str = src[0 .. t.str.len + 1];
         t.kind = .vari;
 
