@@ -81,7 +81,7 @@ pub fn exports(h: *HSH, pitr: *ParsedIterator) Err!u8 {
     } else {
         // no = in the string, so it needs to already exist within variables.
         var key = h.alloc.dupe(u8, name.?.cannon()) catch return Err.Memory;
-        var value = Variables.get(key) orelse {
+        var value = Variables.getStr(key) orelse {
             log.err("Attempted to export an non-existant name\n", .{});
             return 1;
         };

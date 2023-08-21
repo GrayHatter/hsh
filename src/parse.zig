@@ -384,7 +384,7 @@ pub const Parser = struct {
     }
 
     fn variable(tkn: *Token) Error!*Token {
-        if (Variables.get(tkn.cannon())) |v| {
+        if (Variables.getStr(tkn.cannon())) |v| {
             tkn.resolved = v;
         }
         return tkn;
@@ -393,7 +393,7 @@ pub const Parser = struct {
     fn path(tkn: *Token, a: std.mem.Allocator) Error!*Token {
         if (tkn.str[0] != '~') return tkn;
 
-        if (Variables.get("HOME")) |v| {
+        if (Variables.getStr("HOME")) |v| {
             var list = ArrayList(u8).init(a);
             list.appendSlice(v) catch return Error.Memory;
             list.appendSlice(tkn.str[1..]) catch return Error.Memory;
@@ -572,7 +572,7 @@ test "parse vars existing" {
 
     try Variables.put("string", "value");
 
-    try eqlStr("value", Variables.get("string").?);
+    try eqlStr("value", Variables.getStr("string").?);
 
     var itr = try Parser.parse(&a, &ts);
     var i: usize = 0;
@@ -601,7 +601,7 @@ test "parse vars existing braces" {
 
     try Variables.put("string", "value");
 
-    try eqlStr("value", Variables.get("string").?);
+    try eqlStr("value", Variables.getStr("string").?);
 
     const slice = try ti.toSlice(a);
     defer a.free(slice);
@@ -635,7 +635,7 @@ test "parse vars existing braces inline" {
     defer Variables.raze();
     try Variables.put("string", "value");
 
-    try eqlStr("value", Variables.get("string").?);
+    try eqlStr("value", Variables.getStr("string").?);
 
     const slice = try ti.toSlice(a);
     defer a.free(slice);
@@ -665,7 +665,7 @@ test "parse vars existing braces inline both" {
     defer Variables.raze();
     try Variables.put("string", "value");
 
-    try eqlStr("value", Variables.get("string").?);
+    try eqlStr("value", Variables.getStr("string").?);
 
     const slice = try ti.toSlice(a);
     defer a.free(slice);
