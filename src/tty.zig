@@ -105,16 +105,11 @@ pub const TTY = struct {
     pub fn pwnTTY(self: *TTY) void {
         self.pid = std.os.linux.getpid();
         const ssid = custom_syscalls.getsid(0);
-        log.debug("pwning {} and {} \n", .{ self.pid, ssid });
-        if (ssid != self.pid) {
-            _ = custom_syscalls.setpgid(self.pid, self.pid);
-        }
-        log.debug("pwning tc \n", .{});
-        //_ = custom_syscalls.tcsetpgrp(self.dev, &pid);
-        //var res = custom_syscalls.tcsetpgrp(self.dev, &pid);
+        log.debug("pwnTTY {} and {} \n", .{ self.pid, ssid });
+        if (ssid != self.pid) _ = custom_syscalls.setpgid(self.pid, self.pid);
+
         const res = std.os.tcsetpgrp(self.dev, self.pid) catch |err| {
-            log.err("Unable to tcsetpgrp to {}, error was: {}\n", .{ self.pid, err });
-            log.err("Will attempt to tcgetpgrp\n", .{});
+            log.err("tcsetpgrp failed on pid {}, error was: {}\n", .{ self.pid, err });
             const get = std.os.tcgetpgrp(self.dev) catch |err2| {
                 log.err("tcgetpgrp err {}\n", .{err2});
                 return;
@@ -123,7 +118,6 @@ pub const TTY = struct {
             unreachable;
         };
         log.debug("tc pwnd {}\n", .{res});
-        //_ = custom_syscalls.tcgetpgrp(self.dev, &pgrp);
         const pgrp = std.os.tcgetpgrp(self.dev) catch unreachable;
         log.debug("get new pgrp {}\n", .{pgrp});
     }
