@@ -12,7 +12,7 @@ const Variables = @import("../variables.zig");
 pub const Exports = struct {
     name: []const u8, // name is owned internally
     value: []const u8, // value is both tied and owned by Variables
-    //
+
     pub fn format(self: Exports, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
         if (fmt.len == 4) {
             try std.fmt.format(out, "export {s}='{s}'", .{ self.name, self.value });

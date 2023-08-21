@@ -41,6 +41,12 @@ pub fn put(k: []const u8, v: []const u8) !void {
     });
 }
 
+// del(k, v) where v can be an optional, delete only of v matches current value
+pub fn del(k: []const u8) !void {
+    variables.remove(k);
+}
+
+/// named exports because I don't want to fight the compiler over the keyword
 pub fn exports(k: []const u8) !void {
     if (variables.getPtr(k)) |v| {
         v.exported = true;
