@@ -85,7 +85,7 @@ pub const TTY = struct {
         try self.setTTYWhen(self.orig_attr, .DRAIN);
         // try self.command(.ReqMouseEvents, false);
         try self.command(.ModOtherKeys, false);
-        try self.command(.S8C1T, false);
+        //try self.command(.S8C1T, false);
         try self.command(.DECCKM, false);
     }
 
@@ -93,7 +93,7 @@ pub const TTY = struct {
         try self.setTTYWhen(makeRaw(self.orig_attr), .DRAIN);
         // try self.command(.ReqMouseEvents, true);
         try self.command(.ModOtherKeys, true);
-        try self.command(.S8C1T, true);
+        //try self.command(.S8C1T, true);
         try self.command(.DECCKM, false);
     }
 
