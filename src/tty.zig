@@ -18,6 +18,8 @@ pub const VTCmds = enum {
     CurPosSet,
     ModOtherKeys,
     ReqMouseEvents,
+    S8C1T,
+    DECCKM,
 };
 
 pub var current_tty: ?TTY = undefined;
@@ -83,12 +85,16 @@ pub const TTY = struct {
         try self.setTTYWhen(self.orig_attr, .DRAIN);
         // try self.command(.ReqMouseEvents, false);
         try self.command(.ModOtherKeys, false);
+        try self.command(.S8C1T, false);
+        try self.command(.DECCKM, false);
     }
 
     pub fn setRaw(self: *TTY) !void {
         try self.setTTYWhen(makeRaw(self.orig_attr), .DRAIN);
         // try self.command(.ReqMouseEvents, true);
         try self.command(.ModOtherKeys, true);
+        try self.command(.S8C1T, true);
+        try self.command(.DECCKM, false);
     }
 
     pub fn setOwner(self: *TTY, mpgrp: ?std.os.pid_t) !void {
@@ -149,14 +155,18 @@ pub const TTY = struct {
     pub fn command(tty: TTY, comptime code: VTCmds, comptime enable: ?bool) !void {
         // TODO fetch info back out :/
         switch (code) {
-            VTCmds.CurPosGet => try tty.print("\x1B[6n", .{}),
-            VTCmds.CurPosSet => @panic("not implemented"),
-            VTCmds.ModOtherKeys => {
+            .CurPosGet => try tty.print("\x1B[6n", .{}),
+            .CurPosSet => @panic("not implemented"),
+            .ModOtherKeys => {
                 try tty.print(if (enable.?) "\x1B[>4;2m" else "\x1b[>4m", .{});
             },
-            VTCmds.ReqMouseEvents => {
+            .ReqMouseEvents => {
                 try tty.print(if (enable.?) "\x1B[?1004h" else "\x1B[?1004l", .{});
             },
+            .S8C1T => {
+                try tty.print(if (enable.?) "\x1B G" else "\x1B F", .{});
+            },
+            .DECCKM => try tty.print(if (enable.?) "\x1B[?1h" else "\x1B[?1l", .{}),
         }
     }
 

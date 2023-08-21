@@ -126,7 +126,10 @@ fn sst(io: i32) Error!Key {
         'Q' => return .F2,
         'R' => return .F3,
         'S' => return .F4,
-        else => return Error.UnknownEvent,
+        else => |c| {
+            log.err("unexpected single shift three char 0x{X}\n", .{c});
+            return Error.UnknownEvent;
+        },
     }
 }
 
