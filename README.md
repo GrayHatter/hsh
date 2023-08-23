@@ -108,12 +108,3 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
 
 ## notes
 (`zig build run` does some magic that causes hsh to segv)
-
-## Hash Manifesto
-  * Subsume the Unix Philosophy
-    * Don't do anything you can trust something else to do.
-  * Remember you're a user agent! Make all decisions to protect their best
-    interests. Aggressively protect and preserve data and actions.
-  * Do not clobber backlog!
-    * history is immutable, once data leaves the prompt, i.e. it has been pushed
-      into the scroll back, the user owns it.
