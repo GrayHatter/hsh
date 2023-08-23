@@ -63,6 +63,7 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
   - [ ] complex parsing
   - [ ] context aware hints
   - [ ] HSH builtins
+    - [ ] builtin
     - [ ] pipeline
     - [ ] help
     - [ ] show
