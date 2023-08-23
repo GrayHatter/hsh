@@ -62,6 +62,12 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
   - [ ] sane error handling
   - [ ] complex parsing
   - [ ] context aware hints
+  - [ ] HSH builtins
+    - [ ] pipeline
+    - [ ] help
+    - [ ] show
+    - [ ] state
+    - [ ] status
   - [ ] POSIX builtins
     - [x] alias
     - [ ] bg
@@ -89,12 +95,6 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
     - [ ] unset
     - [ ] wait
     - [ ] the rest?
-  - [ ] HSH builtins
-    - [ ] pipeline
-    - [ ] help
-    - [ ] show
-    - [ ] state
-    - [ ] status
   - [x] globs
     - [x] simple globs
     - [ ] recursive globs
