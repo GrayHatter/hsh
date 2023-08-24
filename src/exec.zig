@@ -420,21 +420,13 @@ pub fn child(a: Allocator, argv: []const []const u8) !ERes {
     defer signal.unblock();
     var list = ArrayList(?[*:0]u8).init(a);
     for (argv) |arg| {
-        // we can't simply append the existing string to this list because
-        // execvpe requires that all of the strings end with a C style null
-        // terminator, so we need to alloc a block of memory string length + 1
         try list.append((try a.dupeZ(u8, arg)).ptr);
     }
-    // the list of strings also needs to have a null terminator. Because zig
-    // has much more robust support for array/string sizes, it's not a
-    // terminator, is a Sentinel. This allows zig to insert code that ensures
-    // no zig code accidentally interacts with the sentinel.
     var argvZ: [:null]?[*:0]u8 = try list.toOwnedSliceSentinel(null);
 
-    // now because we've had to alloc the memory, we now need to free it as well
     defer {
-        for (argvZ) |*argm| { // for each string in list
-            if (argm.*) |arg| { // if string isn't null
+        for (argvZ) |*argm| {
+            if (argm.*) |arg| {
                 a.free(std.mem.span(arg));
             }
         }
