@@ -66,6 +66,7 @@ pub const Kind = union(enum) {
     io: IOKind,
     oper: OpKind,
     resr: Reserved,
+    subp: void,
     err: void,
 };
 

@@ -8,7 +8,7 @@ const mem = std.mem;
 const CompOption = @import("completion.zig").CompOption;
 const token = @import("token.zig");
 
-const BREAKING_TOKENS = " \t\"'`${|><#;";
+const BREAKING_TOKENS = " \t\"'`${|><#;)}";
 const BSLH = '\\';
 
 pub const IOKind = enum {
@@ -139,7 +139,7 @@ pub const Tokenizer = struct {
             '~', '/' => Tokenizer.path(src),
             '>', '<' => Tokenizer.ioredir(src),
             '|', '&', ';' => Tokenizer.execOp(src),
-            '$' => vari(src),
+            '$' => dollar(src),
             else => Tokenizer.word(src),
         };
     }
@@ -211,9 +211,44 @@ pub const Tokenizer = struct {
         return Token.make(src[0..end], .word);
     }
 
+    // the $ symbol is special in shells, depending on the next char, it's
+    // either a variable, or it may be a sub command, who's output will be the
+    // next cmdline arg.
+    pub fn dollar(src: []const u8) Error!Token {
+        if (src.len <= 1) return Error.InvalidSrc;
+        std.debug.assert(src[0] == '$');
+
+        switch (src[1]) {
+            '{' => return vari(src),
+            '(' => return cmdsub(src),
+            else => return vari(src),
+        }
+    }
+
+    pub fn cmdsub(src: []const u8) Error!Token {
+        std.debug.assert(src[0] == '$');
+        std.debug.assert(src[1] == '(');
+        if (src.len <= 2) return Error.InvalidSrc;
+
+        var offset: usize = 2;
+        var tmp = try any(src[offset..]);
+        offset += tmp.str.len;
+        // loop over the token sort functions to find the final ) which will
+        // close this command substitution. We can't simply look for the )
+        // because it might be within a quoted string.
+        while (offset < src.len and src[offset] != ')') {
+            tmp = try any(src[offset..]);
+            offset += @max(tmp.str.len, 1);
+        }
+        if (offset >= src.len) return Error.InvalidSrc;
+        std.debug.assert(src[offset] == ')');
+
+        return Token.make(src[0 .. offset + 1], .subp);
+    }
+
     pub fn vari(src: []const u8) Error!Token {
         if (src.len <= 1) return Error.InvalidSrc;
-        if (src[0] != '$') return Error.InvalidSrc;
+        std.debug.assert(src[0] == '$');
 
         if (src[1] == '{') {
             if (src.len < 4) return Error.InvalidSrc;
@@ -268,6 +303,7 @@ pub const Tokenizer = struct {
                         }
                         break;
                     },
+                    ')' => break,
                     else => {
                         const t = try any(src[end..]);
                         end += t.str.len;
@@ -1338,4 +1374,16 @@ test "reserved" {
         t = try Tokenizer.any(r);
         try std.testing.expect(t.kind == .resr);
     }
+}
+
+test "subp" {
+    var t = try Tokenizer.any("$(which cat)");
+
+    try std.testing.expectEqualStrings("$(which cat)", t.cannon());
+    try std.testing.expect(t.kind == .subp);
+
+    t = try Tokenizer.any("$( echo 'lol good luck buddy)' )");
+
+    try std.testing.expectEqualStrings("$( echo 'lol good luck buddy)' )", t.cannon());
+    try std.testing.expect(t.kind == .subp);
 }
