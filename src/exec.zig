@@ -16,6 +16,7 @@ const mem = std.mem;
 const fd_t = std.os.fd_t;
 const fs = @import("fs.zig");
 const bi = @import("builtins.zig");
+const signal = @import("signals.zig");
 
 const STDIN_FILENO = std.os.STDIN_FILENO;
 const STDOUT_FILENO = std.os.STDOUT_FILENO;
@@ -412,8 +413,39 @@ pub const ERes = struct {
     stdout: [][]u8,
 };
 
-//const exec = std.ChildProcess.exec;
-pub fn child(h: *HSH, argv: [:null]const ?[*:0]const u8) !ERes {
+/// Collects, and reformats argv into it's null terminated counterpart for
+/// execvpe. Caller retains ownership of memory.
+pub fn child(a: Allocator, argv: []const []const u8) !ERes {
+    signal.block();
+    defer signal.unblock();
+    var list = ArrayList(?[*:0]u8).init(a);
+    for (argv) |arg| {
+        // we can't simply append the existing string to this list because
+        // execvpe requires that all of the strings end with a C style null
+        // terminator, so we need to alloc a block of memory string length + 1
+        try list.append((try a.dupeZ(u8, arg)).ptr);
+    }
+    // the list of strings also needs to have a null terminator. Because zig
+    // has much more robust support for array/string sizes, it's not a
+    // terminator, is a Sentinel. This allows zig to insert code that ensures
+    // no zig code accidentally interacts with the sentinel.
+    var argvZ: [:null]?[*:0]u8 = try list.toOwnedSliceSentinel(null);
+
+    // now because we've had to alloc the memory, we now need to free it as well
+    defer {
+        for (argvZ) |*argm| { // for each string in list
+            if (argm.*) |arg| { // if string isn't null
+                a.free(std.mem.span(arg));
+            }
+        }
+        a.free(argvZ);
+    }
+    return childZ(a, argvZ);
+}
+
+/// Preformatted version of child. Accepts the null, and 0 terminated versions
+/// to pass directly to exec. Caller maintains ownership of argv
+pub fn childZ(a: Allocator, argv: [:null]const ?[*:0]const u8) !ERes {
     var pipe = std.os.pipe2(0) catch unreachable;
     const pid = std.os.fork() catch unreachable;
     if (pid == 0) {
@@ -431,9 +463,9 @@ pub fn child(h: *HSH, argv: [:null]const ?[*:0]const u8) !ERes {
 
     var f = std.fs.File{ .handle = pipe[0] };
     var r = f.reader();
-    var list = std.ArrayList([]u8).init(h.alloc);
+    var list = std.ArrayList([]u8).init(a);
 
-    while (try r.readUntilDelimiterOrEofAlloc(h.alloc, '\n', 2048)) |line| {
+    while (try r.readUntilDelimiterOrEofAlloc(a, '\n', 2048)) |line| {
         try list.append(line);
     }
     return ERes{

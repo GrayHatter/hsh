@@ -10,6 +10,7 @@ const Builtins = @import("builtins.zig");
 const Aliases = Builtins.Aliases;
 const Variables = @import("variables.zig");
 const fs = @import("fs.zig");
+const exec = @import("exec.zig");
 
 pub const Error = error{
     Unknown,
@@ -334,6 +335,10 @@ pub const Parser = struct {
                 if (token.cannon()[0] != '~') return token;
                 return try path(token, a.*);
             },
+            .subp => {
+                if (token.parsed) return token;
+                return try subcmd(token, a.*);
+            },
             else => {
                 switch (token.str[0]) {
                     '$' => return token,
@@ -399,6 +404,28 @@ pub const Parser = struct {
             list.appendSlice(tkn.str[1..]) catch return Error.Memory;
             tkn.resolved = list.toOwnedSlice() catch return Error.Memory;
         }
+        return tkn;
+    }
+
+    fn subcmd(tkn: *Token, a: std.mem.Allocator) Error!*Token {
+        var cmd = tkn.str[2 .. tkn.str.len - 1];
+        std.debug.assert(tkn.str[0] == '$');
+        std.debug.assert(tkn.str[1] == '(');
+        var itr = TokenIterator{ .raw = cmd };
+        var argv_t = itr.toSlice(a) catch return Error.Memory;
+        defer a.free(argv_t);
+        var list = ArrayList([]const u8).init(a);
+        for (argv_t) |t| {
+            list.append(t.cannon()) catch return Error.Memory;
+        }
+        var argv = list.toOwnedSlice() catch return Error.Memory;
+        defer a.free(argv);
+        var out = exec.child(a, argv) catch @panic("child exec failed");
+
+        tkn.parsed = true;
+        tkn.resolved = std.mem.join(a, "\n", out.stdout) catch return Error.Memory;
+        for (out.stdout) |line| a.free(line);
+        a.free(out.stdout);
         return tkn;
     }
 };
@@ -1054,5 +1081,18 @@ test "escapes" {
 
     p = Parser.word(&a, @constCast(first));
     try std.testing.expectEqualStrings("--inline=quoted string", p.cannon());
+    a.free(p.resolved.?);
+}
+
+test "sub process" {
+    var a = std.testing.allocator;
+
+    var t = TokenIterator{ .raw = "which $(echo 'ls')" };
+    var first = t.first();
+    try std.testing.expectEqualStrings("which", first.cannon());
+    var next = t.next() orelse return error.Invalid;
+    try std.testing.expectEqualStrings("$(echo 'ls')", next.cannon());
+    var p = try Parser.single(&a, @constCast(next));
+    try std.testing.expectEqualStrings("ls", p.cannon());
     a.free(p.resolved.?);
 }

@@ -28,8 +28,8 @@ fn fetch(_: *const HSH) Error!Lexeme {
 }
 
 fn update(h: *HSH) Error!void {
-    var result = exec.child(
-        h,
+    var result = exec.childZ(
+        h.alloc,
         &[_:null]?[*:0]const u8{
             "git",
             "status",
