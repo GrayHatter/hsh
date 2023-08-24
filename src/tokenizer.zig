@@ -211,9 +211,6 @@ pub const Tokenizer = struct {
         return Token.make(src[0..end], .word);
     }
 
-    // the $ symbol is special in shells, depending on the next char, it's
-    // either a variable, or it may be a sub command, who's output will be the
-    // next cmdline arg.
     pub fn dollar(src: []const u8) Error!Token {
         if (src.len <= 1) return Error.InvalidSrc;
         std.debug.assert(src[0] == '$');
