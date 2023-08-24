@@ -28,8 +28,10 @@ pub const SI_CODE = enum(u6) {
     CONTINUED,
 };
 
-var arena: std.heap.ArenaAllocator = undefined;
+var root_alloc: Allocator = undefined;
 var alloc: Allocator = undefined;
+var fba: std.heap.FixedBufferAllocator = undefined;
+var fbuffer: []u8 = undefined;
 var queue: Queue(Signal) = Queue(Signal).init();
 
 export fn sig_cb(sig: c_int, info: *const os.siginfo_t, _: ?*const anyopaque) callconv(.C) void {
@@ -68,8 +70,10 @@ pub fn get() ?Queue(Signal).Node {
 pub fn init(a: Allocator) !void {
     // Using an arena allocator here to try to solve the deadlock when "freeing"
     // heap space inside a signal.
-    arena = std.heap.ArenaAllocator.init(a);
-    alloc = arena.allocator();
+    root_alloc = a;
+    fbuffer = try a.alloc(u8, @sizeOf(Queue(Signal).Node) * 20);
+    fba = std.heap.FixedBufferAllocator.init(fbuffer);
+    alloc = fba.allocator();
 
     const SA = std.os.linux.SA;
     // zsh blocks and unblocks winch signals during most processing, collecting
@@ -200,6 +204,19 @@ pub fn do(hsh: *HSH) SigEvent {
     return .none;
 }
 
+pub fn block() void {
+    var sigset: std.os.linux.sigset_t = .{0} ** 32;
+    std.os.linux.sigaddset(&sigset, os.SIG.CHLD);
+    _ = std.os.linux.sigprocmask(os.SIG.BLOCK, &sigset, null);
+}
+
+pub fn unblock() void {
+    var sigset: std.os.linux.sigset_t = .{0} ** 32;
+    std.os.linux.sigaddset(&sigset, os.SIG.CHLD);
+    _ = std.os.linux.sigprocmask(os.SIG.UNBLOCK, &sigset, null);
+}
+
 pub fn raze() void {
-    arena.deinit();
+    fba.reset();
+    root_alloc.free(fbuffer);
 }
