@@ -34,6 +34,8 @@ pub const Err = error{
     InvalidToken,
     InvalidCommand,
     FileSysErr,
+    Overflow,
+    InvalidCharacter,
 };
 
 pub const BuiltinFn = *const fn (a: *HSH, b: *ParsedIterator) Err!u8;
@@ -179,9 +181,25 @@ test "fs" {
     try ndir.setAsCwd();
 }
 
-/// TODO implement real version of exit
-fn exit(h: *HSH, i: *ParsedIterator) Err!u8 {
-    return noimpl(h, i);
+fn exit(hsh: *HSH, i: *ParsedIterator) Err!u8 {
+    std.debug.assert(std.mem.eql(u8, "exit", i.first().cannon()));
+    var code: usize = 0;
+    if (i.next()) |next| {
+        const parsed_code = std.fmt.parseInt(isize, next.cannon(), 10) catch |err| {
+            log.err("Failed to parse exit code because {}\n", .{err});
+            return err;
+        };
+        code = @bitCast(parsed_code);
+        code %= 256;
+    }
+    else {
+        // TODO: Get exit code of last command
+    }
+    hsh.draw.raze();
+    hsh.tty.raze();
+    hsh.tkn.raze();
+    hsh.raze();
+    std.os.exit(@truncate(code));
 }
 
 /// TODO implement job selection support
