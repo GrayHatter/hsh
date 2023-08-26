@@ -265,7 +265,7 @@ pub fn findPath(
         if (std.fs.openDirAbsolute(out, .{})) |d| {
             if (writeFileAt(d, name, create)) |file| return file;
         } else |_| {
-            log.err("unable to open {s}\n", .{out});
+            log.debug("unable to open {s}\n", .{out});
         }
     } else if (env.get("HOME")) |home| {
         var main = try a.dupe(u8, home);
@@ -276,13 +276,13 @@ pub fn findPath(
                     if (writeFileAt(hch, name[1..], create)) |file| {
                         return file;
                     }
-                } else |e| log.err("unable to open {s} {}\n", .{ "hsh", e });
+                } else |e| log.debug("unable to open {s} {}\n", .{ "hsh", e });
                 //return hc;
-            } else |e| log.err("unable to open {s} {}\n", .{ "conf", e });
+            } else |e| log.debug("unable to open {s} {}\n", .{ "conf", e });
             if (writeFileAt(h, name, create)) |file| {
                 return file;
             }
-        } else |e| log.err("unable to open {s} {}\n", .{ "home", e });
+        } else |e| log.debug("unable to open {s} {}\n", .{ "home", e });
     }
 
     return Error.Missing;
