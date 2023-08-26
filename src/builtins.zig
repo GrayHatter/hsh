@@ -183,23 +183,21 @@ test "fs" {
 
 fn exit(hsh: *HSH, i: *ParsedIterator) Err!u8 {
     std.debug.assert(std.mem.eql(u8, "exit", i.first().cannon()));
-    var code: usize = 0;
+    var code: u8 = 0;
     if (i.next()) |next| {
         const parsed_code = std.fmt.parseInt(isize, next.cannon(), 10) catch |err| {
             log.err("Failed to parse exit code because {}\n", .{err});
             return err;
         };
-        code = @bitCast(parsed_code);
-        code %= 256;
-    }
-    else {
+        code = @truncate(@as(usize, @bitCast(parsed_code)));
+    } else {
         // TODO: Get exit code of last command
     }
     hsh.draw.raze();
     hsh.tty.raze();
     hsh.tkn.raze();
     hsh.raze();
-    std.os.exit(@truncate(code));
+    std.os.exit(code);
 }
 
 /// TODO implement job selection support
