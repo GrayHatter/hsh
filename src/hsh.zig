@@ -103,7 +103,9 @@ fn readFromRC(hsh: *HSH) E!void {
         rc_.seekTo(0) catch return E.FSError;
         while (readLine(&a, r)) |line| {
             defer a.free(line);
-            log.trace("reading line \n    `` {s} ``\n", .{line});
+            if (line.len == 0 or line[0] == '#') continue;
+
+            log.trace("reading line `` {s} ``\n", .{line});
             if (line.len > 0 and line[0] == '#') {
                 continue;
             }

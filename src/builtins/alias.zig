@@ -116,7 +116,7 @@ pub fn find(src: []const u8) ?*Alias {
 
 // TODO might leak
 fn add(a: std.mem.Allocator, src: []const u8, dst: []const u8) Err!void {
-    log.debug("ALIAS adding {s} = '{s}\n'", .{ src, dst });
+    log.debug("ALIAS adding {s} = '{s}'\n", .{ src, dst });
     if (dst.len == 0) return del(src);
     aliases.append(Alias{
         .name = a.dupe(u8, src) catch return Err.Memory,

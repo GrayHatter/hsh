@@ -27,7 +27,8 @@ pub fn hshLogFn(
         .err => "[\x1B[31merr\x1B[39m] ",
         .warning => "[\x1B[33mwrn\x1B[39m] ",
         .info => "[\x1B[32minf\x1B[39m] ",
-        .debug => "[\x1B[24mdbg\x1B[39m] ",
+        .debug => "[\x1B[36mdbg\x1B[39m] ",
+        .trace => "[\x1B[34mtrc\x1B[39m] ",
         else => "[ NOS ] ",
     };
 
