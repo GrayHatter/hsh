@@ -109,3 +109,7 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
 
 ## notes
 (`zig build run` does some magic that causes hsh to segv)
+
+## Contributors 
+@SteampunkEngine
+
