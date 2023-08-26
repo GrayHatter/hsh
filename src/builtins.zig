@@ -175,9 +175,8 @@ pub fn die(_: *HSH, _: *ParsedIterator) Err!u8 {
 
 test "fs" {
     const c = std.fs.cwd();
-    //std.debug.print("cwd failed! {}", .{e});
-    const ndir = try c.openDir("/home/grayhatter", .{});
-    //std.debug.print("test {}\n", .{ndir});
+    // I assume this dir will always exist... but we'll see :D
+    const ndir = try c.openDir("./zig-cache", .{});
     try ndir.setAsCwd();
 }
 
