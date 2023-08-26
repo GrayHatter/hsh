@@ -141,49 +141,43 @@ pub fn main() !void {
     hsh.draw.term_size = hsh.tty.geom() catch unreachable;
 
     var inerr = false;
-    root: while (true) {
+    while (true) {
         if (core(&hsh)) |actionable| {
             inerr = false;
             if (actionable) {
                 if (hsh.tkn.raw.items.len == 0) continue;
                 // debugging data
 
-                var titr = hsh.tkn.iterator();
-                var tokens = try titr.toSlice(hsh.alloc);
-                defer hsh.alloc.free(tokens);
-
-                // var pitr = Parser.parse(&hsh.tkn.alloc, tokens) catch continue;
-                // while (pitr.next()) |t| log.debug("{}\n", .{t});
-                // pitr.close();
+                var str = try hsh.alloc.dupe(u8, hsh.tkn.raw.items);
+                defer hsh.alloc.free(str);
 
                 if (hsh.hist) |*hist| try hist.push(hsh.tkn.raw.items);
-                var itr = hsh.tkn.iterator();
-                while (itr.next()) |exe_t| {
-                    // TODO add a "list" version of Exec.executable() for this code
-                    var ts = [_]tokenizer.Token{exe_t.*};
-                    var ps = try Parser.parse(&hsh.tkn.alloc, &ts);
-                    const first = ps.first().cannon();
-                    defer ps.close();
-                    if (!Exec.executable(&hsh, first)) {
-                        const estr = "[ Unable to find {s} ]";
-                        const size = first.len + estr.len;
-                        var fbuf: []u8 = hsh.alloc.alloc(u8, size) catch @panic("memory");
-                        defer hsh.alloc.free(fbuf);
-                        const str = try std.fmt.bufPrint(fbuf, estr, .{first});
-                        try Draw.drawAfter(&hsh.draw, Draw.LexTree{
-                            .lex = Draw.Lexeme{ .char = str, .style = .{ .attr = .bold, .fg = .red } },
-                        });
-                        try Draw.render(&hsh.draw);
-
-                        continue :root;
-                    }
-                    while (itr.nextExec()) |_| {}
-                    _ = itr.next();
-                }
+                //var itr = hsh.tkn.iterator();
                 try Draw.newLine(&hsh.draw);
-                exec(&hsh, &itr) catch |err| {
-                    log.err("Exec error {}\n", .{err});
-                    unreachable;
+                exec(&hsh, str) catch |err| {
+                    switch (err) {
+                        error.ExeNotFound => {
+                            const first = Exec.execFromInput(&hsh, str) catch @panic("memory");
+                            defer hsh.alloc.free(first);
+                            var tree = Draw.LexTree{ .siblings = @constCast(&[_]Draw.Lexeme{
+                                Draw.Lexeme{
+                                    .char = "[ Unable to find ",
+                                    .style = .{ .attr = .bold, .fg = .red },
+                                },
+                                Draw.Lexeme{
+                                    .char = first,
+                                    .style = .{ .attr = .bold, .fg = .red },
+                                },
+                                Draw.Lexeme{ .char = " ]", .style = .{ .attr = .bold, .fg = .red } },
+                            }) };
+                            try Draw.drawAfter(&hsh.draw, tree);
+                            try Draw.render(&hsh.draw);
+                        },
+                        else => {
+                            log.err("Exec error {}\n", .{err});
+                            unreachable;
+                        },
+                    }
                 };
                 hsh.tkn.exec();
                 continue;

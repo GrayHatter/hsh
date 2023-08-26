@@ -71,6 +71,15 @@ const CallableStack = struct {
 
 var paths: []const []const u8 = undefined;
 
+pub fn execFromInput(h: *HSH, str: []const u8) ![]u8 {
+    var itr = TokenIterator{ .raw = str };
+    var tokens = try itr.toSlice(h.alloc);
+    defer h.alloc.free(tokens);
+    var ps = try Parser.parse(&h.tkn.alloc, tokens);
+    defer ps.close();
+    return h.alloc.dupe(u8, ps.first().cannon());
+}
+
 pub fn executable(h: *HSH, str: []const u8) bool {
     if (bi.exists(str)) return true;
     paths = h.hfs.names.paths.items;
@@ -184,6 +193,7 @@ fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
     while (itr.peek()) |peek| {
         //var before: tokenizer.Token = peek.*;
         var eslice = itr.toSliceExec(a.*) catch unreachable;
+        errdefer a.*.free(eslice);
         var parsed = Parser.parse(a, eslice) catch unreachable;
         var io: StdIo = StdIo{ .in = prev_stdout orelse STDIN_FILENO };
         var condition: ?Conditional = conditional_rule;
@@ -236,7 +246,8 @@ fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
         }
 
         var stk: CallableStack = undefined;
-        if (bi.exists(parsed.first().cannon())) {
+        const exe_str = parsed.first().cannon();
+        if (bi.exists(exe_str)) {
             stk = CallableStack{
                 .callable = .{ .builtin = try builtin(a.*, parsed) },
                 .stdio = io,
@@ -249,12 +260,16 @@ fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
                     .stdio = io,
                     .conditional = condition,
                 };
-            } else |_| {
-                stk = CallableStack{
-                    .callable = .{ .builtin = try builtin(a.*, parsed) },
-                    .stdio = io,
-                    .conditional = condition,
-                };
+            } else |e| {
+                if (bi.existsOptional(exe_str)) {
+                    stk = CallableStack{
+                        .callable = .{ .builtin = try builtin(a.*, parsed) },
+                        .stdio = io,
+                        .conditional = condition,
+                    };
+                } else {
+                    return e;
+                }
             }
         }
         stack.append(stk) catch return Error.Memory;
@@ -305,13 +320,15 @@ fn free(a: Allocator, s: *CallableStack) void {
     }
 }
 
-pub fn exec(h: *HSH, titr: *TokenIterator) Error!void {
+/// input is a string ownership is retained by the caller
+pub fn exec(h: *HSH, input: []const u8) Error!void {
     // HACK I don't like it either, but LOOK OVER THERE!!!
     paths = h.hfs.names.paths.items;
 
-    titr.restart();
-    const stack = mkCallableStack(&h.alloc, titr) catch |e| {
-        log.err("unable to make stack {}\n", .{e});
+    var titr = TokenIterator{ .raw = input };
+
+    const stack = mkCallableStack(&h.alloc, &titr) catch |e| {
+        log.debug("unable to make stack {}\n", .{e});
         return e;
     };
     defer h.alloc.free(stack);
