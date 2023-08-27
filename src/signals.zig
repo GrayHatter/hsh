@@ -104,7 +104,7 @@ pub fn init(a: Allocator) !void {
         try os.sigaction(sig, &os.Sigaction{
             .handler = .{ .sigaction = sig_cb },
             .mask = os.empty_sigset,
-            .flags = SA.SIGINFO | SA.NOCLDWAIT | SA.RESTART,
+            .flags = SA.SIGINFO | SA.RESTART,
         }, null);
     }
 
@@ -116,7 +116,7 @@ pub fn init(a: Allocator) !void {
         try os.sigaction(sig, &os.Sigaction{
             .handler = .{ .handler = os.SIG.IGN },
             .mask = os.empty_sigset,
-            .flags = SA.NOCLDWAIT | SA.RESTART,
+            .flags = SA.RESTART,
         }, null);
     }
 }
@@ -157,9 +157,9 @@ pub fn do(hsh: *HSH) SigEvent {
                     .EXITED,
                     .KILLED,
                     => {
-                        if (child.exit(@intCast(sig.info.fields.common.second.sigchld.status))) {
-                            hsh.tty.setRaw() catch unreachable;
-                        }
+                        // if (child.exit(@intCast(sig.info.fields.common.second.sigchld.status))) {
+                        //     hsh.tty.setRaw() catch unreachable;
+                        // }
                     },
                     .CONTINUED => {
                         if (child.forground()) |tio| {

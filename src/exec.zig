@@ -360,14 +360,14 @@ pub fn exec(h: *HSH, input: []const u8) Error!void {
         if (s.conditional) |cond| {
             if (fpid == 0) unreachable;
             switch (cond) {
-                .After => _ = jobs.waitFor(h, fpid) catch {},
+                .After => _ = jobs.waitFor(fpid),
                 .Failure => {
-                    if (jobs.waitFor(h, fpid) catch true) {
+                    if (jobs.waitFor(fpid)) {
                         continue;
                     }
                 },
                 .Success => {
-                    if (!(jobs.waitFor(h, fpid) catch return Error.PipelineError)) {
+                    if (!(jobs.waitFor(fpid))) {
                         continue;
                     }
                 },
@@ -422,6 +422,11 @@ pub fn exec(h: *HSH, input: []const u8) Error!void {
         if (s.stdio.out != std.os.STDOUT_FILENO) std.os.close(s.stdio.out);
         if (s.stdio.err != std.os.STDERR_FILENO) std.os.close(s.stdio.err);
     }
+
+    while (jobs.getFg()) |fg| {
+        _ = jobs.waitFor(fg.pid);
+    }
+    h.tty.setRaw() catch unreachable;
 }
 
 /// I hate all of this but stdlib likes to panic instead of manage errors

@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const HSH = @import("hsh.zig").HSH;
 const SI_CODE = @import("signals.zig").SI_CODE;
+const log = @import("log");
 
 pub const Error = error{
     Unknown,
@@ -68,16 +69,17 @@ pub const Job = struct {
         return null;
     }
 
-    pub fn exit(self: *Job, code: ?u8) bool {
+    pub fn exit(self: *Job, code: ?u8) void {
         defer self.status = .ded;
         self.exit_code = code;
-        return self.status == .running;
     }
 
     pub fn crash(self: *Job, code: ?u8) void {
         self.status = .crashed;
         self.exit_code = code;
     }
+
+    fn waitfor(_: *Job) Status {}
 
     pub fn format(self: Job, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
         if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
@@ -190,8 +192,22 @@ pub fn getFg() ?*const Job {
 }
 
 /// waits for the job to complete, and reports true if it exited successfully
-pub fn waitFor(h: *HSH, jid: std.os.pid_t) Error!bool {
-    var job = try get(jid);
-    while (job.alive()) _ = h.spin();
-    return job.exit_code == 0;
+pub fn waitFor(jid: std.os.pid_t) bool {
+    var job = get(jid) catch {
+        const s = std.os.waitpid(jid, 0);
+        if (std.os.linux.W.IFEXITED(s.status)) {
+            return std.os.linux.W.EXITSTATUS(s.status) == 0;
+        }
+        return false;
+    };
+    const s = std.os.waitpid(jid, 0);
+    log.debug("status {} {} \n", .{ s.pid, s.status });
+    if (std.os.linux.W.IFSIGNALED(s.status)) {
+        job.crash(0);
+    } else if (std.os.linux.W.IFEXITED(s.status)) {
+        job.exit(std.os.linux.W.EXITSTATUS(s.status));
+    }
+
+    if (job.exit_code) |ec| return ec == 0;
+    return s.status == 0;
 }
