@@ -359,16 +359,17 @@ pub fn exec(h: *HSH, input: []const u8) Error!void {
         defer free(h.alloc, s);
         if (s.conditional) |cond| {
             if (fpid == 0) unreachable;
+            var waited_job = jobs.waitForPid(fpid) catch @panic("job doesn't exist");
             switch (cond) {
-                .After => _ = jobs.waitFor(fpid),
+                .After => {},
                 .Failure => {
-                    if (jobs.waitFor(fpid)) {
-                        continue;
+                    if (waited_job.exit_code) |ec| {
+                        if (ec == 0) continue;
                     }
                 },
                 .Success => {
-                    if (!(jobs.waitFor(fpid))) {
-                        continue;
+                    if (waited_job.exit_code) |ec| {
+                        if (ec != 0) continue;
                     }
                 },
             }
@@ -423,10 +424,9 @@ pub fn exec(h: *HSH, input: []const u8) Error!void {
         if (s.stdio.err != std.os.STDERR_FILENO) std.os.close(s.stdio.err);
     }
 
-    while (jobs.getFg()) |fg| {
-        _ = jobs.waitFor(fg.pid);
-    }
-    h.tty.setRaw() catch unreachable;
+    _ = jobs.waitForFg();
+    h.tty.setRaw() catch log.err("Unable to setRaw after child event\n", .{});
+    h.tty.setOwner(null) catch log.err("Unable to setOwner after child event\n", .{});
 }
 
 /// I hate all of this but stdlib likes to panic instead of manage errors

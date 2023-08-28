@@ -191,23 +191,41 @@ pub fn getFg() ?*const Job {
     return null;
 }
 
-/// waits for the job to complete, and reports true if it exited successfully
-pub fn waitFor(jid: std.os.pid_t) bool {
-    var job = get(jid) catch {
-        const s = std.os.waitpid(jid, 0);
-        if (std.os.linux.W.IFEXITED(s.status)) {
-            return std.os.linux.W.EXITSTATUS(s.status) == 0;
-        }
-        return false;
-    };
-    const s = std.os.waitpid(jid, 0);
+pub fn waitForFg() void {
+    while (getFg()) |fg| {
+        log.debug("Waiting on {}\n", .{fg.pid});
+        _ = waitFor() catch {
+            log.warn("waitFor didn't find this child", .{});
+            return;
+        };
+    }
+}
+
+pub fn waitForPid(jid: std.os.pid_t) !*Job {
+    var job = try get(jid);
+    const s = try std.os.waitpid(jid, 0);
     log.debug("status {} {} \n", .{ s.pid, s.status });
+
+    if (std.os.linux.W.IFSIGNALED(s.status)) {
+        job.crash(0);
+    } else if (std.os.linux.W.IFEXITED(s.status)) {
+        job.exit(std.os.linux.W.EXITSTATUS(s.status));
+    }
+    return job;
+}
+
+/// waits for the job to complete, and reports true if it exited successfully
+pub fn waitFor() !*Job {
+    const s = try std.os.waitpid(-1, 0);
+
+    log.debug("status {} {} \n", .{ s.pid, s.status });
+    var job = try get(s.pid);
+
     if (std.os.linux.W.IFSIGNALED(s.status)) {
         job.crash(0);
     } else if (std.os.linux.W.IFEXITED(s.status)) {
         job.exit(std.os.linux.W.EXITSTATUS(s.status));
     }
 
-    if (job.exit_code) |ec| return ec == 0;
-    return s.status == 0;
+    return job;
 }

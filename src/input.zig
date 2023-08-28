@@ -267,19 +267,14 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
     return .None;
 }
 
-fn event(hsh: *HSH, tkn: *Tokenizer, km: Keys.KeyMod) !Event {
-    tkn.err_idx = 0;
+fn history(h: *HSH, tkn: *Tokenizer, km: Keys.KeyMod) !Event {
     switch (km.evt) {
-        .ascii => |a| {
-            switch (a) {
-                '.' => if (km.mods.alt) log.err("<A-.> not yet implemented\n", .{}),
-                else => {},
-            }
-        },
+        .ascii => unreachable,
         .key => |k| {
             switch (k) {
+                else => unreachable,
                 .Up => {
-                    var hist = &(hsh.hist orelse return .None);
+                    var hist = &(h.hist orelse return .None);
                     if (hist.cnt == 0) {
                         if (tkn.raw.items.len > 0) {
                             tkn.saveLine();
@@ -300,7 +295,7 @@ fn event(hsh: *HSH, tkn: *Tokenizer, km: Keys.KeyMod) !Event {
                     tkn.c_idx = tkn.raw.items.len;
                 },
                 .Down => {
-                    var hist = &(hsh.hist orelse return .None);
+                    var hist = &(h.hist orelse return .None);
                     if (hist.cnt > 1) {
                         hist.cnt -= 1;
                         tkn.resetRaw();
@@ -315,6 +310,24 @@ fn event(hsh: *HSH, tkn: *Tokenizer, km: Keys.KeyMod) !Event {
                         tkn.restoreLine();
                     }
                 },
+            }
+        },
+    }
+    return .Redraw;
+}
+
+fn event(hsh: *HSH, tkn: *Tokenizer, km: Keys.KeyMod) !Event {
+    tkn.err_idx = 0;
+    switch (km.evt) {
+        .ascii => |a| {
+            switch (a) {
+                '.' => if (km.mods.alt) log.err("<A-.> not yet implemented\n", .{}),
+                else => {},
+            }
+        },
+        .key => |k| {
+            switch (k) {
+                .Up, .Down => return history(hsh, tkn, km),
                 .Left => if (km.mods.ctrl) tkn.cPos(.back) else tkn.cPos(.dec),
                 .Right => if (km.mods.ctrl) tkn.cPos(.word) else tkn.cPos(.inc),
                 .Home => tkn.cPos(.home),
