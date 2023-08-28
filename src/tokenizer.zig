@@ -528,6 +528,7 @@ pub const Tokenizer = struct {
     }
 
     pub fn pop(self: *Tokenizer) Error!void {
+        self.user_data = true;
         if (self.raw.items.len == 0 or self.c_idx == 0) return Error.Empty;
         self.c_idx -|= 1;
         _ = self.raw.orderedRemove(self.c_idx);
@@ -540,13 +541,15 @@ pub const Tokenizer = struct {
 
     pub fn delc(self: *Tokenizer) void {
         if (self.raw.items.len == 0 or self.c_idx == self.raw.items.len) return;
+        self.user_data = true;
         _ = self.raw.orderedRemove(self.c_idx);
     }
 
     pub fn popRange(self: *Tokenizer, count: usize) Error!void {
-        if (count > self.raw.items.len) return Error.Empty;
-        if (self.raw.items.len == 0 or self.c_idx == 0) return;
         if (count == 0) return;
+        if (self.raw.items.len == 0 or self.c_idx == 0) return;
+        if (count > self.raw.items.len) return Error.Empty;
+        self.user_data = true;
         self.c_idx -|= count;
         _ = self.raw.replaceRange(@as(usize, self.c_idx), count, "") catch unreachable;
         // replaceRange is able to expand, but we don't here, thus unreachable
