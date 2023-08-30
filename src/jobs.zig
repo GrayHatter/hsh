@@ -191,6 +191,37 @@ pub fn getFg() ?*const Job {
     return null;
 }
 
+/// I'd like to delete these, but also, I don't want hsh to be tied to zig
+/// master every time I fix something in stdlib.
+const builtin = @import("builtin");
+const WaitError = if (@hasDecl(std.os, "WaitError")) std.os.WaitError else error{
+    CHILD,
+};
+
+fn linux_waitpid(pid: std.os.pid_t, flags: u32) WaitError!std.os.WaitPidResult {
+    const Status_t = if (builtin.link_libc) c_int else u32;
+    var status: Status_t = undefined;
+    const coerced_flags = if (builtin.link_libc) @as(c_int, @intCast(flags)) else flags;
+    while (true) {
+        const rc = std.os.linux.waitpid(pid, &status, coerced_flags);
+        switch (std.os.errno(rc)) {
+            .SUCCESS => return .{
+                .pid = @as(std.os.pid_t, @intCast(rc)),
+                .status = @as(u32, @bitCast(status)),
+            },
+            .INTR => continue,
+            .CHILD => return WaitError.CHILD,
+            .INVAL => unreachable, // Invalid flags.
+            else => unreachable,
+        }
+    }
+}
+
+const waitpid = if (@TypeOf(std.os.waitpid) == fn (i32, u32) std.os.WaitPidResult)
+    linux_waitpid
+else
+    std.os.waitpid;
+
 pub fn waitForFg() void {
     while (getFg()) |fg| {
         log.debug("Waiting on {}\n", .{fg.pid});
@@ -203,7 +234,7 @@ pub fn waitForFg() void {
 
 pub fn waitForPid(jid: std.os.pid_t) !*Job {
     var job = try get(jid);
-    const s = try std.os.waitpid(jid, 0);
+    const s = try waitpid(jid, 0);
     log.debug("status {} {} \n", .{ s.pid, s.status });
 
     if (std.os.linux.W.IFSIGNALED(s.status)) {
@@ -216,7 +247,7 @@ pub fn waitForPid(jid: std.os.pid_t) !*Job {
 
 /// waits for the job to complete, and reports true if it exited successfully
 pub fn waitFor() !*Job {
-    const s = try std.os.waitpid(-1, 0);
+    const s = try waitpid(-1, 0);
 
     log.debug("status {} {} \n", .{ s.pid, s.status });
     var job = try get(s.pid);
