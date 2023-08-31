@@ -27,16 +27,7 @@ pub const OpKind = enum {
     Background,
 };
 
-pub const Error = error{
-    Unknown,
-    Memory,
-    LineTooLong,
-    TokenizeFailed,
-    InvalidSrc,
-    OpenGroup,
-    Empty,
-};
-
+pub const Error = token.Error;
 pub const Token = token.Token;
 pub const TokenIterator = token.TokenIterator;
 pub const Kind = token.Kind;
@@ -310,14 +301,34 @@ pub const Tokenizer = struct {
         }
 
         if (end <= 5) {
-            if (token.Reserved.fromStr(src[0..end])) |r| {
-                return Token.make(src[0..end], .{ .resr = r });
+            if (token.Reserved.fromStr(src[0..end])) |_| {
+                return logic(src);
             } else |e| {
                 if (e != Error.Unknown) return e;
             }
         }
 
         return Token.make(src[0..end], .word);
+    }
+
+    pub fn logic(src: []const u8) Error!Token {
+        const end = std.mem.indexOf(u8, src, " ") orelse {
+            const typ = token.Reserved.fromStr(src) catch {
+                return Error.InvalidSrc;
+            };
+            return Token.make(src, .{ .resr = typ });
+        };
+        var r = try token.Reserved.fromStr(src[0..end]);
+
+        switch (r) {
+            .If => {},
+            .Case => {},
+            .While => {},
+            .For => {},
+            else => return Token.make(src[0..end], .{ .resr = r }),
+        }
+
+        return Token.make(src[0..end], .{ .resr = r });
     }
 
     pub fn oper(src: []const u8) Error!Token {

@@ -25,6 +25,7 @@ pub const Error = error{
     TokenizeFailed,
     InvalidSrc,
     OpenGroup,
+    OpenLogic,
     Empty,
 };
 
