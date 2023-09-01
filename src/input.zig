@@ -257,12 +257,18 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
         0x12 => try hsh.tty.print("^R\r\n", .{}), // DC2
         0x13 => try hsh.tty.print("^S\r\n", .{}), // DC3
         0x14 => try hsh.tty.print("^T\r\n", .{}), // DC4
+        // this is supposed to be ^v but it's ^x on mine an another system
+        0x16 => try hsh.tty.print("^X\r\n", .{}), // SYN
+        0x18 => try hsh.tty.print("^X (or something else?)\r\n", .{}), // CAN
         0x1A => try hsh.tty.print("^Z\r\n", .{}),
         0x17 => { // ^w
             _ = try tkn.dropWord();
             return .Redraw;
         },
-        else => unreachable,
+        else => |x| {
+            log.err("Unknown ctrl code 0x{x}", .{x});
+            unreachable;
+        },
     }
     return .None;
 }
