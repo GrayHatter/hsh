@@ -4,6 +4,7 @@ const HSH = hsh.HSH;
 const tokenizer = @import("../tokenizer.zig");
 const Token = tokenizer.Token;
 const bi = @import("../builtins.zig");
+const print = bi.print;
 const Err = bi.Err;
 const ParsedIterator = @import("../parse.zig").ParsedIterator;
 const State = bi.State;
@@ -124,8 +125,24 @@ fn special(h: *HSH, titr: *ParsedIterator) Err!u8 {
     return 0;
 }
 
-fn option(h: *HSH, titr: *ParsedIterator) Err!u8 {
+fn posix(h: *HSH, opt: *const Token, titr: *ParsedIterator) Err!u8 {
+    _ = titr;
+    const mode = if (opt.cannon()[0] == '-')
+        true
+    else if (opt.cannon()[0] == '+')
+        false
+    else
+        return Err.InvalidCommand;
+    for (opt.cannon()[1..]) |opt_c| {
+        const o = try Opts.find(opt_c);
+        if (mode) try enable(h, o) else try disable(h, o);
+    }
+    return 0;
+}
+
+fn option(h: *HSH, opt: *const Token, titr: *ParsedIterator) Err!u8 {
     _ = h;
+    _ = opt;
     _ = titr;
     return 0;
 }
@@ -140,15 +157,29 @@ pub fn set(h: *HSH, titr: *ParsedIterator) Err!u8 {
 
     if (titr.next()) |arg| {
         const opt = arg.cannon();
+
         if (opt.len > 1) {
-            if (std.mem.eql(u8, opt, "--")) return special(h, titr);
-            if (opt.len == 2 and opt[1] == 'o') return option(h, titr);
+            if (std.mem.eql(u8, opt, "vi")) {
+                try print("sorry robinli, not yet\n", .{});
+                return 0;
+            }
 
-            const mode = if (opt[0] == '-') true else if (opt[0] == '+') false else return Err.InvalidCommand;
-            for (opt[1..]) |opt_c| {
-                const o = try Opts.find(opt_c);
+            if (std.mem.eql(u8, opt, "emacs") or std.mem.eql(u8, opt, "vscode")) {
+                @panic("u wot m8?!");
+            }
 
-                if (mode) try enable(h, o) else try disable(h, o);
+            if (opt[0] == '-' or opt[0] == '+') {
+                switch (opt[1]) {
+                    'o' => {
+                        return posix(h, arg, titr);
+                    },
+                    '-' => {
+                        if (opt.len == 2) return special(h, titr);
+                    },
+                    else => unreachable,
+                }
+            } else {
+                return option(h, arg, titr);
             }
         }
     } else {
