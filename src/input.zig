@@ -342,6 +342,12 @@ fn event(hsh: *HSH, tkn: *Tokenizer, km: Keys.KeyMod) !Event {
     return .Redraw;
 }
 
+/// Sigh...
+fn unicode(tkn: *Tokenizer, buf: u8) !Event {
+    try tkn.consumec(buf);
+    return .Redraw;
+}
+
 fn ascii(hsh: *HSH, tkn: *Tokenizer, buf: u8, comp: *complete.CompSet) !Event {
     switch (buf) {
         0x00...0x1F => return ctrlCode(hsh, tkn, buf, comp),
@@ -357,7 +363,9 @@ fn ascii(hsh: *HSH, tkn: *Tokenizer, buf: u8, comp: *complete.CompSet) !Event {
             };
             return .Prompt;
         },
-        0x80...0xFF => unreachable,
+        0x80...0xFF => {
+            return unicode(tkn, buf);
+        },
     }
     return .None;
 }
