@@ -339,7 +339,7 @@ pub const Tokenizer = struct {
     }
 
     pub fn group(src: []const u8) Error!Token {
-        std.debug.assert(src.len > 1);
+        if (src.len <= 1) return Error.OpenGroup;
         return switch (src[0]) {
             '\'' => quoteSingle(src),
             '"' => quoteDouble(src),
