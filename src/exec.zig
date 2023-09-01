@@ -117,6 +117,7 @@ fn validPathAbs(path: []const u8) bool {
 /// TODO BUG arg should be absolute but argv[0] should only be absolute IFF
 /// there was a / is the original token.
 pub fn makeAbsExecutable(a: Allocator, str: []const u8) Error![]u8 {
+    if (str.len == 0) return Error.NotFound; // Is this always NotFound?
     if (str[0] == '/') {
         if (!validPathAbs(str)) return Error.ExeNotFound;
         return a.dupe(u8, str) catch return Error.Memory;
