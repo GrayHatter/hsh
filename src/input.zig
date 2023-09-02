@@ -43,7 +43,7 @@ const InputState = struct {
 
 var state = InputState{};
 
-pub fn read(fd: std.os.fd_t, buf: []u8) !usize {
+fn read(fd: std.os.fd_t, buf: []u8) !usize {
     const rc = std.os.linux.read(fd, buf.ptr, buf.len);
     switch (std.os.linux.getErrno(rc)) {
         .SUCCESS => return @intCast(rc),
