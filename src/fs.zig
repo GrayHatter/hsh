@@ -307,10 +307,14 @@ fn openRcFile(a: Allocator, env: *const std.process.EnvMap) !?std.fs.File {
 }
 
 fn openHistFile(a: Allocator, env: *const std.process.EnvMap) !?std.fs.File {
-    return findPath(a, env, ".hsh_history", false) catch |e| {
+    const p = findPath(a, env, ".hsh_history", false) catch |e| {
         if (e != Error.Missing) return e;
         return try findPath(a, env, ".hsh_history", true);
     };
+    // I've been seeing some strange behavior in history I don't fully
+    // understand. This probably won't fix it, but I'm gonna try it anyways
+    p.seekFromEnd(0) catch {};
+    return p;
 }
 
 test "fs" {
