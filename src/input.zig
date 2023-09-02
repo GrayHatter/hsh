@@ -215,6 +215,7 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
             try hsh.tty.print("^D\r\n", .{});
             return .Redraw;
         },
+        0x05 => try hsh.tty.print("^E\r\n", .{}), // ENQ
         0x07 => try hsh.tty.print("^bel\r\n", .{}),
         0x08 => try hsh.tty.print("\r\ninput: backspace\r\n", .{}),
         0x09 => |c| { // \t
