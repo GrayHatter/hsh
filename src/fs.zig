@@ -181,6 +181,25 @@ pub fn cd(self: *fs, trgt: []const u8) !void {
     try self.dirs.update();
 }
 
+/// Caller should close the file when finished
+pub fn mktemp(data: ?[]const u8) ![]const u8 {
+    const rand = "/tmp/random_temp_name";
+
+    const file = std.fs.createFileAbsolute(rand, .{}) catch {
+        return Error.System;
+    };
+    defer file.close();
+
+    if (data) |d| {
+        if (d.len > 0) {
+            file.writeAll(d) catch return Error.Other;
+            file.sync() catch return Error.Other;
+        }
+    }
+
+    return rand;
+}
+
 fn fileAt(
     dir: std.fs.Dir,
     name: []const u8,

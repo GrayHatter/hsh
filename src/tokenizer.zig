@@ -3,6 +3,7 @@ const log = @import("log");
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const File = std.fs.File;
+const fs = @import("fs.zig");
 const io = std.io;
 const mem = std.mem;
 const CompOption = @import("completion.zig").CompOption;
@@ -51,6 +52,7 @@ pub const Tokenizer = struct {
     c_tkn: usize = 0, // cursor is over this token
     err_idx: usize = 0,
     user_data: bool = false,
+    editor_mktmp: ?[]const u8 = null,
 
     pub fn init(a: Allocator) Tokenizer {
         return Tokenizer{
@@ -413,6 +415,9 @@ pub const Tokenizer = struct {
         return t;
     }
 
+    // completion commands
+
+    /// remove the completion maybe from input
     pub fn maybeDrop(self: *Tokenizer) !void {
         if (self.raw_maybe) |rm| {
             self.popRange(rm.len) catch {
@@ -450,8 +455,8 @@ pub const Tokenizer = struct {
         self.raw_maybe = null;
         if (new) |n| {
             switch (n.kind.?) {
-                .file_system => |fs| {
-                    switch (fs) {
+                .file_system => |f_s| {
+                    switch (f_s) {
                         .dir => try self.consumec('/'),
                         .file, .link, .pipe => try self.consumec(' '),
                         else => {},
@@ -577,10 +582,33 @@ pub const Tokenizer = struct {
         self.user_data = true;
     }
 
+    // TODO rename verbNoun -> lineVerb
+
+    pub fn lineEditor(self: *Tokenizer) void {
+        const filename = fs.mktemp(self.raw.items) catch {
+            log.err("Unable to write prompt to tmp file\n", .{});
+            return;
+        };
+        self.saveLine();
+        self.consumes("$EDITOR ") catch unreachable;
+        self.consumes(filename) catch unreachable;
+        self.editor_mktmp = filename;
+    }
+
+    pub fn lineEditorRead(self: *Tokenizer) void {
+        if (self.editor_mktmp) |mkt| {
+            var file = fs.openFile(mkt, false) orelse return;
+            defer file.close();
+            file.reader().readAllArrayList(&self.raw, 4096) catch unreachable;
+        }
+        self.editor_mktmp = null;
+    }
+
     pub fn saveLine(self: *Tokenizer) void {
         self.resetHist();
         self.hist_z = self.raw;
         self.raw = ArrayList(u8).init(self.alloc);
+        self.c_idx = 0;
         self.user_data = false;
     }
 

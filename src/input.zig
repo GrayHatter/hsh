@@ -32,10 +32,16 @@ const Mode = enum {
     TYPING,
     COMPLETING,
     COMPENDING, // Just completed a token, may or may not need more
+    EXEDIT,
 };
 
-var mode: Mode = .TYPING;
-var next: ?Event = null;
+const InputState = struct {
+    mode: Mode = .TYPING,
+    edinput: bool = false,
+    next: ?Event = null,
+};
+
+var state = InputState{};
 
 pub fn read(fd: std.os.fd_t, buf: []u8) !usize {
     const rc = std.os.linux.read(fd, buf.ptr, buf.len);
@@ -97,9 +103,9 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Mode {
 }
 
 fn completing(hsh: *HSH, tkn: *Tokenizer, ks: Keys.KeyMod, comp: *complete.CompSet) !Event {
-    if (mode == .TYPING) {
+    if (state.mode == .TYPING) {
         try complete.complete(comp, hsh, tkn);
-        mode = .COMPLETING;
+        state.mode = .COMPLETING;
         return completing(hsh, tkn, ks, comp);
     }
 
@@ -112,40 +118,40 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, ks: Keys.KeyMod, comp: *complete.CompS
                         comp.revr();
                         comp.revr();
                     }
-                    mode = try doComplete(hsh, tkn, comp);
+                    state.mode = try doComplete(hsh, tkn, comp);
                     return .Redraw;
                 },
                 0x0A => {
                     // newline \n
-                    if (mode == .COMPENDING) {
-                        mode = .TYPING;
+                    if (state.mode == .COMPENDING) {
+                        state.mode = .TYPING;
                         return .Exec;
                     }
                     if (comp.count() > 0) {
                         try tkn.maybeReplace(comp.current());
                         try tkn.maybeCommit(comp.current());
-                        mode = .COMPENDING;
+                        state.mode = .COMPENDING;
                     }
                     return .Redraw;
                 },
                 0x7f => { // backspace
-                    if (mode == .COMPENDING) {
-                        mode = .TYPING;
+                    if (state.mode == .COMPENDING) {
+                        state.mode = .TYPING;
                         return .Redraw;
                     }
                     comp.searchPop() catch {
-                        mode = .TYPING;
+                        state.mode = .TYPING;
                         comp.raze();
                         tkn.raw_maybe = null;
                         return .Redraw;
                     };
-                    mode = try doComplete(hsh, tkn, comp);
+                    state.mode = try doComplete(hsh, tkn, comp);
                     try tkn.maybeDrop();
                     try tkn.maybeAdd(comp.search.items);
                     return .Redraw;
                 },
                 ' ' => {
-                    mode = .TYPING;
+                    state.mode = .TYPING;
                     return .Redraw;
                 },
                 '/' => |chr| {
@@ -158,14 +164,14 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, ks: Keys.KeyMod, comp: *complete.CompS
                             }
                         }
                     }
-                    mode = .TYPING;
+                    state.mode = .TYPING;
                     return .Redraw;
                 },
                 else => {
-                    if (mode == .COMPENDING) mode = .COMPLETING;
+                    if (state.mode == .COMPENDING) state.mode = .COMPLETING;
                     try comp.searchChar(c);
-                    mode = try doComplete(hsh, tkn, comp);
-                    if (mode == .COMPLETING) {
+                    state.mode = try doComplete(hsh, tkn, comp);
+                    if (state.mode == .COMPLETING) {
                         try tkn.maybeDrop();
                         try tkn.maybeAdd(comp.search.items);
                     }
@@ -176,7 +182,7 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, ks: Keys.KeyMod, comp: *complete.CompS
         .key => |k| {
             switch (k) {
                 .Esc => {
-                    mode = .TYPING;
+                    state.mode = .TYPING;
                     try tkn.maybeDrop();
                     if (comp.original) |o| {
                         try tkn.maybeAdd(o.str);
@@ -190,7 +196,7 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, ks: Keys.KeyMod, comp: *complete.CompS
                     return .Redraw;
                 },
                 else => {
-                    mode = .TYPING;
+                    state.mode = .TYPING;
                     try tkn.maybeCommit(null);
                 },
             }
@@ -215,7 +221,14 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
             try hsh.tty.print("^D\r\n", .{});
             return .Redraw;
         },
-        0x05 => try hsh.tty.print("^E\r\n", .{}), // ENQ
+        0x05 => {
+            // TODO Currently hack af, this could use some more love!
+            if (state.mode == .EXEDIT) {
+                state.edinput = true;
+                tkn.lineEditor();
+                return .Exec;
+            } else try hsh.tty.print("^E\r\n", .{}); // ENQ
+        },
         0x07 => try hsh.tty.print("^bel\r\n", .{}),
         0x08 => try hsh.tty.print("\r\ninput: backspace\r\n", .{}),
         0x09 => |c| { // \t
@@ -260,7 +273,10 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
         0x14 => try hsh.tty.print("^T\r\n", .{}), // DC4
         // this is supposed to be ^v but it's ^x on mine an another system
         0x16 => try hsh.tty.print("^X\r\n", .{}), // SYN
-        0x18 => try hsh.tty.print("^X (or something else?)\r\n", .{}), // CAN
+        0x18 => {
+            //try hsh.tty.print("^X (or something else?)\r\n", .{}); // CAN
+            state.mode = .EXEDIT;
+        },
         0x1A => try hsh.tty.print("^Z\r\n", .{}),
         0x17 => { // ^w
             _ = try tkn.dropWord();
@@ -387,7 +403,7 @@ pub fn nonInteractive(hsh: *HSH, comp: *complete.CompSet) !Event {
     var buffer: [1]u8 = undefined;
 
     if (hsh.spin()) {
-        mode = .TYPING;
+        state.mode = .TYPING;
         return .Signaled;
     }
     var nbyte: usize = try read(hsh.input, &buffer);
@@ -399,11 +415,11 @@ pub fn nonInteractive(hsh: *HSH, comp: *complete.CompSet) !Event {
 
     //const prevm = mode;
     var result: Event = .None;
-    switch (mode) {
+    switch (state.mode) {
         .COMPLETING, .COMPENDING => {
             const e = if (evt == .ascii) Keys.Event.ascii(evt.ascii) else evt;
             if (e != .keysm) {
-                mode = .TYPING;
+                state.mode = .TYPING;
                 return .Redraw;
             }
             result = try completing(hsh, tkn, e.keysm, comp);
@@ -415,6 +431,7 @@ pub fn nonInteractive(hsh: *HSH, comp: *complete.CompSet) !Event {
                 .mouse => |_| return .Redraw,
             };
         },
+        .EXEDIT => unreachable,
     }
     //defer next = if (prevm == mode) null else .Redraw;
     return result;
@@ -428,10 +445,18 @@ pub fn do(hsh: *HSH, comp: *complete.CompSet) !Event {
 
     var buffer: [1]u8 = undefined;
 
+    if (state.edinput) {
+        // TODO if $? != 0, don't read file.
+        state.mode = .TYPING;
+        state.edinput = false;
+        tkn.lineEditorRead();
+        return .Redraw;
+        //log.err("edinput\n", .{});
+    }
     var nbyte: usize = 0;
     while (nbyte == 0) {
         if (hsh.spin()) {
-            mode = .TYPING;
+            state.mode = .TYPING;
             return .Signaled;
         }
         nbyte = try read(hsh.input, &buffer);
@@ -443,11 +468,11 @@ pub fn do(hsh: *HSH, comp: *complete.CompSet) !Event {
 
     //const prevm = mode;
     var result: Event = .None;
-    switch (mode) {
+    switch (state.mode) {
         .COMPLETING, .COMPENDING => {
             const e = if (evt == .ascii) Keys.Event.ascii(evt.ascii) else evt;
             if (e != .keysm) {
-                mode = .TYPING;
+                state.mode = .TYPING;
                 return .Redraw;
             }
             result = try completing(hsh, tkn, e.keysm, comp);
@@ -458,6 +483,9 @@ pub fn do(hsh: *HSH, comp: *complete.CompSet) !Event {
                 .keysm => |e| try event(hsh, tkn, e),
                 .mouse => |_| return .Redraw,
             };
+        },
+        .EXEDIT => {
+            result = try ascii(hsh, tkn, evt.ascii, comp);
         },
     }
     //defer next = if (prevm == mode) null else .Redraw;
