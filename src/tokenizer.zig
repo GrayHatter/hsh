@@ -52,7 +52,7 @@ pub const Tokenizer = struct {
     c_tkn: usize = 0, // cursor is over this token
     err_idx: usize = 0,
     user_data: bool = false,
-    editor_mktmp: ?[]const u8 = null,
+    editor_mktmp: ?[]u8 = null,
 
     pub fn init(a: Allocator) Tokenizer {
         return Tokenizer{
@@ -585,7 +585,7 @@ pub const Tokenizer = struct {
     // TODO rename verbNoun -> lineVerb
 
     pub fn lineEditor(self: *Tokenizer) void {
-        const filename = fs.mktemp(self.raw.items) catch {
+        const filename = fs.mktemp(self.alloc, self.raw.items) catch {
             log.err("Unable to write prompt to tmp file\n", .{});
             return;
         };
@@ -600,6 +600,8 @@ pub const Tokenizer = struct {
             var file = fs.openFile(mkt, false) orelse return;
             defer file.close();
             file.reader().readAllArrayList(&self.raw, 4096) catch unreachable;
+            std.os.unlink(mkt) catch unreachable;
+            self.alloc.free(mkt);
         }
         self.editor_mktmp = null;
     }

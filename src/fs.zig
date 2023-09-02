@@ -5,6 +5,7 @@ const Allocator = mem.Allocator;
 const log = @import("log");
 const INotify = @import("inotify.zig");
 const HSH = @import("hsh.zig").HSH;
+const rand = @import("random.zig");
 
 pub const fs = @This();
 
@@ -182,10 +183,13 @@ pub fn cd(self: *fs, trgt: []const u8) !void {
 }
 
 /// Caller should close the file when finished
-pub fn mktemp(data: ?[]const u8) ![]const u8 {
-    const rand = "/tmp/random_temp_name";
+pub fn mktemp(a: std.mem.Allocator, data: ?[]const u8) ![]u8 {
+    rand.init();
 
-    const file = std.fs.createFileAbsolute(rand, .{}) catch {
+    var name = try a.dupe(u8, "/tmp/.hsh_txt________");
+    try rand.string(name[14..]);
+
+    const file = std.fs.createFileAbsolute(name, .{}) catch {
         return Error.System;
     };
     defer file.close();
@@ -197,7 +201,7 @@ pub fn mktemp(data: ?[]const u8) ![]const u8 {
         }
     }
 
-    return rand;
+    return name;
 }
 
 fn fileAt(
