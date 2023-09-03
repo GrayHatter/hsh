@@ -133,6 +133,7 @@ pub const Tokenizer = struct {
             '>', '<' => Tokenizer.ioredir(src),
             '|', '&', ';' => Tokenizer.execOp(src),
             '$' => dollar(src),
+            '#' => comment(src),
             else => Tokenizer.word(src),
         };
     }
@@ -202,6 +203,14 @@ pub const Tokenizer = struct {
             end += 1;
         }
         return Token.make(src[0..end], .word);
+    }
+
+    pub fn comment(src: []const u8) Error!Token {
+        if (std.mem.indexOf(u8, src, "\n")) |i| {
+            return Token.make(src[0 .. i + 1], .comment);
+        }
+
+        return Token.make(src, .comment);
     }
 
     pub fn dollar(src: []const u8) Error!Token {
@@ -1480,4 +1489,26 @@ test "make safe" {
     var str = try tk.makeSafe("str ing");
     defer a.free(str.?);
     try std.testing.expectEqualStrings("str\\ ing", str.?);
+}
+
+test "comment" {
+    //var a = std.testing.allocator;
+    var tk = try Tokenizer.any("# comment");
+
+    try std.testing.expectEqualStrings("# comment", tk.str);
+    try std.testing.expectEqualStrings("", tk.cannon());
+
+    var itr = TokenIterator{ .raw = " echo #comment" };
+
+    try std.testing.expectEqualStrings("echo", itr.next().?.cannon());
+    try std.testing.expectEqualStrings("", itr.next().?.cannon());
+    try std.testing.expect(null == itr.next());
+
+    itr = TokenIterator{ .raw = " echo #comment\ncd home" };
+
+    try std.testing.expectEqualStrings("echo", itr.next().?.cannon());
+    try std.testing.expectEqualStrings("", itr.next().?.cannon());
+    try std.testing.expectEqualStrings("cd", itr.next().?.cannon());
+    try std.testing.expectEqualStrings("home", itr.next().?.cannon());
+    try std.testing.expect(null == itr.next());
 }

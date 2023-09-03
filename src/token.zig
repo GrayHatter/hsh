@@ -60,6 +60,8 @@ pub const Kind = union(enum) {
     path: void,
     vari: void,
 
+    comment: void,
+
     // new types
     err: void,
     io: IOKind,
@@ -99,6 +101,7 @@ pub const Token = struct {
         return switch (self.kind) {
             .quote => return self.str[1 .. self.str.len - 1],
             .io, .vari, .path => return self.substr orelse self.str,
+            .comment => return self.str[0..0],
             else => self.str,
         };
     }
