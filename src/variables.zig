@@ -5,6 +5,7 @@ const Variables = @This();
 const Kind = enum {
     internal,
     sysenv,
+    special,
 };
 
 const Var = struct {

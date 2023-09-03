@@ -77,7 +77,7 @@ pub const Token = struct {
     parsed: bool = false,
     subtoken: u8 = 0,
     // I hate this but I've spent too much time on this already #YOLO
-    resolved: ?[]const u8 = null,
+    resolved: ?[]u8 = null,
     substr: ?[]const u8 = null,
 
     pub fn make(str: []const u8, k: Kind) Token {
@@ -115,7 +115,12 @@ pub const TokenIterator = struct {
 
     pub fn first(self: *Self) *const Token {
         self.restart();
-        return self.next().?;
+        if (self.next()) |n| {
+            return n;
+        } else {
+            self.token = .{ .str = "" };
+            return &self.token;
+        }
     }
 
     pub fn nextAny(self: *Self) ?*const Token {

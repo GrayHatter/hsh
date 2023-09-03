@@ -606,7 +606,7 @@ pub fn complete(cs: *CompSet, hsh: *HSH, tks: *tokenizer.Tokenizer) !void {
     }
 
     if (cs.original) |orig| {
-        tks.raw_maybe = orig.str;
+        try tks.maybeDupe(orig.str);
         try cs.searchStr(orig.str);
     }
     if (cs.original) |orig| {

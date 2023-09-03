@@ -425,34 +425,49 @@ pub const Tokenizer = struct {
                 log.err("Unable to drop maybe {s} len = {}\n", .{ rm, rm.len });
                 @panic("dropMaybe");
             };
-            self.raw_maybe = null;
         }
+        self.maybeClear();
+    }
+
+    pub fn maybeClear(self: *Tokenizer) void {
+        if (self.raw_maybe) |rm| {
+            self.alloc.free(rm);
+        }
+        self.raw_maybe = null;
+    }
+
+    pub fn maybeDupe(self: *Tokenizer, str: []const u8) !void {
+        self.maybeClear();
+        self.raw_maybe = try self.alloc.dupe(u8, str);
     }
 
     /// str must be safe to insert directly as is
     pub fn maybeAdd(self: *Tokenizer, str: []const u8) !void {
-        self.raw_maybe = str;
-        try self.consumes(str);
+        const safe = try self.makeSafe(str) orelse try self.alloc.dupe(u8, str);
+        defer self.alloc.free(safe);
+        try self.maybeDupe(safe);
+        try self.consumes(safe);
     }
 
     /// This function edits user text, so extra care must be taken to ensure
     /// it's something the user asked for!
     pub fn maybeReplace(self: *Tokenizer, new: *const CompOption) !void {
+        const str = try self.makeSafe(new.str) orelse try self.alloc.dupe(u8, new.str);
+        defer self.alloc.free(str);
         if (self.raw_maybe) |_| {
             try self.maybeDrop();
         } else if (new.kind == null) {
-            self.raw_maybe = new.str;
+            try self.maybeDupe(str);
         }
-        //try self.addMaybe(new.str);
 
         if (new.kind == null) return;
-        self.raw_maybe = new.str;
+        try self.maybeDupe(str);
 
-        try self.consumeSafeish(new.str);
+        try self.consumes(str);
     }
 
     pub fn maybeCommit(self: *Tokenizer, new: ?*const CompOption) !void {
-        self.raw_maybe = null;
+        self.maybeClear();
         if (new) |n| {
             switch (n.kind.?) {
                 .file_system => |f_s| {
@@ -468,19 +483,30 @@ pub const Tokenizer = struct {
         }
     }
 
-    fn consumeSafeish(self: *Tokenizer, str: []const u8) Error!void {
+    /// if returned value is null, string is already safe.
+    fn makeSafe(self: *Tokenizer, str: []const u8) !?[]u8 {
         if (mem.indexOfAny(u8, str, BREAKING_TOKENS)) |_| {} else {
-            for (str) |s| try self.consumec(s);
-            return;
+            return null;
         }
-        if (mem.indexOf(u8, str, "'")) |_| {} else {
-            try self.consumec('\'');
-            for (str) |c| try self.consumec(c);
-            try self.consumec('\'');
-            return;
+        var extra: usize = str.len;
+        var look = [1]u8{0};
+        for (BREAKING_TOKENS) |t| {
+            look[0] = t;
+            extra += mem.count(u8, str, &look);
         }
+        std.debug.assert(extra > str.len);
 
-        return Error.InvalidSrc;
+        var safer = try self.alloc.alloc(u8, extra);
+        var i: usize = 0;
+        for (str) |c| {
+            if (mem.indexOfScalar(u8, BREAKING_TOKENS, c)) |_| {
+                safer[i] = '\\';
+                i += 1;
+            }
+            safer[i] = c;
+            i += 1;
+        }
+        return safer;
     }
 
     fn dropWhitespace(self: *Tokenizer) Error!usize {
@@ -642,7 +668,7 @@ pub const Tokenizer = struct {
         self.err_idx = 0;
         self.c_tkn = 0;
         self.user_data = false;
-        self.raw_maybe = null;
+        self.maybeClear();
     }
 
     /// Doesn't exec, called to save previous "local" command
@@ -882,8 +908,8 @@ test "replace token" {
     }
 
     try expect(tokens.len == 5);
-    try expect(eql(u8, tokens[2].cannon(), "TWO THREE"));
-    try expect(eql(u8, t.raw.items, "one 'TWO THREE' three"));
+    try std.testing.expectEqualStrings(tokens[2].cannon(), "TWO\\ THREE");
+    try std.testing.expectEqualStrings(t.raw.items, "one TWO\\ THREE three");
     a.free(tokens);
 }
 
@@ -1427,4 +1453,15 @@ test "subp" {
 
     try std.testing.expectEqualStrings("$( echo 'lol good luck buddy)' )", t.cannon());
     try std.testing.expect(t.kind == .subp);
+}
+
+test "make safe" {
+    var a = std.testing.allocator;
+    var tk = Tokenizer.init(a);
+
+    try std.testing.expect(null == try tk.makeSafe("string"));
+
+    var str = try tk.makeSafe("str ing");
+    defer a.free(str.?);
+    try std.testing.expectEqualStrings("str\\ ing", str.?);
 }
