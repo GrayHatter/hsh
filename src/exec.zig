@@ -439,6 +439,7 @@ pub const ERes = struct {
 /// Collects, and reformats argv into it's null terminated counterpart for
 /// execvpe. Caller retains ownership of memory.
 pub fn child(a: Allocator, argv: []const []const u8) !ERes {
+    if (argv.len == 0 or argv[0].len == 0) return Error.NotFound;
     signal.block();
     defer signal.unblock();
     var list = ArrayList(?[*:0]u8).init(a);

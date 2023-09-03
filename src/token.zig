@@ -57,18 +57,18 @@ pub const Reserved = enum {
 pub const Kind = union(enum) {
     // legacy types, TODO REMOVE
     ws: void,
-    quote: void,
     path: void,
     vari: void,
 
     // new types
-    nos: void,
-    word: void,
+    err: void,
     io: IOKind,
+    nos: void,
     oper: OpKind,
+    quote: void,
     resr: Reserved,
     subp: void,
-    err: void,
+    word: void,
 };
 
 pub const Token = struct {

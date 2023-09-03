@@ -9,7 +9,7 @@ const mem = std.mem;
 const CompOption = @import("completion.zig").CompOption;
 const token = @import("token.zig");
 
-const BREAKING_TOKENS = " \t\"'`${|><#;)}";
+const BREAKING_TOKENS = " \t\"'`${|><#;}";
 const BSLH = '\\';
 
 pub const IOKind = enum {
@@ -221,19 +221,27 @@ pub const Tokenizer = struct {
         if (src.len <= 2) return Error.InvalidSrc;
 
         var offset: usize = 2;
-        var tmp = try any(src[offset..]);
-        offset += tmp.str.len;
         // loop over the token sort functions to find the final ) which will
         // close this command substitution. We can't simply look for the )
         // because it might be within a quoted string.
         while (offset < src.len and src[offset] != ')') {
-            tmp = try any(src[offset..]);
-            offset += @max(tmp.str.len, 1);
+            const tmp = any(src[offset..]) catch {
+                offset += 1;
+                continue;
+            };
+            if (tmp.kind == .quote) {
+                offset += tmp.str.len;
+                continue;
+            }
+            offset += 1;
         }
-        if (offset >= src.len) return Error.InvalidSrc;
-        std.debug.assert(src[offset] == ')');
+        if (offset >= src.len) {
+            if (offset > src.len or src[offset - 1] != ')') {
+                return Error.InvalidSrc;
+            }
+        } else if (src[offset] == ')' and src[offset - 1] != ')') offset += 1;
 
-        return Token.make(src[0 .. offset + 1], .subp);
+        return Token.make(src[0..offset], .subp);
     }
 
     pub fn vari(src: []const u8) Error!Token {
@@ -1452,6 +1460,14 @@ test "subp" {
     t = try Tokenizer.any("$( echo 'lol good luck buddy)' )");
 
     try std.testing.expectEqualStrings("$( echo 'lol good luck buddy)' )", t.cannon());
+    try std.testing.expect(t.kind == .subp);
+
+    t = try Tokenizer.any("echo $(pwd))");
+    try std.testing.expectEqualStrings("echo", t.cannon());
+    try std.testing.expect(t.kind == .word);
+
+    t = try Tokenizer.any("$(pwd))");
+    try std.testing.expectEqualStrings("$(pwd)", t.cannon());
     try std.testing.expect(t.kind == .subp);
 }
 

@@ -184,12 +184,20 @@ pub const ParsedIterator = struct {
                 }
                 switch (c) {
                     '$' => {
-                        var vari = Tokenizer.vari(t.str[i..]) catch {
-                            list.append(c) catch unreachable;
-                            continue;
-                        };
-                        skip = vari.str.len - 1;
-                        const res = Parser.single(self.alloc, &vari) catch continue;
+                        var res: Token = undefined;
+                        if (t.str[i + 1] == '(') {
+                            res = Tokenizer.cmdsub(t.str[i..]) catch {
+                                list.append(c) catch unreachable;
+                                continue;
+                            };
+                        } else {
+                            res = Tokenizer.vari(t.str[i..]) catch {
+                                list.append(c) catch unreachable;
+                                continue;
+                            };
+                        }
+                        skip = res.str.len - 1;
+                        _ = Parser.single(self.alloc, &res) catch continue;
                         if (res.resolved) |str| {
                             list.appendSlice(str) catch unreachable;
                             self.alloc.free(str);
@@ -413,6 +421,7 @@ pub const Parser = struct {
         var cmd = tkn.str[2 .. tkn.str.len - 1];
         std.debug.assert(tkn.str[0] == '$');
         std.debug.assert(tkn.str[1] == '(');
+
         var itr = TokenIterator{ .raw = cmd };
         var argv_t = itr.toSlice(a) catch return Error.Memory;
         defer a.free(argv_t);
@@ -422,9 +431,13 @@ pub const Parser = struct {
         }
         var argv = list.toOwnedSlice() catch return Error.Memory;
         defer a.free(argv);
-        var out = exec.child(a, argv) catch @panic("child exec failed");
-
         tkn.parsed = true;
+
+        var out = exec.child(a, argv) catch {
+            tkn.resolved = a.dupe(u8, tkn.str) catch return Error.Memory;
+            return tkn;
+        };
+
         tkn.resolved = std.mem.join(a, "\n", out.stdout) catch return Error.Memory;
         for (out.stdout) |line| a.free(line);
         a.free(out.stdout);
