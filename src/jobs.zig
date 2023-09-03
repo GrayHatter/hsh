@@ -227,7 +227,7 @@ pub fn waitForFg() void {
         log.debug("Waiting on {}\n", .{fg.pid});
         _ = waitFor() catch {
             log.warn("waitFor didn't find this child", .{});
-            return;
+            continue;
         };
     }
 }

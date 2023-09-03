@@ -475,6 +475,12 @@ pub fn childZ(a: Allocator, argv: [:null]const ?[*:0]const u8) !ERes {
     }
     std.os.close(pipe[1]);
     defer std.os.close(pipe[0]);
+    const name = std.mem.span(argv[0].?);
+    jobs.add(jobs.Job{
+        .status = .child,
+        .pid = pid,
+        .name = a.dupe(u8, name[0 .. name.len - 1]) catch return Error.Memory,
+    }) catch return Error.Memory;
 
     var f = std.fs.File{ .handle = pipe[0] };
     var r = f.reader();
