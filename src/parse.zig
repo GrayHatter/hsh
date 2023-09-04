@@ -27,7 +27,7 @@ pub const ParsedIterator = struct {
     // to writing is already too high
     alloc: *Allocator,
     tokens: []Token,
-    index: ?usize,
+    t_index: ?usize,
     subtokens: ?[]TokenIterator,
     aliases_resolved: [][]const u8,
     const Self = @This();
@@ -40,10 +40,10 @@ pub const ParsedIterator = struct {
 
     /// Returns next Token, omitting, or splitting them as needed.
     pub fn next(self: *Self) ?*const Token {
-        const i = self.index orelse return null;
+        const i = self.t_index orelse return null;
         if (i >= self.tokens.len) {
             self.restart();
-            self.index = null;
+            self.t_index = null;
             return null;
         }
 
@@ -56,7 +56,7 @@ pub const ParsedIterator = struct {
         } else {
             switch (token.kind) {
                 .ws, .io, .oper => {
-                    self.index.? += 1;
+                    self.t_index.? += 1;
                     return self.next();
                 },
                 else => {
@@ -64,7 +64,7 @@ pub const ParsedIterator = struct {
                 },
             }
         }
-        defer self.index.? += 1;
+        defer self.t_index.? += 1;
         return token;
     }
 
@@ -118,7 +118,7 @@ pub const ParsedIterator = struct {
         if (self.subtokens) |subtkns| {
             if (subtkns.len == 0) {
                 self.subtokens = null;
-                self.index.? += 1;
+                self.t_index.? += 1;
                 return self.next();
             }
 
@@ -133,7 +133,7 @@ pub const ParsedIterator = struct {
             if (self.subtokens) |sts| {
                 return sts[0].first();
             }
-            defer self.index.? += 1;
+            defer self.t_index.? += 1;
             return token;
         }
     }
@@ -147,7 +147,7 @@ pub const ParsedIterator = struct {
     }
 
     fn resolve(self: *Self, token: *const Token) void {
-        if (self.index) |index| {
+        if (self.t_index) |index| {
             if (index == 0) {
                 return self.resolveAlias(token);
             } else {
@@ -278,7 +278,7 @@ pub const ParsedIterator = struct {
     }
 
     pub fn raze(self: *Self) void {
-        self.index = 0;
+        self.t_index = 0;
         if (self.aliases_resolved.len > 0) {
             self.alloc.free(self.aliases_resolved);
         }
@@ -307,7 +307,7 @@ pub const Parser = struct {
         return ParsedIterator{
             .alloc = a,
             .tokens = tokens,
-            .index = 0,
+            .t_index = 0,
             .subtokens = null,
             .aliases_resolved = a.alloc([]u8, 0) catch return Error.Memory,
         };
