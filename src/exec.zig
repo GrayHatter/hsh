@@ -176,6 +176,7 @@ fn binary(a: Allocator, itr: *ParsedIterator) Error!Binary {
     argv.append(exeZ) catch return Error.Memory;
 
     while (itr.next()) |t| {
+        if (t.kind == .ws) continue;
         argv.append(
             a.dupeZ(u8, t.cannon()) catch return Error.Memory,
         ) catch return Error.Memory;
@@ -506,7 +507,9 @@ test "mkstack" {
     }
 
     try std.testing.expectEqualStrings("ls", ti.first().cannon());
+    ti.skip();
     try std.testing.expectEqualStrings("|", ti.next().?.cannon());
+    ti.skip();
     try std.testing.expectEqualStrings("sort", ti.next().?.cannon());
 
     paths = &[_][]const u8{"/usr/bin"};

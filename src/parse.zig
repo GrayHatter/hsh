@@ -505,8 +505,9 @@ test "iterator aliased" {
     while (itr.next()) |_| {
         i += 1;
     }
-    try expectEql(i, 3);
+    try expectEql(i, 4);
     try expect(eql(u8, itr.first().cannon(), "ls"));
+    _ = itr.next();
     try expect(eql(u8, itr.next().?.cannon(), "-la"));
     try expect(eql(u8, itr.next().?.cannon(), "src"));
     try expect(itr.next() == null);
@@ -533,8 +534,9 @@ test "iterator aliased self" {
         //std.debug.print("{}\n", .{t});
         i += 1;
     }
-    try expectEql(i, 3);
+    try expectEql(i, 4);
     try expect(eql(u8, itr.first().cannon(), "ls"));
+    _ = itr.next();
     try expect(eql(u8, itr.next().?.cannon(), "-la"));
     try std.testing.expectEqualStrings("src", itr.next().?.cannon());
     try expect(itr.next() == null);
@@ -566,10 +568,12 @@ test "iterator aliased recurse" {
         //std.debug.print("{}\n", .{t});
         i += 1;
     }
-    try expectEql(i, 4);
+    try expectEql(i, 6);
     var first = itr.first().cannon();
     try expect(eql(u8, first, "ls"));
+    _ = itr.next();
     try expect(eql(u8, itr.next().?.cannon(), "-la"));
+    _ = itr.next();
     try expect(eql(u8, itr.next().?.cannon(), "--color=auto"));
     try expect(eql(u8, itr.next().?.cannon(), "src"));
     try expect(itr.next() == null);
@@ -1108,7 +1112,9 @@ test "sub process" {
     var t = TokenIterator{ .raw = "which $(echo 'ls')" };
     var first = t.first();
     try std.testing.expectEqualStrings("which", first.cannon());
+    t.skip();
     var next = t.next() orelse return error.Invalid;
+
     try std.testing.expectEqualStrings("$(echo 'ls')", next.cannon());
 
     // TODO build a better test harness for this

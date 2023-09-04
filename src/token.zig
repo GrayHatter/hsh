@@ -126,7 +126,7 @@ pub const TokenIterator = struct {
         }
     }
 
-    pub fn nextAny(self: *Self) ?*const Token {
+    pub fn next(self: *Self) ?*const Token {
         if (self.index) |i| {
             if (i >= self.raw.len) {
                 return null;
@@ -145,14 +145,8 @@ pub const TokenIterator = struct {
         }
     }
 
-    /// next skips whitespace, if you need whitespace tokens use nextAny
-    pub fn next(self: *Self) ?*const Token {
-        const n = self.nextAny() orelse return null;
-
-        if (n.kind == .ws) {
-            return self.next();
-        }
-        return n;
+    pub fn skip(self: *Self) void {
+        _ = self.next();
     }
 
     /// returns next until index reaches an executable boundary,
@@ -180,15 +174,6 @@ pub const TokenIterator = struct {
         var list = ArrayList(Token).init(a);
         self.index = 0;
         while (self.next()) |n| {
-            try list.append(n.*);
-        }
-        return list.toOwnedSlice();
-    }
-
-    // caller owns the memory, this will reset the index
-    pub fn toSliceAny(self: *Self, a: Allocator) ![]Token {
-        var list = ArrayList(Token).init(a);
-        while (self.nextAny()) |n| {
             try list.append(n.*);
         }
         return list.toOwnedSlice();

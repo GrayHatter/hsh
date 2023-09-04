@@ -547,7 +547,7 @@ fn findToken(tkns: *tokenizer.Tokenizer) TknPair {
     var itr = tkns.iterator();
     var pair: TknPair = .{};
     var idx: usize = tkns.c_idx;
-    while (itr.nextAny()) |t| {
+    while (itr.next()) |t| {
         pair.count += 1;
         if (idx <= t.str.len) {
             pair.t = t.*;
@@ -566,7 +566,7 @@ pub fn complete(cs: *CompSet, hsh: *HSH, tks: *tokenizer.Tokenizer) !void {
     cs.raze();
 
     var iter = tks.iterator();
-    const ts = iter.toSliceAny(hsh.alloc) catch unreachable;
+    const ts = iter.toSlice(hsh.alloc) catch unreachable;
     defer hsh.alloc.free(ts);
 
     cs.kind = if (ts.len > 0) ts[0].kind else .nos;
