@@ -29,7 +29,7 @@ pub const ParsedIterator = struct {
     tokens: []Token,
     index: ?usize,
     subtokens: ?[]TokenIterator,
-    resolved: [][]const u8,
+    aliases_resolved: [][]const u8,
     const Self = @This();
 
     /// Restart iterator, and assumes length >= 1
@@ -139,8 +139,11 @@ pub const ParsedIterator = struct {
     }
 
     fn resolvedAdd(self: *Self, str: []const u8) void {
-        self.resolved = self.alloc.realloc(self.resolved, self.resolved.len + 1) catch unreachable;
-        self.resolved[self.resolved.len - 1] = str;
+        self.aliases_resolved = self.alloc.realloc(
+            self.aliases_resolved,
+            self.aliases_resolved.len + 1,
+        ) catch unreachable;
+        self.aliases_resolved[self.aliases_resolved.len - 1] = str;
     }
 
     fn resolve(self: *Self, token: *const Token) void {
@@ -154,7 +157,7 @@ pub const ParsedIterator = struct {
     }
 
     fn resolveAlias(self: *Self, token: *const Token) void {
-        for (self.resolved) |res| {
+        for (self.aliases_resolved) |res| {
             if (std.mem.eql(u8, token.cannon(), res)) {
                 return;
             }
@@ -271,11 +274,15 @@ pub const ParsedIterator = struct {
 
     /// Resets the iterator to the initial slice.
     pub fn restart(self: *Self) void {
+        self.raze();
+    }
+
+    pub fn raze(self: *Self) void {
         self.index = 0;
-        if (self.resolved.len > 0) {
-            self.alloc.free(self.resolved);
+        if (self.aliases_resolved.len > 0) {
+            self.alloc.free(self.aliases_resolved);
         }
-        self.resolved = self.alloc.alloc([]u8, 0) catch @panic("Alloc 0 can't fail");
+        self.aliases_resolved = self.alloc.alloc([]u8, 0) catch @panic("Alloc 0 can't fail");
         while (self.subtokensDel()) {}
         self.subtokens = null;
         for (self.tokens) |*t| {
@@ -302,7 +309,7 @@ pub const Parser = struct {
             .tokens = tokens,
             .index = 0,
             .subtokens = null,
-            .resolved = a.alloc([]u8, 0) catch return Error.Memory,
+            .aliases_resolved = a.alloc([]u8, 0) catch return Error.Memory,
         };
     }
 
