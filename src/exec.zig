@@ -514,12 +514,12 @@ test "mkstack" {
 
     paths = &[_][]const u8{"/usr/bin"};
 
-    //var a = std.testing.allocator;
+    var a = std.testing.allocator;
     ti.restart();
-    //var stk = try mkCallableStack(a, &ti);
-    //try std.testing.expect(stk.len == 2);
-    //for (stk) |*s| {
-    //    free(a, s);
-    //}
-    //a.free(stk);
+    var stk = try mkCallableStack(a, &ti);
+    try std.testing.expect(stk.len == 2);
+    for (stk) |*s| {
+        free(a, s);
+    }
+    a.free(stk);
 }

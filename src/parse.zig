@@ -372,7 +372,6 @@ pub const Parser = struct {
     }
 
     fn path(a: Allocator, t: Token) Error!Token {
-        //log.err("path {}\n", .{t});
         var local = t;
         local.kind = .path;
         if (local.cannon()[0] == '~') {
@@ -387,7 +386,6 @@ pub const Parser = struct {
 
                 list.replaceRange(0, 1, v) catch return Error.Memory;
                 local.resolved = list.toOwnedSlice() catch return Error.Memory;
-                //log.err("pathed {} {s}\n", .{ local, local.resolved.? });
             }
         }
         return local;
