@@ -588,7 +588,7 @@ pub fn complete(cs: *CompSet, hsh: *HSH, tks: *tokenizer.Tokenizer) !void {
                     try completeDir(cs, dir);
                 },
                 .word, .path => {
-                    var t = try Parser.single(&hsh.alloc, &pair.t);
+                    var t = try Parser.single(hsh.alloc, pair.t);
                     if (std.mem.indexOfScalar(u8, t.cannon(), '/')) |_| {
                         try completePath(cs, hsh, t.cannon());
                     } else {

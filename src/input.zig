@@ -259,8 +259,8 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
                 return .Prompt;
             };
             defer hsh.alloc.free(tkns);
-            var run = Parser.parse(&tkn.alloc, tkns) catch return .Redraw;
-            defer run.close();
+            var run = Parser.parse(tkn.alloc, tkns) catch return .Redraw;
+            defer run.raze();
             if (run.tokens.len > 0) return .Exec;
             return .Redraw;
         },

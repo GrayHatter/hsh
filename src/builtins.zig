@@ -148,7 +148,7 @@ fn bg(_: *HSH, _: *ParsedIterator) Err!u8 {
 fn cd(hsh: *HSH, titr: *ParsedIterator) Err!u8 {
     // TODO pushd and popd
     std.debug.assert(std.mem.eql(u8, "cd", titr.first().cannon()));
-    defer titr.close();
+    defer titr.raze();
 
     while (titr.next()) |t| {
         switch (t.kind) {

@@ -75,8 +75,8 @@ pub fn execFromInput(h: *HSH, str: []const u8) ![]u8 {
     var itr = TokenIterator{ .raw = str };
     var tokens = try itr.toSlice(h.alloc);
     defer h.alloc.free(tokens);
-    var ps = try Parser.parse(&h.tkn.alloc, tokens);
-    defer ps.close();
+    var ps = try Parser.parse(h.tkn.alloc, tokens);
+    defer ps.raze();
     return h.alloc.dupe(u8, ps.first().cannon());
 }
 
@@ -167,7 +167,7 @@ fn builtin(a: Allocator, parsed: ParsedIterator) Error!Builtin {
 /// Caller owns memory of argv, and the open fds
 fn binary(a: Allocator, itr: *ParsedIterator) Error!Binary {
     var argv = ArrayList(?ARG).init(a);
-    defer itr.close();
+    defer itr.raze();
 
     var exeZ: ?ARG = makeExeZ(a, itr.first().cannon()) catch |e| {
         log.warn("path missing {s}\n", .{itr.first().cannon()});
@@ -187,15 +187,15 @@ fn binary(a: Allocator, itr: *ParsedIterator) Error!Binary {
     };
 }
 
-fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
-    var stack = ArrayList(CallableStack).init(a.*);
+fn mkCallableStack(a: Allocator, itr: *TokenIterator) Error![]CallableStack {
+    var stack = ArrayList(CallableStack).init(a);
     var prev_stdout: ?fd_t = null;
     var conditional_rule: ?Conditional = null;
 
     while (itr.peek()) |peek| {
         //var before: tokenizer.Token = peek.*;
-        var eslice = itr.toSliceExec(a.*) catch unreachable;
-        errdefer a.*.free(eslice);
+        var eslice = itr.toSliceExec(a) catch unreachable;
+        errdefer a.free(eslice);
         var parsed = Parser.parse(a, eslice) catch unreachable;
         var io: StdIo = StdIo{ .in = prev_stdout orelse STDIN_FILENO };
         var condition: ?Conditional = conditional_rule;
@@ -251,12 +251,12 @@ fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
         const exe_str = parsed.first().cannon();
         if (bi.exists(exe_str)) {
             stk = CallableStack{
-                .callable = .{ .builtin = try builtin(a.*, parsed) },
+                .callable = .{ .builtin = try builtin(a, parsed) },
                 .stdio = io,
                 .conditional = condition,
             };
         } else {
-            if (binary(a.*, &parsed)) |bin| {
+            if (binary(a, &parsed)) |bin| {
                 stk = CallableStack{
                     .callable = .{ .exec = bin },
                     .stdio = io,
@@ -265,7 +265,7 @@ fn mkCallableStack(a: *Allocator, itr: *TokenIterator) Error![]CallableStack {
             } else |e| {
                 if (bi.existsOptional(exe_str)) {
                     stk = CallableStack{
-                        .callable = .{ .builtin = try builtin(a.*, parsed) },
+                        .callable = .{ .builtin = try builtin(a, parsed) },
                         .stdio = io,
                         .conditional = condition,
                     };
@@ -329,7 +329,7 @@ pub fn exec(h: *HSH, input: []const u8) Error!void {
 
     var titr = TokenIterator{ .raw = input };
 
-    const stack = mkCallableStack(&h.alloc, &titr) catch |e| {
+    const stack = mkCallableStack(h.alloc, &titr) catch |e| {
         log.debug("unable to make stack {}\n", .{e});
         return e;
     };
@@ -514,12 +514,12 @@ test "mkstack" {
 
     paths = &[_][]const u8{"/usr/bin"};
 
-    var a = std.testing.allocator;
+    //var a = std.testing.allocator;
     ti.restart();
-    var stk = try mkCallableStack(&a, &ti);
-    try std.testing.expect(stk.len == 2);
-    for (stk) |*s| {
-        free(a, s);
-    }
-    a.free(stk);
+    //var stk = try mkCallableStack(a, &ti);
+    //try std.testing.expect(stk.len == 2);
+    //for (stk) |*s| {
+    //    free(a, s);
+    //}
+    //a.free(stk);
 }

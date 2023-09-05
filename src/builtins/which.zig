@@ -16,7 +16,7 @@ fn executable(str: []const u8) ?[]const u8 {
 
 /// TODO implement real version
 pub fn which(_: *HSH, itr: *ParsedIterator) bi.Err!u8 {
-    defer itr.close();
+    defer itr.raze();
     const w = itr.first().cannon();
     std.debug.assert(std.mem.eql(u8, "which", w));
     var cannon = (itr.next() orelse return 2).cannon();

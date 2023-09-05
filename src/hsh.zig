@@ -114,7 +114,7 @@ fn readFromRC(hsh: *HSH) E!void {
             var titr = tokenizer.iterator();
             var tokens = titr.toSlice(a) catch return E.Memory;
             defer a.free(tokens);
-            var pitr = Parser.parse(&a, tokens) catch continue;
+            var pitr = Parser.parse(a, tokens) catch continue;
 
             if (!bi.exists(pitr.first().cannon())) {
                 log.warn("Unknown rc line \n    {s}\n", .{line});
@@ -125,7 +125,7 @@ fn readFromRC(hsh: *HSH) E!void {
             _ = bi_func(hsh, &pitr) catch |err| {
                 log.err("rc parse error {}\n", .{err});
             };
-            pitr.close();
+            pitr.raze();
         } else |err| {
             if (err != Error.EOF) {
                 log.err("error {}\n", .{err});
