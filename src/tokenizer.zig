@@ -1311,6 +1311,11 @@ test "token vari braces" {
 
     t = try Tokenizer.any("${STR_ING}extra");
     try eqlStr("STR_ING", t.cannon());
+
+    var itr = TokenIterator{ .raw = "${STR_ING}extra" };
+    var count: usize = 0;
+    while (itr.next()) |_| count += 1;
+    try expectEql(count, 2);
 }
 
 test "all execs" {

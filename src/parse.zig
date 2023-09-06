@@ -49,7 +49,6 @@ pub const Parsed = struct {
         const old = self.str.len;
         self.str.len = new;
         @memcpy(self.str[old..][0..str.len], str);
-        //log.err("add {}, {s} || {} ->  {}, ## {s} ##'\n", .{ str.len, str, old, self.str.len, self.str });
     }
 
     /// if resize/realloc fails, this object becomes undefined
@@ -119,7 +118,6 @@ pub const ParsedIterator = struct {
 
         const start = self.resolved.len;
         var rslvd = self.alloc.realloc(self.resolved, start + 1) catch unreachable;
-        //log.warn("resolved realloc\n", .{});
         rslvd[start].init(self.alloc);
         self.resolved = rslvd;
         while (self.t_index < self.tokens.len) {
@@ -168,9 +166,6 @@ pub const ParsedIterator = struct {
                 return tokens.toOwnedSlice();
             }
         }
-
-        // Default to the given name, but we'll replace it with the first resolved alias.
-        // try tokens.append(token);
 
         self.aliasedAdd(token.cannon());
         var a_itr = TokenIterator{ .raw = Parser.alias(token) catch token.str };
@@ -403,7 +398,6 @@ pub const Parser = struct {
         }
 
         if (local.cannon()[0] == '~' or mem.indexOf(u8, local.cannon(), "/") != null) {
-            //log.err("pathing\n", .{});
             return path(a, local);
         }
 
