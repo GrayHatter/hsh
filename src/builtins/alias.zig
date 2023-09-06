@@ -60,26 +60,19 @@ pub fn alias(h: *HSH, titr: *ParsedIterator) Err!u8 {
     var value: ?[]const u8 = null;
     var mode: ?[]const u8 = null;
     while (titr.next()) |t| {
-        switch (t.kind) {
-            .oper => {
-                unreachable;
-            },
-            else => {
-                if (name) |_| {
-                    value = t.cannon();
-                } else {
-                    if (std.mem.indexOf(u8, t.cannon(), "=")) |i| {
-                        name = t.cannon()[0..i];
-                        if (t.cannon().len > i + 1) {
-                            const val_tkn = tokenizer.Tokenizer.any(t.cannon()[i + 1 ..]) catch unreachable;
-                            value = val_tkn.cannon();
-                            break;
-                        }
-                    } else {
-                        name = t.cannon();
-                    }
+        if (name) |_| {
+            value = t.cannon();
+        } else {
+            if (std.mem.indexOf(u8, t.cannon(), "=")) |i| {
+                name = t.cannon()[0..i];
+                if (t.cannon().len > i + 1) {
+                    const val_tkn = tokenizer.Tokenizer.any(t.cannon()[i + 1 ..]) catch unreachable;
+                    value = val_tkn.cannon();
+                    break;
                 }
-            },
+            } else {
+                name = t.cannon();
+            }
         }
     }
 

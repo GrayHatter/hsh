@@ -9,7 +9,7 @@ const mem = std.mem;
 const CompOption = @import("completion.zig").CompOption;
 const token = @import("token.zig");
 
-const BREAKING_TOKENS = " \t\"'`${|><#;}";
+const BREAKING_TOKENS = " \t\"\\'`${|><#;}";
 const BSLH = '\\';
 
 pub const IOKind = enum {
@@ -134,6 +134,7 @@ pub const Tokenizer = struct {
             '|', '&', ';' => Tokenizer.execOp(src),
             '$' => dollar(src),
             '#' => comment(src),
+            '\\' => bkslsh(src),
             else => Tokenizer.word(src),
         };
     }
@@ -294,28 +295,7 @@ pub const Tokenizer = struct {
         while (end < src.len) {
             const s = src[end];
             if (std.mem.indexOfScalar(u8, BREAKING_TOKENS, s)) |_| {
-                switch (s) {
-                    // '\'', '"' => {
-                    //     const t = try any(src[end..]);
-                    //     std.debug.print("t {}\n", .{t.str.len});
-                    //     end += t.str.len;
-                    // },
-                    ' ', '\t' => {
-                        if (end > 1 and src[end - 1] == '\\') {
-                            if (end > 2 and src[end - 2] == '\\') {
-                                break;
-                            }
-                            end += 1;
-                            continue;
-                        }
-                        break;
-                    },
-                    ')' => break,
-                    else => {
-                        const t = try any(src[end..]);
-                        end += t.str.len;
-                    },
-                }
+                break;
             } else end += 1;
         }
 
@@ -415,6 +395,13 @@ pub const Tokenizer = struct {
             .kind = .quote,
             .subtoken = subt,
         };
+    }
+
+    fn bkslsh(src: []const u8) Error!Token {
+        std.debug.assert(src.len > 1);
+        std.debug.assert(src[0] == '\\');
+
+        return Token.make(src[0..2], .word);
     }
 
     fn space(src: []const u8) Error!Token {
@@ -705,6 +692,7 @@ const expect = std.testing.expect;
 const expectEql = std.testing.expectEqual;
 const expectError = std.testing.expectError;
 const eql = std.mem.eql;
+const eqlStr = std.testing.expectEqualStrings;
 test "quotes" {
     var t = try Tokenizer.quote("\"\"");
     try expectEql(t.str.len, 2);
@@ -924,8 +912,10 @@ test "replace token" {
         //std.debug.print("--- {}\n", .{tkn});
     }
 
-    try expect(tokens.len == 5);
-    try std.testing.expectEqualStrings(tokens[2].cannon(), "TWO\\ THREE");
+    try expectEql(tokens.len, 7);
+    try std.testing.expectEqualStrings(tokens[2].cannon(), "TWO");
+    try std.testing.expectEqualStrings(tokens[3].cannon(), "\\ ");
+    try std.testing.expectEqualStrings(tokens[4].cannon(), "THREE");
     try std.testing.expectEqualStrings(t.raw.items, "one TWO\\ THREE three");
     a.free(tokens);
 }
@@ -938,7 +928,7 @@ test "breaking" {
     try t.consumes("alias la='ls -la'");
     var titr = t.iterator();
     var tokens = try titr.toSlice(a);
-    try expect(tokens.len == 3);
+    try expectEql(tokens.len, 4);
     a.free(tokens);
 }
 
@@ -1256,8 +1246,6 @@ test "token &&" {
     try eqlStr("success", ti.next().?.cannon());
 }
 
-const eqlStr = std.testing.expectEqualStrings;
-
 test "token ||" {
     var ti = TokenIterator{
         .raw = "ls || fail",
@@ -1438,21 +1426,25 @@ test "any" {
 
 test "inline quotes" {
     var t = try Tokenizer.any("--inline='quoted string'");
-    try std.testing.expectEqualStrings("--inline='quoted string'", t.cannon());
+    try std.testing.expectEqualStrings("--inline=", t.cannon());
+
+    var itr = TokenIterator{ .raw = "--inline='quoted string'" };
+    try eqlStr("--inline=", itr.next().?.cannon());
+    try eqlStr("quoted string", itr.next().?.cannon());
 }
 
 test "escapes" {
     var t = try Tokenizer.any("--inline=quoted\\ string");
-    try std.testing.expectEqualStrings("--inline=quoted\\ string", t.cannon());
+    try std.testing.expectEqualStrings("--inline=quoted", t.cannon());
 
     t = try Tokenizer.any("--inline=quoted\\\\ string");
-    try std.testing.expectEqualStrings("--inline=quoted\\\\", t.cannon());
+    try std.testing.expectEqualStrings("--inline=quoted", t.cannon());
 
     t = try Tokenizer.any("one\\ two");
-    try std.testing.expectEqualStrings("one\\ two", t.cannon());
+    try std.testing.expectEqualStrings("one", t.cannon());
 
     t = try Tokenizer.any("one\\\\ two");
-    try std.testing.expectEqualStrings("one\\\\", t.cannon());
+    try std.testing.expectEqualStrings("one", t.cannon());
 }
 
 test "reserved" {
@@ -1526,4 +1518,22 @@ test "comment" {
     itr.skip();
     try std.testing.expectEqualStrings("home", itr.next().?.cannon());
     try std.testing.expect(null == itr.next());
+}
+
+test "backslash" {
+    var itr = TokenIterator{ .raw = "this\\ is some text" };
+
+    var count: usize = 0;
+    while (itr.next()) |_| {
+        count += 1;
+    }
+    try std.testing.expectEqual(count, 7);
+
+    try eqlStr("this", itr.first().cannon());
+    try eqlStr("\\ ", itr.next().?.cannon());
+    try eqlStr("is", itr.next().?.cannon());
+    try eqlStr(" ", itr.next().?.cannon());
+    try eqlStr("some", itr.next().?.cannon());
+    try eqlStr(" ", itr.next().?.cannon());
+    try eqlStr("text", itr.next().?.cannon());
 }

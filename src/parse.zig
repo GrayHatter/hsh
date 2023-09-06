@@ -16,9 +16,70 @@ const exec = @import("exec.zig");
 pub const Error = error{
     Unknown,
     Memory,
+    OutOfMemory,
     ParseFailed,
     OpenGroup,
     Empty,
+};
+
+pub const Parsed = struct {
+    alloc: Allocator,
+    str: []u8,
+    capacity: usize,
+    io: ?tokenizer.IOKind,
+    op: ?tokenizer.OpKind,
+
+    pub fn init(self: *Parsed, a: Allocator) void {
+        self.alloc = a;
+        self.str.len = 0;
+        self.capacity = 0;
+        self.io = null;
+        self.op = null;
+    }
+
+    pub fn cannon(self: *const Parsed) []const u8 {
+        return self.str;
+    }
+
+    pub fn add(self: *Parsed, str: []const u8) !void {
+        const new = self.str.len + str.len;
+        while (new > self.capacity) {
+            try self.expandCap();
+        }
+        const old = self.str.len;
+        self.str.len = new;
+        @memcpy(self.str[old..][0..str.len], str);
+        //log.err("add {}, {s} || {} ->  {}, ## {s} ##'\n", .{ str.len, str, old, self.str.len, self.str });
+    }
+
+    /// if resize/realloc fails, this object becomes undefined
+    fn expandCap(self: *Parsed) !void {
+        if (self.capacity == 0) {
+            self.capacity = 8;
+            self.str = try self.alloc.alloc(u8, self.capacity);
+            self.str.len = 0;
+        }
+
+        const oldlen = self.str.len;
+        const target = @max(8, self.capacity * 2);
+        self.str.len = self.capacity;
+        if (self.alloc.resize(self.str, target)) {
+            self.capacity = target;
+            return;
+        }
+        var new = try self.alloc.realloc(self.str, target);
+        self.str = new;
+        self.str.len = oldlen;
+        self.capacity = target;
+    }
+
+    pub fn raze(self: *Parsed) void {
+        if (self.capacity == 0) return;
+        self.str.len = self.capacity;
+        self.alloc.free(self.str);
+        self.str.len = 0;
+        self.capacity = 0;
+    }
 };
 
 /// In effect a duplicate of std.mem.split iterator
@@ -27,20 +88,20 @@ pub const ParsedIterator = struct {
     // to writing is already too high
     alloc: Allocator,
     r_index: usize = 0,
-    resolved: []Token, // this will become Parsed at some point.
+    resolved: []Parsed, // this will become Parsed at some point.
     t_index: usize = 0,
     tokens: []const Token,
     aliases: [][]const u8,
     const Self = @This();
 
     /// Restart iterator, and assumes length >= 1
-    pub fn first(self: *Self) *const Token {
+    pub fn first(self: *Self) *const Parsed {
         self.restart();
         return self.next().?;
     }
 
     /// Returns next Token, omitting, or splitting them as needed.
-    pub fn next(self: *Self) ?*const Token {
+    pub fn next(self: *Self) ?*const Parsed {
         if (self.r_index < self.resolved.len) {
             defer self.r_index += 1;
             return &self.resolved[self.r_index];
@@ -50,42 +111,44 @@ pub const ParsedIterator = struct {
             return null;
         }
 
-        // build token
         var token = self.tokens[self.t_index];
         if (token.kind == .ws) {
             self.t_index += 1;
             return self.next();
         }
 
-        defer self.t_index += 1;
         const start = self.resolved.len;
-        var r_tokens: []Token = undefined;
-
-        if (self.t_index == 0) {
-            r_tokens = self.resolveAlias(token) catch {
-                var rslvd = self.alloc.realloc(self.resolved, start + 1) catch unreachable;
-                rslvd[rslvd.len - 1] = token;
-                self.resolved = rslvd;
-                return self.next();
-            };
-        } else {
-            r_tokens = self.resolve(token) catch {
-                var rslvd = self.alloc.realloc(self.resolved, start + 1) catch unreachable;
-                rslvd[rslvd.len - 1] = token;
-                self.resolved = rslvd;
-                return self.next();
-            };
-        }
-        defer self.alloc.free(r_tokens);
-        var rslvd = self.alloc.realloc(self.resolved, start + r_tokens.len) catch unreachable;
-        for (r_tokens, rslvd[start..]) |src, *dst| {
-            dst.* = src;
-        }
-
+        var rslvd = self.alloc.realloc(self.resolved, start + 1) catch unreachable;
+        //log.warn("resolved realloc\n", .{});
+        rslvd[start].init(self.alloc);
         self.resolved = rslvd;
-        // append each string to local
-        // recurse as needed
-        // break at first ws token, save and return
+        while (self.t_index < self.tokens.len) {
+            token = self.tokens[self.t_index];
+            if (token.kind == .ws) {
+                self.t_index += 1;
+                return self.next();
+            }
+            defer self.t_index += 1;
+            var r_tokens: []Token = self.resolve(token) catch rt: {
+                var set = self.alloc.alloc(Token, 1) catch unreachable;
+                set[0] = token;
+                break :rt set;
+            };
+            defer self.alloc.free(r_tokens);
+
+            if (r_tokens.len > 1) {
+                rslvd = self.alloc.realloc(self.resolved, start + r_tokens.len) catch unreachable;
+                for (r_tokens, rslvd[start..]) |src, *dst| {
+                    dst.init(self.alloc);
+                    dst.add(src.cannon()) catch unreachable;
+                    if (src.resolved) |r| self.alloc.free(r);
+                }
+                self.resolved = rslvd;
+                return self.next();
+            }
+            rslvd[start].add(r_tokens[0].cannon()) catch unreachable;
+            if (r_tokens[0].resolved) |r| self.alloc.free(r);
+        }
         return self.next();
     }
 
@@ -97,7 +160,7 @@ pub const ParsedIterator = struct {
         self.aliases[self.aliases.len - 1] = str;
     }
 
-    fn resolveAlias(self: *Self, token: Token) ![]Token {
+    fn resolveAlias(self: *Self, token: Token) Error![]Token {
         var tokens = ArrayList(Token).init(self.alloc);
         for (self.aliases) |res| {
             if (std.mem.eql(u8, token.cannon(), res)) {
@@ -124,7 +187,9 @@ pub const ParsedIterator = struct {
         return try tokens.toOwnedSlice();
     }
 
-    fn resolve(self: *Self, t: Token) ![]Token {
+    fn resolve(self: *Self, t: Token) Error![]Token {
+        if (self.t_index == 0) return self.resolveAlias(t);
+
         var tokens = ArrayList(Token).init(self.alloc);
         var local = t;
 
@@ -165,7 +230,7 @@ pub const ParsedIterator = struct {
                             try list.appendSlice(resolved.cannon());
                         }
                     },
-                    else => list.append(c) catch unreachable,
+                    else => try list.append(c),
                 }
             }
             const owned = try list.toOwnedSlice();
@@ -245,15 +310,12 @@ pub const ParsedIterator = struct {
         }
         self.aliases = self.alloc.alloc([]u8, 0) catch @panic("Alloc 0 can't fail");
         for (self.resolved) |*token| {
-            if (token.resolved) |tr| {
-                self.alloc.free(tr);
-                token.resolved = null;
-            }
+            token.raze();
         }
         if (self.resolved.len > 0) {
             self.alloc.free(self.resolved);
         }
-        self.resolved = self.alloc.alloc(Token, 0) catch @panic("Alloc 0 can't fail");
+        self.resolved = self.alloc.alloc(Parsed, 0) catch @panic("Alloc 0 can't fail");
     }
 };
 
@@ -264,7 +326,7 @@ pub const Parser = struct {
         if (tokens.len == 0) return Error.Empty;
         return ParsedIterator{
             .alloc = a,
-            .resolved = a.alloc(Token, 0) catch return Error.Memory,
+            .resolved = a.alloc(Parsed, 0) catch return Error.Memory,
             .tokens = tokens,
             .aliases = a.alloc([]u8, 0) catch return Error.Memory,
         };
@@ -366,7 +428,10 @@ pub const Parser = struct {
     fn variable(a: Allocator, tkn: Token) Error!Token {
         var local = tkn;
         if (Variables.getStr(tkn.cannon())) |v| {
-            local.resolved = a.dupe(u8, v) catch return Error.Memory;
+            local.resolved = try a.dupe(u8, v);
+        } else {
+            // TODO this probably should emit an error of some kind?
+            local.resolved = try a.dupe(u8, "");
         }
         return local;
     }
@@ -443,6 +508,37 @@ test "iterator nows" {
         i += 1;
     }
     try expectEql(i, 3);
+}
+test "breaking" {
+    var a = std.testing.allocator;
+    var t = Tokenizer.init(std.testing.allocator);
+    defer t.reset();
+
+    try t.consumes("alias la='ls -la'");
+    var titr = t.iterator();
+    var tokens = try titr.toSlice(a);
+    try expectEql(tokens.len, 4);
+
+    titr.restart();
+    try eqlStr("alias", titr.next().?.cannon());
+    try eqlStr(" ", titr.next().?.cannon());
+    try eqlStr("la=", titr.next().?.cannon());
+    try eqlStr("ls -la", titr.next().?.cannon());
+    try expectEql(titr.next(), null);
+
+    var pitr = try Parser.parse(a, tokens);
+    defer pitr.raze();
+
+    var count: usize = 0;
+    while (pitr.next()) |_| {
+        count += 1;
+    }
+    try expectEql(count, 2);
+    pitr.restart();
+    try eqlStr("alias", pitr.next().?.cannon());
+    try eqlStr("la=ls -la", pitr.next().?.cannon());
+
+    a.free(tokens);
 }
 
 test "iterator alias is builtin" {
@@ -559,9 +655,11 @@ test "iterator aliased recurse" {
 test "parse vars" {
     var a = std.testing.allocator;
 
-    comptime var ts = [3]Token{
+    comptime var ts = [5]Token{
         try Tokenizer.any("echo"),
+        try Tokenizer.any(" "),
         try Tokenizer.any("$string"),
+        try Tokenizer.any(" "),
         try Tokenizer.any("blerg"),
     };
 
@@ -575,9 +673,7 @@ test "parse vars" {
     try expectEql(i, 3);
     var first = itr.first().cannon();
     try eqlStr("echo", first);
-    var tst = itr.next();
-    try eqlStr("string", tst.?.cannon());
-    //try expect(itr.next().?.kind == .vari);
+    try eqlStr("", itr.next().?.cannon());
     try eqlStr("blerg", itr.next().?.cannon());
     try expect(itr.next() == null);
 }
@@ -605,11 +701,41 @@ test "parse vars existing" {
         //std.debug.print("{}\n", .{t_});
         i += 1;
     }
+    try expectEql(i, 1);
+    var first = itr.first().cannon();
+    try eqlStr("echocorrectblerg", first);
+    try expect(itr.next() == null);
+}
+
+test "parse vars existing with white space" {
+    var a = std.testing.allocator;
+
+    comptime var ts = [5]Token{
+        try Tokenizer.any("echo"),
+        try Tokenizer.any(" "),
+        try Tokenizer.any("$string"),
+        try Tokenizer.any(" "),
+        try Tokenizer.any("blerg"),
+    };
+
+    Variables.init(a);
+    defer Variables.raze();
+
+    try Variables.put("string", "correct");
+
+    try eqlStr("correct", Variables.getStr("string").?);
+
+    var itr = try Parser.parse(a, &ts);
+    defer itr.raze();
+    var i: usize = 0;
+    while (itr.next()) |_| {
+        //std.debug.print("{}\n", .{t_});
+        i += 1;
+    }
     try expectEql(i, 3);
     var first = itr.first().cannon();
     try eqlStr("echo", first);
     var tst = itr.next().?;
-    //try expect(tst.kind == .vari);
     try eqlStr("correct", tst.cannon());
     try eqlStr("blerg", itr.next().?.cannon());
     try expect(itr.next() == null);
@@ -638,15 +764,11 @@ test "parse vars existing braces" {
         //std.debug.print("{}\n", .{t});
         i += 1;
     }
-    try expectEql(i, 4);
+    try expectEql(i, 3);
     var first = itr.first().cannon();
     try eqlStr("echo", first);
 
-    // the following is a bug, itr[1] should be "valueextra"
-    // It's possible I may disallow this outside of double quotes
-    try eqlStr("value", itr.next().?.cannon());
-    //try expect(itr.next().?.kind == .vari);
-    try eqlStr("extra", itr.next().?.cannon());
+    try eqlStr("valueextra", itr.next().?.cannon());
     try eqlStr("blerg", itr.next().?.cannon());
     try expect(itr.next() == null);
 }
@@ -734,13 +856,8 @@ test "parse path" {
     var first = itr.first().cannon();
     try eqlStr("ls", first);
 
-    try std.testing.expect(itr.next().?.kind == .path);
-    try std.testing.expect(itr.next() == null);
-
-    // Should be done by tokenizer, but ¯\_(ツ)_/¯
-    // for (slice) |*s| {
-    //     if (s.backing) |*b| b.clearAndFree();
-    // }
+    try eqlStr("~", itr.next().?.cannon());
+    try expect(itr.next() == null);
 }
 
 test "parse path ~" {
@@ -769,7 +886,7 @@ test "parse path ~" {
     try eqlStr("ls", first);
 
     var thing = itr.next();
-    try std.testing.expect(thing.?.kind == .path);
+    //try std.testing.expect(thing.?.kind == .path);
     try eqlStr("/home/user", thing.?.cannon());
     try std.testing.expect(itr.next() == null);
 }
@@ -800,7 +917,7 @@ test "parse path ~/" {
     try eqlStr("ls", first);
 
     var thing = itr.next();
-    try std.testing.expect(thing.?.kind == .path);
+    //try std.testing.expect(thing.?.kind == .path);
     try eqlStr("/home/user/", thing.?.cannon());
     try std.testing.expect(itr.next() == null);
 }
@@ -831,7 +948,7 @@ test "parse path ~/place" {
     try eqlStr("ls", first);
 
     var tst = itr.next();
-    try std.testing.expect(tst.?.kind == .path);
+    //try std.testing.expect(tst.?.kind == .path);
     try eqlStr("/home/user/place", tst.?.cannon());
     try std.testing.expect(itr.next() == null);
 }
@@ -862,7 +979,7 @@ test "parse path /~/otherplace" {
     try eqlStr("ls", first);
 
     var tst = itr.next();
-    try std.testing.expect(tst.?.kind == .path);
+    //try std.testing.expect(tst.?.kind == .path);
     try eqlStr("/~/otherplace", tst.?.cannon());
     try std.testing.expect(itr.next() == null);
 }
@@ -1055,19 +1172,21 @@ test "escapes" {
 
     var t = TokenIterator{ .raw = "one\\\\ two" };
     var first = t.first();
-    try std.testing.expectEqualStrings("one\\\\", first.cannon());
+    try std.testing.expectEqualStrings("one", first.cannon());
 
-    var p = try Parser.word(a, first.*);
-    try std.testing.expectEqualStrings("one\\", p.cannon());
-    a.free(p.resolved.?);
+    var slice = try t.toSlice(a);
+    defer a.free(slice);
+    var pitr = try Parser.parse(a, slice);
+    defer pitr.raze();
+    try eqlStr("one\\", pitr.next().?.cannon());
+
+    a.free(slice);
+    pitr.raze();
 
     t = TokenIterator{ .raw = "--inline=quoted\\ string" };
-    first = t.first();
-    try std.testing.expectEqualStrings("--inline=quoted\\ string", first.cannon());
-
-    p = try Parser.word(a, first.*);
-    try std.testing.expectEqualStrings("--inline=quoted string", p.cannon());
-    a.free(p.resolved.?);
+    slice = try t.toSlice(a);
+    pitr = try Parser.parse(a, slice);
+    try eqlStr("--inline=quoted string", pitr.next().?.cannon());
 }
 
 test "sub process" {

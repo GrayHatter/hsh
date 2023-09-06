@@ -125,22 +125,22 @@ fn special(h: *HSH, titr: *ParsedIterator) Err!u8 {
     return 0;
 }
 
-fn posix(h: *HSH, opt: *const Token, titr: *ParsedIterator) Err!u8 {
+fn posix(h: *HSH, opt: []const u8, titr: *ParsedIterator) Err!u8 {
     _ = titr;
-    const mode = if (opt.cannon()[0] == '-')
+    const mode = if (opt[0] == '-')
         true
-    else if (opt.cannon()[0] == '+')
+    else if (opt[0] == '+')
         false
     else
         return Err.InvalidCommand;
-    for (opt.cannon()[1..]) |opt_c| {
+    for (opt[1..]) |opt_c| {
         const o = try Opts.find(opt_c);
         if (mode) try enable(h, o) else try disable(h, o);
     }
     return 0;
 }
 
-fn option(h: *HSH, opt: *const Token, titr: *ParsedIterator) Err!u8 {
+fn option(h: *HSH, opt: []const u8, titr: *ParsedIterator) Err!u8 {
     _ = h;
     _ = opt;
     _ = titr;
@@ -171,7 +171,7 @@ pub fn set(h: *HSH, titr: *ParsedIterator) Err!u8 {
             if (opt[0] == '-' or opt[0] == '+') {
                 switch (opt[1]) {
                     'o' => {
-                        return posix(h, arg, titr);
+                        return posix(h, arg.cannon(), titr);
                     },
                     '-' => {
                         if (opt.len == 2) return special(h, titr);
@@ -179,7 +179,7 @@ pub fn set(h: *HSH, titr: *ParsedIterator) Err!u8 {
                     else => unreachable,
                 }
             } else {
-                return option(h, arg, titr);
+                return option(h, arg.cannon(), titr);
             }
         }
     } else {

@@ -151,16 +151,11 @@ fn cd(hsh: *HSH, titr: *ParsedIterator) Err!u8 {
     defer titr.raze();
 
     while (titr.next()) |t| {
-        switch (t.kind) {
-            .word, .quote, .vari, .path => {
-                hsh.hfs.cd(t.cannon()) catch |err| {
-                    log.err("Unable to change directory because {}\n", .{err});
-                    return 1;
-                };
-                return 0;
-            },
-            else => return Err.InvalidToken,
-        }
+        hsh.hfs.cd(t.cannon()) catch |err| {
+            log.err("Unable to change directory because {}\n", .{err});
+            return 1;
+        };
+        return 0;
     } else {
         if (hsh.hfs.names.home) |_| {
             hsh.hfs.cd("") catch @panic("CD $HOME should never fail");
