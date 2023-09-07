@@ -325,7 +325,7 @@ pub const Tokenizer = struct {
                 }
             }
         }
-        return Error.InvalidLogic;
+        return Error.OpenLogic;
     }
 
     pub fn oper(src: []const u8) Error!Token {
@@ -1597,7 +1597,7 @@ test "invalid logic" {
     ;
 
     var ifs = Tokenizer.logic(if_str);
-    try std.testing.expectError(Error.InvalidLogic, ifs);
+    try std.testing.expectError(Error.OpenLogic, ifs);
 
     const case_str =
         \\case $WORD in
@@ -1608,7 +1608,7 @@ test "invalid logic" {
     ;
 
     var cases = Tokenizer.logic(case_str);
-    try std.testing.expectError(Error.InvalidLogic, cases);
+    try std.testing.expectError(Error.OpenLogic, cases);
 
     const for_str =
         \\for num in $NUMS
@@ -1618,7 +1618,7 @@ test "invalid logic" {
     ;
 
     var fors = Tokenizer.logic(for_str);
-    try std.testing.expectError(Error.InvalidLogic, fors);
+    try std.testing.expectError(Error.OpenLogic, fors);
 
     const while_str =
         \\while false;
@@ -1628,7 +1628,7 @@ test "invalid logic" {
     ;
 
     var whiles = Tokenizer.logic(while_str);
-    try std.testing.expectError(Error.InvalidLogic, whiles);
+    try std.testing.expectError(Error.OpenLogic, whiles);
 }
 
 test "nested logic" {

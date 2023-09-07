@@ -249,7 +249,7 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
                         try hsh.tty.print("\n", .{});
                         return .None;
                     },
-                    TokenErr.OpenGroup => try tkn.consumec(nl),
+                    TokenErr.OpenGroup, TokenErr.OpenLogic => try tkn.consumec(nl),
                     TokenErr.TokenizeFailed => {
                         std.debug.print("tokenize Error {}\n", .{e});
                         try tkn.consumec(b);

@@ -45,9 +45,8 @@ const While = struct {
     body: ?[]const u8,
 
     fn mkClause(str: []const u8) ![]const u8 {
-        var start: usize = 0;
-        var offset: usize = start;
-        var end: usize = start;
+        var offset: usize = 0;
+        var end: usize = 0;
         while (offset < str.len) {
             const t = try Tokenizer.any(str[offset..]);
             offset += t.str.len;
@@ -59,19 +58,35 @@ const While = struct {
         return Error.InvalidLogic;
     }
 
+    fn mkBody(str: []const u8) ![]const u8 {
+        var offset: usize = 0;
+        var end: usize = 0;
+        while (offset < str.len) {
+            const t = try Tokenizer.any(str[offset..]);
+            offset += t.str.len;
+            if (t.kind == .resr and t.kind.resr == .Done) {
+                return str[0..end];
+            }
+            end += t.str.len;
+        }
+        return Error.InvalidLogic;
+    }
+
     pub fn build(logic: *Token) !While {
         std.debug.assert(logic.kind == .logic);
         const str = logic.str;
         const base = Reserved.fromStr(str[0..5]);
-        var clause: ?[]const u8 = null;
         std.debug.assert(base != null and base.? == .While);
-        if (mkClause(str[5..])) |c| {
-            clause = c;
-        } else |err| return err;
+        var offset: usize = 5;
+        const clause: ?[]const u8 = try mkClause(str[offset..]);
+        offset += clause.?.len;
+        const do = try Tokenizer.any(str[offset..]);
+        offset += do.str.len;
+        const body: ?[]const u8 = try mkBody(str[offset..]);
 
         return .{
             .clause = clause,
-            .body = null,
+            .body = body,
         };
     }
 };
@@ -102,4 +117,7 @@ test "while" {
     // we just accept the whitespace here, it's not our job to parse it out
     const hope_false = try Tokenizer.any(while_block.clause.?[1..]);
     try std.testing.expectEqualStrings("false", hope_false.str);
+    const ws = try Tokenizer.any(while_block.body.?);
+    const hope_echo = try Tokenizer.any(while_block.body.?[ws.str.len..]);
+    try std.testing.expectEqualStrings("echo", hope_echo.str);
 }
