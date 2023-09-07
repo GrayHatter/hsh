@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
+pub const Reserved = @import("logic.zig").Reserved;
 
 pub const IOKind = enum {
     In,
@@ -28,31 +29,6 @@ pub const Error = error{
     OpenGroup,
     OpenLogic,
     Empty,
-};
-
-pub const Reserved = enum {
-    If,
-    Then,
-    Else,
-    Elif,
-    Fi,
-    Do,
-    Done,
-    Case,
-    Esac,
-    While,
-    Until,
-    For,
-    In,
-
-    pub fn fromStr(str: []const u8) ?Reserved {
-        var lower: [6]u8 = undefined;
-        inline for (@typeInfo(Reserved).Enum.fields) |f| {
-            const name = std.ascii.lowerString(&lower, f.name);
-            if (std.mem.eql(u8, str, name)) return @enumFromInt(f.value);
-        }
-        return null;
-    }
 };
 
 pub const Logic = struct {};
