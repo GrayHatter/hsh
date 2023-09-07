@@ -24,6 +24,7 @@ pub const Error = error{
     LineTooLong,
     TokenizeFailed,
     InvalidSrc,
+    InvalidLogic,
     OpenGroup,
     OpenLogic,
     Empty,
@@ -44,15 +45,17 @@ pub const Reserved = enum {
     For,
     In,
 
-    pub fn fromStr(str: []const u8) Error!Reserved {
+    pub fn fromStr(str: []const u8) ?Reserved {
         var lower: [6]u8 = undefined;
         inline for (@typeInfo(Reserved).Enum.fields) |f| {
             const name = std.ascii.lowerString(&lower, f.name);
             if (std.mem.eql(u8, str, name)) return @enumFromInt(f.value);
         }
-        return Error.Unknown;
+        return null;
     }
 };
+
+pub const Logic = struct {};
 
 pub const Kind = union(enum) {
     // legacy types, TODO REMOVE
@@ -65,6 +68,7 @@ pub const Kind = union(enum) {
     // new types
     err: void,
     io: IOKind,
+    logic: Logic,
     nos: void,
     oper: OpKind,
     quote: void,

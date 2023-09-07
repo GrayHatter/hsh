@@ -128,7 +128,7 @@ pub const Tokenizer = struct {
         return switch (src[0]) {
             '\'', '"' => Tokenizer.group(src),
             '`' => Tokenizer.group(src), // TODO magic
-            ' ' => Tokenizer.space(src),
+            ' ', '\t', '\n' => Tokenizer.space(src),
             '~', '/' => Tokenizer.path(src),
             '>', '<' => Tokenizer.ioredir(src),
             '|', '&', ';' => Tokenizer.execOp(src),
@@ -279,16 +279,6 @@ pub const Tokenizer = struct {
         return t;
     }
 
-    pub fn simple(src: []const u8) Error!Token {
-        var end: usize = 0;
-        while (end < src.len) {
-            const s = src[end];
-            if (std.mem.indexOfScalar(u8, BREAKING_TOKENS, s)) |_| break;
-            end += 1;
-        }
-        return Token.make(src[0..end], .word);
-    }
-
     // ASCII only :<
     pub fn word(src: []const u8) Error!Token {
         var end: usize = 0;
@@ -302,8 +292,6 @@ pub const Tokenizer = struct {
         if (end <= 5) {
             if (token.Reserved.fromStr(src[0..end])) |_| {
                 return logic(src);
-            } else |e| {
-                if (e != Error.Unknown) return e;
             }
         }
 
@@ -311,23 +299,33 @@ pub const Tokenizer = struct {
     }
 
     pub fn logic(src: []const u8) Error!Token {
-        const end = std.mem.indexOf(u8, src, " ") orelse {
-            const typ = token.Reserved.fromStr(src) catch {
-                return Error.InvalidSrc;
-            };
-            return Token.make(src, .{ .resr = typ });
+        const end = std.mem.indexOfAny(u8, src, " ;") orelse {
+            if (token.Reserved.fromStr(src)) |typ| {
+                return Token.make(src, .{ .resr = typ });
+            }
+            return Error.InvalidSrc;
         };
-        var r = try token.Reserved.fromStr(src[0..end]);
+        var r = token.Reserved.fromStr(src[0..end]) orelse unreachable;
 
-        switch (r) {
-            .If => {},
-            .Case => {},
-            .While => {},
-            .For => {},
-            else => return Token.make(src[0..end], .{ .resr = r }),
+        const marker: token.Reserved = switch (r) {
+            .If => .Fi,
+            .Case => .Esac,
+            .While => .Done,
+            .For => .Done,
+            else => return Token.make(src[0..end], .{ .logic = .{} }),
+        };
+
+        var offset: usize = end;
+        while (offset < src.len) {
+            const t = try any(src[offset..]);
+            offset += t.str.len;
+            if (t.kind == .resr) {
+                if (t.kind.resr == marker) {
+                    return Token.make(src[0..offset], .{ .logic = .{} });
+                }
+            }
         }
-
-        return Token.make(src[0..end], .{ .resr = r });
+        return Error.InvalidLogic;
     }
 
     pub fn oper(src: []const u8) Error!Token {
@@ -407,7 +405,7 @@ pub const Tokenizer = struct {
     fn space(src: []const u8) Error!Token {
         var end: usize = 0;
         for (src) |s| {
-            if (s != ' ') break;
+            if (s != ' ' and s != '\t' and s != '\n') break;
             end += 1;
         }
         return Token.make(src[0..end], .ws);
@@ -1541,4 +1539,90 @@ test "backslash" {
     try eqlStr("some", itr.next().?.cannon());
     try eqlStr(" ", itr.next().?.cannon());
     try eqlStr("text", itr.next().?.cannon());
+}
+
+test "logic" {
+    const if_str =
+        \\if true
+        \\then
+        \\    echo "something"
+        \\fi
+    ;
+
+    var ifs = try Tokenizer.logic(if_str);
+    try eqlStr(if_str, ifs.cannon());
+
+    const case_str =
+        \\case $WORD in
+        \\    "blerg") echo "hahaha";
+        \\    ;;
+        \\    "other") panic_carefully;
+        \\esac
+    ;
+
+    var cases = try Tokenizer.logic(case_str);
+    try eqlStr(case_str, cases.cannon());
+
+    const for_str =
+        \\for num in $NUMS
+        \\do
+        \\    echo "that number is far too small!"
+        \\done
+    ;
+
+    var fors = try Tokenizer.logic(for_str);
+    try eqlStr(for_str, fors.cannon());
+
+    const while_str =
+        \\while false;
+        \\do
+        \\    echo "something crazy"
+        \\done
+    ;
+
+    var whiles = try Tokenizer.logic(while_str);
+    try eqlStr(while_str, whiles.cannon());
+}
+
+test "invalid logic" {
+    const if_str =
+        \\if true
+        \\then
+        \\    echo "something"
+        \\done
+    ;
+
+    var ifs = Tokenizer.logic(if_str);
+    try std.testing.expectError(Error.InvalidLogic, ifs);
+
+    const case_str =
+        \\case $WORD in
+        \\    "blerg") echo "hahaha";
+        \\    ;;
+        \\    "other") panic_carefully;
+        \\fi
+    ;
+
+    var cases = Tokenizer.logic(case_str);
+    try std.testing.expectError(Error.InvalidLogic, cases);
+
+    const for_str =
+        \\for num in $NUMS
+        \\do
+        \\    echo "that number is far too small!"
+        \\until
+    ;
+
+    var fors = Tokenizer.logic(for_str);
+    try std.testing.expectError(Error.InvalidLogic, fors);
+
+    const while_str =
+        \\while false;
+        \\do
+        \\    echo "something crazy"
+        \\true
+    ;
+
+    var whiles = Tokenizer.logic(while_str);
+    try std.testing.expectError(Error.InvalidLogic, whiles);
 }
