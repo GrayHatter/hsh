@@ -9,7 +9,7 @@ const mem = std.mem;
 const CompOption = @import("completion.zig").CompOption;
 const token = @import("token.zig");
 
-const BREAKING_TOKENS = " \t\"\\'`${|><#;}";
+const BREAKING_TOKENS = " \t\n\"\\'`${|><#;}";
 const BSLH = '\\';
 
 pub const IOKind = enum {
@@ -299,7 +299,7 @@ pub const Tokenizer = struct {
     }
 
     pub fn logic(src: []const u8) Error!Token {
-        const end = std.mem.indexOfAny(u8, src, " ;") orelse {
+        const end = std.mem.indexOfAny(u8, src, BREAKING_TOKENS) orelse {
             if (token.Reserved.fromStr(src)) |typ| {
                 return Token.make(src, .{ .resr = typ });
             }
@@ -312,7 +312,7 @@ pub const Tokenizer = struct {
             .Case => .Esac,
             .While => .Done,
             .For => .Done,
-            else => return Token.make(src[0..end], .{ .logic = .{} }),
+            else => return Token.make(src[0..end], .{ .resr = r }),
         };
 
         var offset: usize = end;
@@ -1557,6 +1557,10 @@ test "logic" {
         \\    "blerg") echo "hahaha";
         \\    ;;
         \\    "other") panic_carefully;
+        \\    ;;
+        \\    *)
+        \\        hi;
+        \\    ;;
         \\esac
     ;
 
@@ -1625,4 +1629,62 @@ test "invalid logic" {
 
     var whiles = Tokenizer.logic(while_str);
     try std.testing.expectError(Error.InvalidLogic, whiles);
+}
+
+test "nested logic" {
+    const if_str =
+        \\if true
+        \\then
+        \\    while true;
+        \\    do
+        \\        my_homework
+        \\    done
+        \\else
+        \\    for HAT in $SHOES; do
+        \\        get_dressed
+        \\    done
+        \\fi
+    ;
+
+    var ifs = try Tokenizer.logic(if_str);
+    try eqlStr(if_str, ifs.cannon());
+
+    const case_str =
+        \\case $WORD in
+        \\    "blerg") echo "hahaha";
+        \\    ;;
+        \\    "other") panic_carefully;
+        \\    *)
+        \\      if something_wicked_this_way_comes; then; exit 20; else sleep 27y; fi;
+        \\    ;;
+        \\    esac
+    ;
+
+    var cases = try Tokenizer.logic(case_str);
+    try eqlStr(case_str, cases.cannon());
+
+    const for_str =
+        \\for num in $NUMS
+        \\do
+        \\    if is_odd $num;
+        \\    then
+        \\        echo "number is even"
+        \\    fi
+        \\done
+    ;
+
+    var fors = try Tokenizer.logic(for_str);
+    try eqlStr(for_str, fors.cannon());
+
+    const while_str =
+        \\while false;
+        \\do
+        \\    case
+        \\    esac
+        \\true
+        \\ done
+    ;
+
+    var whiles = try Tokenizer.logic(while_str);
+    try eqlStr(while_str, whiles.cannon());
 }
