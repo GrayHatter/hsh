@@ -6,7 +6,7 @@ const Token = tokens.Token;
 const tokenizer = @import("tokenizer.zig");
 const Tokenizer = tokenizer.Tokenizer;
 
-pub const Error = tokenizer.Error;
+const Error = tokenizer.Error || error{OutOfMemory};
 
 const Self = @This();
 
@@ -36,16 +36,16 @@ pub const Reserved = enum {
     }
 };
 
-const Elif = union(enum) {
-    elif: []If,
-    elses: []const u8,
-};
-
 const If = struct {
     alloc: Allocator,
     clause: ?[]const u8,
     body: ?[]const u8,
-    elif: ?Elif,
+    elif: ?*Elif,
+
+    const Elif = union(enum) {
+        elif: If,
+        elses: []const u8,
+    };
 
     fn mkClause(str: []const u8) ![]const u8 {
         var offset: usize = 0;
@@ -78,25 +78,42 @@ const If = struct {
         return Error.InvalidLogic;
     }
 
-    fn mkElif(a: Allocator, str: []const u8) !?Elif {
+    fn mkElif(a: Allocator, str: []const u8) Error!?*Elif {
         if (str.len == 0) return null;
-        var fi = try Tokenizer.any(str);
-        if (fi.kind == .resr and fi.kind.resr == .Fi) return null;
-
-        // TODO consume clause and consume body
-
-        var ifs = try a.alloc(If, 1);
-        return .{
-            .elif = ifs,
-        };
+        var elfi = try Tokenizer.any(str);
+        if (elfi.kind == .resr) {
+            switch (elfi.kind.resr) {
+                .Fi => return null,
+                .Else => {
+                    var elif = try a.create(Elif);
+                    var fi = try Tokenizer.any(str[str.len - 2 ..]);
+                    if (fi.kind != .resr or fi.kind.resr != .Fi) {
+                        return Error.InvalidLogic;
+                    }
+                    elif.* = .{ .elses = str[0 .. str.len - 2] };
+                    return elif;
+                },
+                .Elif => {
+                    var elif = try a.create(Elif);
+                    elif.* = .{ .elif = try mkIf(a, str) };
+                    return elif;
+                },
+                else => return Error.InvalidLogic,
+            }
+        } else {
+            return Error.InvalidLogic;
+        }
     }
 
-    pub fn build(a: Allocator, logic: *const Token) !If {
-        std.debug.assert(logic.kind == .logic);
-        const str = logic.str;
+    pub fn mkIf(a: Allocator, str: []const u8) !If {
         var offset: usize = 2;
-        const base = Reserved.fromStr(str[0..offset]);
-        std.debug.assert(base != null and base.? == .If);
+        if (Reserved.fromStr(str[0..2])) |base| {
+            std.debug.assert(base == .If);
+        } else if (Reserved.fromStr(str[0..4])) |base| {
+            offset = 4;
+            std.debug.assert(base == .Elif);
+        } else unreachable;
+
         const clause = try mkClause(str[offset..]);
         offset += clause.len;
         const then = try Tokenizer.any(str[offset..]);
@@ -112,11 +129,18 @@ const If = struct {
         };
     }
 
+    pub fn build(a: Allocator, logic: *const Token) !If {
+        std.debug.assert(logic.kind == .logic);
+        const str = logic.str;
+        return mkIf(a, str);
+    }
+
     pub fn raze(self: *If) void {
         if (self.elif) |e| {
-            if (e == .elif) {
-                self.alloc.free(e.elif);
+            if (e.* == .elif) {
+                e.elif.raze();
             }
+            self.alloc.destroy(e);
         }
     }
 };
@@ -232,13 +256,14 @@ test "if" {
     const else_hope_echo = try Tokenizer.any(else_block.body.?[else_ws.str.len..]);
     try std.testing.expectEqualStrings("echo", else_hope_echo.str);
     try std.testing.expect(else_block.elif != null);
+    try std.testing.expect(else_block.elif.?.* == .elses);
 
     const elif_str =
         \\if true
         \\then
         \\    echo "something"
         \\elif something_true; then;
-        \\    echo "nothing"
+        \\    print "nothing"
         \\fi
     ;
 
@@ -253,6 +278,46 @@ test "if" {
     const elif_hope_echo = try Tokenizer.any(elif_block.body.?[elif_ws.str.len..]);
     try std.testing.expectEqualStrings("echo", elif_hope_echo.str);
     try std.testing.expect(elif_block.elif != null);
+    try std.testing.expect(elif_block.elif.?.* == .elif);
+    try std.testing.expectEqualStrings(" something_true; ", elif_block.elif.?.*.elif.clause.?);
+    const ws2 = try Tokenizer.any(elif_block.elif.?.*.elif.body.?[1..]);
+    const elif_hope_print = try Tokenizer.any(elif_block.elif.?.*.elif.body.?[ws2.str.len + 1 ..]);
+    try std.testing.expectEqualStrings("print", elif_hope_print.str);
+    try std.testing.expectEqualStrings("print \"nothing\"\n", elif_block.elif.?.*.elif.body.?[ws2.str.len + 1 ..]);
+    try std.testing.expect(elif_block.elif.?.*.elif.elif == null);
+
+    const elif_else_str =
+        \\if true
+        \\then
+        \\    echo "something"
+        \\elif something_true; then;
+        \\    print "nothing"
+        \\else
+        \\    which "undefined"
+        \\fi
+    ;
+
+    var elif_elses = try Tokenizer.logic(elif_else_str);
+    var elif_else_block = try If.build(a, &elif_elses);
+    defer elif_else_block.raze();
+    try std.testing.expect(elif_else_block.clause != null);
+    // we just accept the whitespace here, it's not our job to parse it out
+    const elif_else_hope_true = try Tokenizer.any(elif_else_block.clause.?[1..]);
+    try std.testing.expectEqualStrings("true", elif_else_hope_true.str);
+    const elif_else_ws = try Tokenizer.any(elif_else_block.body.?);
+    const elif_else_hope_echo = try Tokenizer.any(elif_else_block.body.?[elif_else_ws.str.len..]);
+    try std.testing.expectEqualStrings("echo", elif_else_hope_echo.str);
+    try std.testing.expect(elif_else_block.elif != null);
+    try std.testing.expect(elif_else_block.elif.?.* == .elif);
+    const ee_elif = elif_else_block.elif.?.*;
+    try std.testing.expectEqualStrings(" something_true; ", ee_elif.elif.clause.?);
+    const ws3 = try Tokenizer.any(ee_elif.elif.body.?[1..]);
+    const elif_else_hope_print = try Tokenizer.any(ee_elif.elif.body.?[ws3.str.len + 1 ..]);
+    try std.testing.expectEqualStrings("print", elif_else_hope_print.str);
+    try std.testing.expectEqualStrings("print \"nothing\"\n", elif_block.elif.?.*.elif.body.?[ws3.str.len + 1 ..]);
+    try std.testing.expect(elif_block.elif.?.*.elif.elif == null);
+    try std.testing.expect(ee_elif.elif.elif != null);
+    try std.testing.expectEqualStrings("   which \"undefined\"\n", ee_elif.elif.elif.?.elses[ws3.str.len + 1 ..]);
 }
 
 test "while" {
