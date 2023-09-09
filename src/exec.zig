@@ -25,14 +25,17 @@ const STDERR_FILENO = std.os.STDERR_FILENO;
 
 pub const Error = error{
     InvalidSrc,
+    InvalidLogic,
     Unknown,
     OSErr,
     OutOfMemory,
     Memory, // DON'T USE, GETTING DELETED
     NotFound,
     ExecFailed,
+    ChildExecFailed,
     ExeNotFound,
-    PipelineError,
+    Pipeline,
+    Parse,
     StdIOError,
 };
 
@@ -193,9 +196,9 @@ fn mkBinary(a: Allocator, itr: *ParsedIterator) Error!Binary {
     };
 }
 
-fn mkLogic(a: Allocator, t: tokenizer.Token) Error!Logic {
+fn mkLogic(a: Allocator, t: tokenizer.Token) !Logic {
     return .{
-        .logic = logic_.Logicizer.init(a, t) catch return Error.Unknown,
+        .logic = try logic_.Logicizer.init(a, t),
     };
 }
 
@@ -211,10 +214,13 @@ fn mkCallableStack(a: Allocator, itr: *TokenIterator) Error![]CallableStack {
     // things that you can't unknow!
     while (itr.peek()) |peek| {
         // TEMP HACK (wanna take bets on how long this temp hack lives?
-        log.warn("Hack in use\n", .{});
         if (peek.kind == .logic) {
+            log.warn("Hack in use\n", .{});
             try stack.append(CallableStack{
-                .callable = .{ .logic = mkLogic(a, peek.*) catch return Error.Unknown },
+                .callable = .{ .logic = mkLogic(a, peek.*) catch |err| {
+                    log.err("Unable to make logic {}\n", .{err});
+                    return Error.Unknown;
+                } },
                 .stdio = StdIo{ .in = STDIN_FILENO },
                 .conditional = null,
             });
@@ -224,7 +230,10 @@ fn mkCallableStack(a: Allocator, itr: *TokenIterator) Error![]CallableStack {
         //var before: tokenizer.Token = peek.*;
         var eslice = itr.toSliceExec(a) catch unreachable;
         errdefer a.free(eslice);
-        var parsed = Parser.parse(a, eslice) catch unreachable;
+        var parsed = Parser.parse(a, eslice) catch |err| {
+            if (err == error.Empty) continue;
+            return Error.Parse;
+        };
         var io: StdIo = StdIo{ .in = prev_stdout orelse STDIN_FILENO };
         var condition: ?Conditional = conditional_rule;
 
@@ -276,6 +285,7 @@ fn mkCallableStack(a: Allocator, itr: *TokenIterator) Error![]CallableStack {
         }
 
         var stk: CallableStack = undefined;
+        for (eslice) |s| log.debug("exe slice {}\n", .{s});
         const exe_str = parsed.first().cannon();
         if (bi.exists(exe_str)) {
             stk = CallableStack{
@@ -314,7 +324,7 @@ fn execBuiltin(h: *HSH, b: *Builtin) Error!u8 {
         log.err("builtin error {}\n", .{err});
         return 255;
     };
-    while (b.argv.next()) |_| {}
+    b.argv.raze();
     return res;
 }
 
@@ -332,7 +342,14 @@ fn execBin(e: Binary) Error!void {
 }
 
 fn execLogic(h: *HSH, l: *Logic) Error!void {
-    _ = l.logic.exec(h) catch return Error.Unknown;
+    var logic: ?*logic_.Logicizer = &l.logic;
+    log.warn("TODO handle signals\n", .{});
+    while (logic) |lexec| {
+        logic = lexec.exec(h) catch |err| {
+            log.err("Error found when attempting to exec logic {}\n", .{err});
+            return Error.Unknown;
+        };
+    }
 }
 
 fn free(a: Allocator, s: *CallableStack) void {
@@ -351,7 +368,9 @@ fn free(a: Allocator, s: *CallableStack) void {
             }
             a.free(e.argv);
         },
-        .logic => {},
+        .logic => |*l| {
+            l.logic.raze();
+        },
     }
 }
 
@@ -380,6 +399,7 @@ pub fn exec(h_: *HSH, input: []const u8) Error!void {
             return;
         } else if (stack[0].callable == .logic) {
             execLogic(h_, &stack[0].callable.logic) catch return Error.Unknown;
+            free(a, &stack[0]);
             return;
         }
     }
@@ -476,14 +496,34 @@ pub fn exec(h_: *HSH, input: []const u8) Error!void {
 
 /// I hate all of this but stdlib likes to panic instead of manage errors
 /// so we're doing the whole ChildProcess thing now
-pub const ERes = struct {
+pub const ChildResult = struct {
     job: *jobs.Job,
     stdout: [][]u8,
 };
 
+/// Tokenizes, parses, and executes a a valid argv string.
+pub fn childParsed(a: Allocator, argv: []const u8) Error!ChildResult {
+    var itr = TokenIterator{ .raw = argv };
+
+    var slice = try itr.toSliceExec(a);
+    defer a.free(slice);
+
+    var parsed = Parser.parse(a, slice) catch return Error.Parse;
+    defer parsed.raze();
+    var list = ArrayList([]const u8).init(a);
+    while (parsed.next()) |p| {
+        try list.append(p.cannon());
+        log.debug("Exec.childParse {} {s}\n", .{ list.items.len, p.cannon() });
+    } // Precomptue
+    var strs = try list.toOwnedSlice();
+    defer a.free(strs);
+
+    return child(a, strs);
+}
+
 /// Collects, and reformats argv into it's null terminated counterpart for
 /// execvpe. Caller retains ownership of memory.
-pub fn child(a: Allocator, argv: []const []const u8) !ERes {
+pub fn child(a: Allocator, argv: []const []const u8) !ChildResult {
     if (argv.len == 0 or argv[0].len == 0) return Error.NotFound;
     signal.block();
     defer signal.unblock();
@@ -506,7 +546,7 @@ pub fn child(a: Allocator, argv: []const []const u8) !ERes {
 
 /// Preformatted version of child. Accepts the null, and 0 terminated versions
 /// to pass directly to exec. Caller maintains ownership of argv
-pub fn childZ(a: Allocator, argv: [:null]const ?[*:0]const u8) !ERes {
+pub fn childZ(a: Allocator, argv: [:null]const ?[*:0]const u8) Error!ChildResult {
     var pipe = std.os.pipe2(0) catch unreachable;
     const pid = std.os.fork() catch unreachable;
     if (pid == 0) {
@@ -515,7 +555,8 @@ pub fn childZ(a: Allocator, argv: [:null]const ?[*:0]const u8) !ERes {
         std.os.close(pipe[0]);
         std.os.close(pipe[1]);
         std.os.execvpeZ(argv[0].?, argv.ptr, @ptrCast(std.os.environ)) catch {
-            unreachable;
+            log.err("Unexpected error in childZ\n", .{});
+            return Error.ChildExecFailed;
         };
         unreachable;
     }
@@ -525,20 +566,20 @@ pub fn childZ(a: Allocator, argv: [:null]const ?[*:0]const u8) !ERes {
     jobs.add(jobs.Job{
         .status = .child,
         .pid = pid,
-        .name = a.dupe(u8, name[0 .. name.len - 1]) catch return Error.Memory,
+        .name = try a.dupe(u8, name[0 .. name.len - 1]),
     }) catch return Error.Memory;
 
     var f = std.fs.File{ .handle = pipe[0] };
     var r = f.reader();
     var list = std.ArrayList([]u8).init(a);
 
-    var job = try jobs.waitForPid(pid);
+    var job = jobs.waitForPid(pid) catch return Error.Unknown;
 
-    while (try r.readUntilDelimiterOrEofAlloc(a, '\n', 2048)) |line| {
+    while (r.readUntilDelimiterOrEofAlloc(a, '\n', 2048) catch unreachable) |line| {
         try list.append(line);
     }
 
-    return ERes{
+    return .{
         .job = job,
         .stdout = try list.toOwnedSlice(),
     };

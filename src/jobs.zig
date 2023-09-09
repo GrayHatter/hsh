@@ -7,7 +7,7 @@ const log = @import("log");
 
 pub const Error = error{
     Unknown,
-    Memory,
+    OutOfMemory,
     JobNotFound,
 };
 
@@ -22,6 +22,13 @@ pub const Status = enum {
     running, // foreground
     child,
     unknown, // :<
+
+    pub fn alive(s: Status) bool {
+        return switch (s) {
+            .paused, .waiting, .piped, .background, .running, .child => true,
+            else => false,
+        };
+    }
 };
 
 pub const Job = struct {
@@ -33,16 +40,7 @@ pub const Job = struct {
     termattr: ?std.os.termios = null,
 
     pub fn alive(self: Job) bool {
-        return switch (self.status) {
-            .paused,
-            .waiting,
-            .piped,
-            .background,
-            .running,
-            .child,
-            => true,
-            else => false,
-        };
+        return self.status.alive();
     }
 
     pub fn pause(self: *Job, tio: std.os.termios) bool {
@@ -125,7 +123,7 @@ pub fn get(jid: std.os.pid_t) Error!*Job {
 }
 
 pub fn add(j: Job) Error!void {
-    jobs.append(j) catch return Error.Memory;
+    try jobs.append(j);
 }
 
 pub fn getWaiting() Error!?*Job {
@@ -174,7 +172,7 @@ pub fn getBg(a: Allocator) Error!ArrayList(Job) {
             .waiting,
             .paused,
             => {
-                out.append(j) catch return Error.Memory;
+                try out.append(j);
             },
             else => continue,
         }
@@ -234,6 +232,10 @@ pub fn waitForFg() void {
 
 pub fn waitForPid(jid: std.os.pid_t) !*Job {
     var job = try get(jid);
+    if (!job.status.alive()) {
+        return job;
+    }
+
     const s = try waitpid(jid, 0);
     log.debug("status {} {} \n", .{ s.pid, s.status });
 

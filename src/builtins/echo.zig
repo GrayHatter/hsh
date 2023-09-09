@@ -8,6 +8,7 @@ const print = bi.print;
 
 pub fn echo(_: *HSH, pi: *ParsedIterator) Err!u8 {
     std.debug.assert(std.mem.eql(u8, "echo", pi.first().cannon()));
+    defer pi.raze();
     var newline = true;
     if (pi.next()) |next| {
         if (std.mem.eql(u8, "-n", next.cannon())) {

@@ -96,7 +96,7 @@ pub const ParsedIterator = struct {
     /// Restart iterator, and assumes length >= 1
     pub fn first(self: *Self) *const Parsed {
         self.restart();
-        return self.next().?;
+        return self.next() orelse &self.resolved[0];
     }
 
     /// Returns next Token, omitting, or splitting them as needed.
@@ -318,11 +318,19 @@ pub const Parser = struct {
     alloc: Allocator,
 
     pub fn parse(a: Allocator, tokens: []Token) Error!ParsedIterator {
-        if (tokens.len == 0) return Error.Empty;
+        var start: usize = 0;
+        for (tokens) |t| {
+            if (t.kind == .ws) {
+                start += 1;
+            } else {
+                break;
+            }
+        }
+        if (tokens[start..].len == 0) return Error.Empty;
         return ParsedIterator{
             .alloc = a,
             .resolved = a.alloc(Parsed, 0) catch return Error.Memory,
-            .tokens = tokens,
+            .tokens = tokens[start..],
             .aliases = a.alloc([]u8, 0) catch return Error.Memory,
         };
     }

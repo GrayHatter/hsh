@@ -135,7 +135,7 @@ pub const Tokenizer = struct {
             '$' => dollar(src),
             '#' => comment(src),
             '\\' => bkslsh(src),
-            else => Tokenizer.word(src),
+            else => wordExpanded(src),
         };
     }
 
@@ -290,12 +290,23 @@ pub const Tokenizer = struct {
         }
 
         if (end <= 5) {
-            if (token.Reserved.fromStr(src[0..end])) |_| {
-                return logic(src);
+            if (token.Reserved.fromStr(src[0..end])) |typ| {
+                return Token.make(src[0..end], .{ .resr = typ });
             }
         }
 
         return Token.make(src[0..end], .word);
+    }
+
+    pub fn wordExpanded(src: []const u8) Error!Token {
+        var tkn = try word(src);
+        if (tkn.str.len <= 5) {
+            if (token.Reserved.fromStr(tkn.str)) |_| {
+                return logic(src);
+            }
+        }
+
+        return tkn;
     }
 
     pub fn logic(src: []const u8) Error!Token {
