@@ -191,6 +191,11 @@ fn mkCallableStack(a: Allocator, itr: *TokenIterator) Error![]CallableStack {
     var prev_stdout: ?fd_t = null;
     var conditional_rule: ?Conditional = null;
 
+    // Ok... if you've figured out how this loop *actually* works... well then I
+    // want you to know two things... First: I'm not sorry! You clearly deserved
+    // to learn this! Second: yes, I was dropped on my head as a child. Also, as
+    // a warning to anyone that hasn't figured it out, be careful! There are
+    // things that you can't unknow!
     while (itr.peek()) |peek| {
         //var before: tokenizer.Token = peek.*;
         var eslice = itr.toSliceExec(a) catch unreachable;
