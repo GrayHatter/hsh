@@ -4,7 +4,7 @@ You probably don't want to use this yet, but it's my current default shell (what
 could go wrong) so it might work for you if you're brave enough. I suspect you
 need `zig version` `0.11.0` or better to compile.
 
-Current technological breakthrough => "fire"
+Current technological breakthrough => "counting"
 
 Hash is a slightly different take on your shell. It's closer to a user agent
 than you standard POSIX shell. It's less of an instance, of a shell, and much
@@ -55,7 +55,7 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
     - [x] subdirs
     - [x] basic fuzzy search
     - [ ] narrow fuzzy search
-    - [ ] ~, and glob
+    - [x] ~, and glob
     - [ ] the rest?
   - [x] history
     - [ ] advanced history
@@ -82,7 +82,7 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
     - [x] echo
     - [ ] eval
     - [ ] exec
-    - [ ] exit
+    - [x] exit
     - [ ] export
     - [ ] fg
     - [x] jobs
@@ -102,6 +102,12 @@ or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
     - [ ] enumerated globs (name.{ext,exe,md,txt})
   - [ ] script support?
     - [ ] logic (if, else, elif, case)
+      - [x] if
+      - [x] elif
+      - [x] else
+      - [ ] while
+      - [ ] for
+      - [ ] case
     - [ ] loops (for, while)
   - [ ] env
   - [ ] real path support
