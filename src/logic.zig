@@ -5,6 +5,9 @@ const tokens = @import("token.zig");
 const Token = tokens.Token;
 const tokenizer = @import("tokenizer.zig");
 const Tokenizer = tokenizer.Tokenizer;
+const exec_ = @import("exec.zig");
+
+const HSH = @import("hsh.zig").HSH;
 
 const Error = tokenizer.Error || error{OutOfMemory};
 
@@ -135,6 +138,35 @@ const If = struct {
         return mkIf(a, str);
     }
 
+    /// If null logic completed successfully, if an If pointer is returned
+    /// caller should call exec on the returned pointer.
+    pub fn exec(self: *If, h: *HSH) Error!?*If {
+        var clause_itr = tokenizer.TokenIterator{ .raw = self.clause.? };
+        const clause_strs = try clause_itr.toSliceExecStr(self.alloc);
+        defer self.alloc.free(clause_strs);
+        //for (clause_strs, 0..) |cs, i| {
+        //    log.err("cs {} {s}\n", .{ i, cs });
+        //}
+        var job = exec_.child(self.alloc, clause_strs[1..]) catch unreachable;
+        if (job.job.exit_code) |ec| {
+            if (ec == 0) {
+                //log.err("should run\n", .{});
+                exec_.exec(h, self.body.?) catch unreachable;
+                return null;
+            } else {
+                //log.err("don't run\n", .{});
+                if (self.elif) |elif| {
+                    if (elif.* == .elif) {
+                        return &elif.elif;
+                    } else {
+                        // exec code
+                        return null;
+                    }
+                } else return null;
+            }
+        } else unreachable;
+    }
+
     pub fn raze(self: *If) void {
         if (self.elif) |e| {
             if (e.* == .elif) {
@@ -200,18 +232,50 @@ const While = struct {
         };
     }
 
+    pub fn exec() void {
+        unreachable;
+    }
+
     pub fn raze() void {}
 };
 
 pub const Logicizer = struct {
     alloc: Allocator,
     token: Token,
+    logic: Logics,
 
-    pub fn init(a: Allocator, t: Token) Logicizer {
+    pub const Logics = union(enum) {
+        if_: If,
+        while_: While,
+    };
+
+    pub fn init(a: Allocator, t: Token) !Logicizer {
+        if (Reserved.fromStr(t.str[0..2])) |base| {
+            std.debug.assert(base == .If);
+        }
         return .{
             .alloc = a,
             .token = t,
+            .logic = .{ .if_ = try If.build(a, &t) },
         };
+    }
+
+    /// This API may not exist soon... feeling brave?
+    pub fn exec(self: *Logicizer, h: *HSH) Error!?*Logicizer {
+        switch (self.logic) {
+            .if_ => |*if_| {
+                if (if_.exec(h)) |ex| {
+                    if (ex != null) {
+                        return self;
+                    } else {
+                        return null;
+                    }
+                } else |err| return err;
+            },
+            .while_ => |_| {
+                unreachable;
+            },
+        }
     }
 };
 

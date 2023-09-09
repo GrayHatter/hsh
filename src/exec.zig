@@ -17,6 +17,7 @@ const fd_t = std.os.fd_t;
 const fs = @import("fs.zig");
 const bi = @import("builtins.zig");
 const signal = @import("signals.zig");
+const logic_ = @import("logic.zig");
 
 const STDIN_FILENO = std.os.STDIN_FILENO;
 const STDOUT_FILENO = std.os.STDOUT_FILENO;
@@ -26,7 +27,8 @@ pub const Error = error{
     InvalidSrc,
     Unknown,
     OSErr,
-    Memory,
+    OutOfMemory,
+    Memory, // DON'T USE, GETTING DELETED
     NotFound,
     ExecFailed,
     ExeNotFound,
@@ -54,6 +56,10 @@ const Builtin = struct {
     argv: ParsedIterator,
 };
 
+const Logic = struct {
+    logic: logic_.Logicizer,
+};
+
 const Conditional = enum {
     Success,
     Failure,
@@ -64,6 +70,7 @@ const CallableStack = struct {
     callable: union(enum) {
         builtin: Builtin,
         exec: Binary,
+        logic: Logic,
     },
     stdio: StdIo,
     conditional: ?Conditional = null,
@@ -120,23 +127,23 @@ pub fn makeAbsExecutable(a: Allocator, str: []const u8) Error![]u8 {
     if (str.len == 0) return Error.NotFound; // Is this always NotFound?
     if (str[0] == '/') {
         if (!validPathAbs(str)) return Error.ExeNotFound;
-        return a.dupe(u8, str) catch return Error.Memory;
+        return try a.dupe(u8, str);
     } else if (std.mem.indexOf(u8, str, "/")) |_| {
         if (!validPath(str)) return Error.ExeNotFound;
         var cwd: [2048]u8 = undefined;
-        return std.mem.join(
+        return try std.mem.join(
             a,
             "/",
             &[2][]const u8{
                 std.fs.cwd().realpath(".", &cwd) catch return Error.NotFound,
                 str,
             },
-        ) catch return Error.Memory;
+        );
     }
 
     var next: []u8 = "";
     for (paths) |path| {
-        next = std.mem.join(a, "/", &[2][]const u8{ path, str }) catch return Error.Memory;
+        next = try std.mem.join(a, "/", &[2][]const u8{ path, str });
         if (validPathAbs(next)) return next;
         a.free(next);
     }
@@ -149,15 +156,15 @@ fn makeExeZ(a: Allocator, str: []const u8) Error!ARG {
     if (a.resize(exe, exe.len + 1)) {
         exe.len += 1;
     } else {
-        exe = a.realloc(exe, exe.len + 1) catch return Error.Memory;
+        exe = try a.realloc(exe, exe.len + 1);
     }
     exe[exe.len - 1] = 0;
     return exe[0 .. exe.len - 1 :0];
 }
 
-fn builtin(a: Allocator, parsed: ParsedIterator) Error!Builtin {
+fn mkBuiltin(a: Allocator, parsed: ParsedIterator) Error!Builtin {
     var itr = parsed;
-    itr.tokens = a.dupe(tokenizer.Token, itr.tokens) catch return Error.Memory;
+    itr.tokens = try a.dupe(tokenizer.Token, itr.tokens);
     return Builtin{
         .builtin = itr.first().cannon(),
         .argv = itr,
@@ -165,7 +172,7 @@ fn builtin(a: Allocator, parsed: ParsedIterator) Error!Builtin {
 }
 
 /// Caller owns memory of argv, and the open fds
-fn binary(a: Allocator, itr: *ParsedIterator) Error!Binary {
+fn mkBinary(a: Allocator, itr: *ParsedIterator) Error!Binary {
     var argv = ArrayList(?ARG).init(a);
     defer itr.raze();
 
@@ -186,6 +193,12 @@ fn binary(a: Allocator, itr: *ParsedIterator) Error!Binary {
     };
 }
 
+fn mkLogic(a: Allocator, t: tokenizer.Token) Error!Logic {
+    return .{
+        .logic = logic_.Logicizer.init(a, t) catch return Error.Unknown,
+    };
+}
+
 fn mkCallableStack(a: Allocator, itr: *TokenIterator) Error![]CallableStack {
     var stack = ArrayList(CallableStack).init(a);
     var prev_stdout: ?fd_t = null;
@@ -197,6 +210,17 @@ fn mkCallableStack(a: Allocator, itr: *TokenIterator) Error![]CallableStack {
     // a warning to anyone that hasn't figured it out, be careful! There are
     // things that you can't unknow!
     while (itr.peek()) |peek| {
+        // TEMP HACK (wanna take bets on how long this temp hack lives?
+        log.warn("Hack in use\n", .{});
+        if (peek.kind == .logic) {
+            try stack.append(CallableStack{
+                .callable = .{ .logic = mkLogic(a, peek.*) catch return Error.Unknown },
+                .stdio = StdIo{ .in = STDIN_FILENO },
+                .conditional = null,
+            });
+            return try stack.toOwnedSlice();
+        }
+
         //var before: tokenizer.Token = peek.*;
         var eslice = itr.toSliceExec(a) catch unreachable;
         errdefer a.free(eslice);
@@ -255,12 +279,12 @@ fn mkCallableStack(a: Allocator, itr: *TokenIterator) Error![]CallableStack {
         const exe_str = parsed.first().cannon();
         if (bi.exists(exe_str)) {
             stk = CallableStack{
-                .callable = .{ .builtin = try builtin(a, parsed) },
+                .callable = .{ .builtin = try mkBuiltin(a, parsed) },
                 .stdio = io,
                 .conditional = condition,
             };
         } else {
-            if (binary(a, &parsed)) |bin| {
+            if (mkBinary(a, &parsed)) |bin| {
                 stk = CallableStack{
                     .callable = .{ .exec = bin },
                     .stdio = io,
@@ -269,7 +293,7 @@ fn mkCallableStack(a: Allocator, itr: *TokenIterator) Error![]CallableStack {
             } else |e| {
                 if (bi.existsOptional(exe_str)) {
                     stk = CallableStack{
-                        .callable = .{ .builtin = try builtin(a, parsed) },
+                        .callable = .{ .builtin = try mkBuiltin(a, parsed) },
                         .stdio = io,
                         .conditional = condition,
                     };
@@ -281,7 +305,7 @@ fn mkCallableStack(a: Allocator, itr: *TokenIterator) Error![]CallableStack {
         stack.append(stk) catch return Error.Memory;
         a.free(eslice);
     }
-    return stack.toOwnedSlice() catch return Error.Memory;
+    return try stack.toOwnedSlice();
 }
 
 fn execBuiltin(h: *HSH, b: *Builtin) Error!u8 {
@@ -307,6 +331,10 @@ fn execBin(e: Binary) Error!void {
     }
 }
 
+fn execLogic(h: *HSH, l: *Logic) Error!void {
+    _ = l.logic.exec(h) catch return Error.Unknown;
+}
+
 fn free(a: Allocator, s: *CallableStack) void {
     // TODO implement
     switch (s.callable) {
@@ -323,46 +351,53 @@ fn free(a: Allocator, s: *CallableStack) void {
             }
             a.free(e.argv);
         },
+        .logic => {},
     }
 }
 
 /// input is a string ownership is retained by the caller
-pub fn exec(h: *HSH, input: []const u8) Error!void {
+pub fn exec(h_: *HSH, input: []const u8) Error!void {
     // HACK I don't like it either, but LOOK OVER THERE!!!
-    paths = h.hfs.names.paths.items;
+    paths = h_.hfs.names.paths.items;
+    var a = h_.alloc;
+    var tty = h_.tty;
 
     var titr = TokenIterator{ .raw = input };
 
-    const stack = mkCallableStack(h.alloc, &titr) catch |e| {
+    const stack = mkCallableStack(a, &titr) catch |e| {
         log.debug("unable to make stack {}\n", .{e});
         return e;
     };
-    defer h.alloc.free(stack);
+    defer a.free(stack);
 
     if (stack.len == 1 and
-        stack[0].callable == .builtin and
         stack[0].stdio.in == STDIN_FILENO and
         stack[0].stdio.out == STDOUT_FILENO)
     {
-        _ = try execBuiltin(h, &stack[0].callable.builtin);
-        free(h.alloc, &stack[0]);
-        return;
+        if (stack[0].callable == .builtin) {
+            _ = try execBuiltin(h_, &stack[0].callable.builtin);
+            free(a, &stack[0]);
+            return;
+        } else if (stack[0].callable == .logic) {
+            execLogic(h_, &stack[0].callable.logic) catch return Error.Unknown;
+            return;
+        }
     }
 
-    h.tty.setOrig() catch |e| {
+    tty.setOrig() catch |e| {
         log.err("TTY didn't respond {}\n", .{e});
         return Error.Unknown;
     };
 
     errdefer {
-        h.tty.setRaw() catch |e| {
+        tty.setRaw() catch |e| {
             log.err("TTY didn't respond as expected after exec error{}\n", .{e});
         };
     }
 
     var fpid: std.os.pid_t = 0;
     for (stack) |*s| {
-        defer free(h.alloc, s);
+        defer free(a, s);
         if (s.conditional) |cond| {
             if (fpid == 0) unreachable;
             var waited_job = jobs.waitForPid(fpid) catch @panic("job doesn't exist");
@@ -380,7 +415,7 @@ pub fn exec(h: *HSH, input: []const u8) Error!void {
                 },
             }
             // repush original because spinning will revert
-            h.tty.setOrig() catch |e| {
+            tty.setOrig() catch |e| {
                 log.err("TTY didn't respond {}\n", .{e});
                 return Error.Unknown;
             };
@@ -403,10 +438,13 @@ pub fn exec(h: *HSH, input: []const u8) Error!void {
 
             switch (s.callable) {
                 .builtin => |*b| {
-                    std.os.exit(try execBuiltin(h, b));
+                    std.os.exit(try execBuiltin(h_, b));
                 },
                 .exec => |e| {
                     try execBin(e);
+                    unreachable;
+                },
+                .logic => |_| {
                     unreachable;
                 },
             }
@@ -419,11 +457,12 @@ pub fn exec(h: *HSH, input: []const u8) Error!void {
         const name = switch (s.callable) {
             .builtin => |b| b.builtin,
             .exec => |e| std.mem.sliceTo(e.arg, 0),
+            .logic => "logic stuff",
         };
         jobs.add(jobs.Job{
             .status = if (s.stdio.pipe) .piped else .running,
             .pid = fpid,
-            .name = h.alloc.dupe(u8, name) catch return Error.Memory,
+            .name = a.dupe(u8, name) catch return Error.Memory,
         }) catch return Error.Memory;
         if (s.stdio.in != std.os.STDIN_FILENO) std.os.close(s.stdio.in);
         if (s.stdio.out != std.os.STDOUT_FILENO) std.os.close(s.stdio.out);
@@ -431,13 +470,14 @@ pub fn exec(h: *HSH, input: []const u8) Error!void {
     }
 
     _ = jobs.waitForFg();
-    h.tty.setRaw() catch log.err("Unable to setRaw after child event\n", .{});
-    h.tty.setOwner(null) catch log.err("Unable to setOwner after child event\n", .{});
+    tty.setRaw() catch log.err("Unable to setRaw after child event\n", .{});
+    tty.setOwner(null) catch log.err("Unable to setOwner after child event\n", .{});
 }
 
 /// I hate all of this but stdlib likes to panic instead of manage errors
 /// so we're doing the whole ChildProcess thing now
 pub const ERes = struct {
+    job: *jobs.Job,
     stdout: [][]u8,
 };
 
@@ -492,10 +532,14 @@ pub fn childZ(a: Allocator, argv: [:null]const ?[*:0]const u8) !ERes {
     var r = f.reader();
     var list = std.ArrayList([]u8).init(a);
 
+    var job = try jobs.waitForPid(pid);
+
     while (try r.readUntilDelimiterOrEofAlloc(a, '\n', 2048)) |line| {
         try list.append(line);
     }
+
     return ERes{
+        .job = job,
         .stdout = try list.toOwnedSlice(),
     };
 }

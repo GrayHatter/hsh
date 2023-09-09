@@ -179,6 +179,15 @@ pub const TokenIterator = struct {
         return list.toOwnedSlice();
     }
 
+    pub fn toSliceExecStr(self: *Self, a: Allocator) ![]const []const u8 {
+        const tokens = try self.toSliceExec(a);
+        var strs = try a.alloc([]u8, tokens.len);
+        for (tokens, strs) |t, *s| {
+            s.* = @constCast(t.str);
+        }
+        return strs;
+    }
+
     /// Returns a Tokenizer error, or toSlice() with index = 0
     pub fn toSliceError(self: *Self, a: Allocator) Error![]Token {
         var i: usize = 0;
