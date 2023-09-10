@@ -126,8 +126,9 @@ pub const Tokenizer = struct {
 
     pub fn any(src: []const u8) Error!Token {
         return switch (src[0]) {
-            '\'', '"' => Tokenizer.group(src),
-            '`' => Tokenizer.group(src), // TODO magic
+            '\'', '"' => group(src),
+            '`' => group(src), // TODO magic
+            '{' => group(src), // TODO magic
             ' ', '\t', '\n' => Tokenizer.space(src),
             '~', '/' => Tokenizer.path(src),
             '>', '<' => Tokenizer.ioredir(src),
@@ -360,49 +361,48 @@ pub const Tokenizer = struct {
     }
 
     pub fn quoteSingle(src: []const u8) Error!Token {
-        return quote(src);
+        return quote(src, '\'');
     }
 
     pub fn quoteDouble(src: []const u8) Error!Token {
-        return quote(src);
+        return quote(src, '"');
     }
 
     pub fn paren(src: []const u8) Error!Token {
-        return quote(src);
+        return quote(src, ')');
     }
 
     pub fn bracket(src: []const u8) Error!Token {
-        return quote(src);
+        return quote(src, ']');
     }
 
     pub fn bracketCurly(src: []const u8) Error!Token {
-        return quote(src);
+        return quote(src, '}');
     }
 
     pub fn backtick(src: []const u8) Error!Token {
-        return quote(src);
+        return quote(src, '`');
     }
 
     /// Callers must ensure that src[0] is in (', ")
-    pub fn quote(src: []const u8) Error!Token {
+    pub fn quote(src: []const u8, close: u8) Error!Token {
         // TODO posix says a ' cannot appear within 'string'
         if (src.len <= 1 or src[0] == BSLH) {
             return Error.InvalidSrc;
         }
-        const subt = src[0];
 
         var end: usize = 1;
         for (src[1..], 1..) |s, i| {
             end += 1;
-            if (s == subt and !(src[i - 1] == BSLH and src[i - 2] != BSLH)) break;
+            if (s == close and !(src[i - 1] == BSLH and src[i - 2] != BSLH)) break;
         }
 
-        if (src[end - 1] != subt) return Error.OpenGroup;
+        if (src[end - 1] != close) return Error.OpenGroup;
 
         return Token{
             .str = src[0..end],
             .kind = .quote,
-            .subtoken = subt,
+            .subtoken = close,
         };
     }
 
@@ -703,55 +703,55 @@ const expectError = std.testing.expectError;
 const eql = std.mem.eql;
 const eqlStr = std.testing.expectEqualStrings;
 test "quotes" {
-    var t = try Tokenizer.quote("\"\"");
+    var t = try Tokenizer.group("\"\"");
     try expectEql(t.str.len, 2);
     try expectEql(t.cannon().len, 0);
 
-    t = try Tokenizer.quote("\"a\"");
+    t = try Tokenizer.group("\"a\"");
     try expectEql(t.str.len, 3);
     try expectEql(t.cannon().len, 1);
     try expect(std.mem.eql(u8, t.str, "\"a\""));
     try expect(std.mem.eql(u8, t.cannon(), "a"));
 
-    var terr = Tokenizer.quote("\"this is invalid");
+    var terr = Tokenizer.group("\"this is invalid");
     try expectError(Error.OpenGroup, terr);
 
-    t = try Tokenizer.quote("\"this is some text\" more text");
+    t = try Tokenizer.group("\"this is some text\" more text");
     try expectEql(t.str.len, 19);
     try expectEql(t.cannon().len, 17);
     try expect(std.mem.eql(u8, t.str, "\"this is some text\""));
     try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
 
-    t = try Tokenizer.quote("`this is some text` more text");
+    t = try Tokenizer.group("`this is some text` more text");
     try expectEql(t.str.len, 19);
     try expectEql(t.cannon().len, 17);
     try expect(std.mem.eql(u8, t.str, "`this is some text`"));
     try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
 
-    t = try Tokenizer.quote("\"this is some text\" more text");
+    t = try Tokenizer.group("\"this is some text\" more text");
     try expectEql(t.str.len, 19);
     try expectEql(t.cannon().len, 17);
     try expect(std.mem.eql(u8, t.str, "\"this is some text\""));
     try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
 
-    terr = Tokenizer.quote(
+    terr = Tokenizer.group(
         \\"this is some text\" more text
     );
     try expectError(Error.OpenGroup, terr);
 
-    t = try Tokenizer.quote("\"this is some text\\\" more text\"");
+    t = try Tokenizer.group("\"this is some text\\\" more text\"");
     try expectEql(t.str.len, 31);
     try expectEql(t.cannon().len, 29);
     try expect(std.mem.eql(u8, t.str, "\"this is some text\\\" more text\""));
     try expect(std.mem.eql(u8, t.cannon(), "this is some text\\\" more text"));
 
-    t = try Tokenizer.quote("\"this is some text\\\\\" more text\"");
+    t = try Tokenizer.group("\"this is some text\\\\\" more text\"");
     try expectEql(t.str.len, 21);
     try expectEql(t.cannon().len, 19);
     try expect(std.mem.eql(u8, t.str, "\"this is some text\\\\\""));
     try expect(std.mem.eql(u8, t.cannon(), "this is some text\\\\"));
 
-    t = try Tokenizer.quote("'this is some text' more text");
+    t = try Tokenizer.group("'this is some text' more text");
     try expectEql(t.str.len, 19);
     try expectEql(t.cannon().len, 17);
     try expect(std.mem.eql(u8, t.str, "'this is some text'"));
@@ -779,7 +779,7 @@ test "quotes tokened" {
     try expectEql(tokens[0].cannon().len, 1);
     try expect(std.mem.eql(u8, tokens[0].cannon(), "a"));
 
-    var terr = Tokenizer.quote(
+    var terr = Tokenizer.group(
         \\"this is invalid
     );
     try expectError(Error.OpenGroup, terr);
@@ -814,7 +814,7 @@ test "quotes tokened" {
     try expect(std.mem.eql(u8, tokens[0].str, "\"this is some text\""));
     try expect(std.mem.eql(u8, tokens[0].cannon(), "this is some text"));
 
-    terr = Tokenizer.quote(
+    terr = Tokenizer.group(
         \\"this is some text\" more text
     );
     try expectError(Error.OpenGroup, terr);
@@ -1698,4 +1698,17 @@ test "nested logic" {
 
     var whiles = try Tokenizer.logic(while_str);
     try eqlStr(while_str, whiles.cannon());
+}
+
+test "naughty strings" {
+    const while_str = "thingy (b.argv.next()) |_| {}";
+
+    var itr = TokenIterator{ .raw = while_str };
+
+    var count: usize = 0;
+    while (itr.next()) |t| {
+        if (false) log.err("{}\n", .{t});
+        count += 1;
+    }
+    try expectEql(count, 9);
 }
