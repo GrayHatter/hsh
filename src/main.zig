@@ -3,8 +3,7 @@ const log = @import("log");
 const hsh_build = @import("hsh_build");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
-const TTY = TTY_.TTY;
-const TTY_ = @import("tty.zig");
+const TTY = @import("tty.zig");
 const tokenizer = @import("tokenizer.zig");
 const Tokenizer = tokenizer.Tokenizer;
 const TokenErr = tokenizer.Error;
@@ -209,8 +208,8 @@ pub fn panic(msg: []const u8, trace: ?*std.builtin.StackTrace, retaddr: ?usize) 
     log.err("Panic reached... your TTY is likely broken now.\n\n      ...sorry about that!\n\n", .{});
     std.debug.print("\n\r\x1B[J", .{});
     std.builtin.default_panic(msg, trace, retaddr);
-    if (TTY_.current_tty) |*t| {
-        TTY_.current_tty = null;
+    if (TTY.current_tty) |*t| {
+        TTY.current_tty = null;
         t.raze();
     }
     std.time.sleep(1000 * 1000 * 1000 * 30);
