@@ -5,10 +5,12 @@ const tokenizer = @import("../tokenizer.zig");
 const Token = tokenizer.Token;
 const bi = @import("../builtins.zig");
 const Err = bi.Err;
-const ParsedIterator = @import("../parse.zig").ParsedIterator;
+const Parse = @import("../parse.zig");
+const ParsedIterator = Parse.ParsedIterator;
 const State = bi.State;
 const print = bi.print;
 const log = @import("log");
+const builtin = @import("builtin");
 
 /// name and value are assumed to be owned by alias, and are expected to be
 /// valid between calls to alias.
@@ -26,10 +28,11 @@ pub const Alias = struct {
 };
 
 // TODO this needs to become a map :/
-var aliases: std.ArrayList(Alias) = undefined;
+pub var aliases: std.ArrayList(Alias) = undefined;
 
 pub fn init(a: std.mem.Allocator) void {
     aliases = std.ArrayList(Alias).init(a);
+    if (builtin.is_test) return;
     hsh.addState(State{
         .name = "aliases",
         .ctx = &aliases,
@@ -54,6 +57,10 @@ fn save(h: *HSH, _: *anyopaque) ?[][]const u8 {
 }
 
 pub fn alias(h: *HSH, titr: *ParsedIterator) Err!u8 {
+    return alias_core(h.alloc, titr);
+}
+
+pub fn alias_core(a: std.mem.Allocator, titr: *ParsedIterator) Err!u8 {
     if (!std.mem.eql(u8, "alias", titr.first().cannon())) return Err.InvalidCommand;
 
     var name: ?[]const u8 = null;
@@ -66,8 +73,7 @@ pub fn alias(h: *HSH, titr: *ParsedIterator) Err!u8 {
             if (std.mem.indexOf(u8, t.cannon(), "=")) |i| {
                 name = t.cannon()[0..i];
                 if (t.cannon().len > i + 1) {
-                    const val_tkn = tokenizer.Tokenizer.any(t.cannon()[i + 1 ..]) catch unreachable;
-                    value = val_tkn.cannon();
+                    value = t.cannon()[i + 1 ..];
                     break;
                 }
             } else {
@@ -80,19 +86,19 @@ pub fn alias(h: *HSH, titr: *ParsedIterator) Err!u8 {
 
     if (name) |n| {
         if (value) |v| {
-            if (try replace(h.alloc, n, v)) return 0;
-            if (add(h.alloc, n, v)) return 0 else |err| return err;
+            if (try replace(a, n, v)) return 0;
+            if (add(a, n, v)) return 0 else |err| return err;
         }
         if (find(n)) |nn| {
-            print("{}\n", .{nn}) catch return Err.Unknown;
+            try print("{}\n", .{nn});
         } else {
-            print("no known alias for {s}\n", .{n}) catch return Err.Unknown;
+            try print("no known alias for {s}\n", .{n});
         }
         return 0;
     }
 
-    for (aliases.items) |a| {
-        print("{}\n", .{a}) catch return Err.Unknown;
+    for (aliases.items) |al| {
+        try print("{}\n", .{al});
     }
     return 0;
 }
@@ -111,17 +117,17 @@ pub fn find(src: []const u8) ?*Alias {
 fn add(a: std.mem.Allocator, src: []const u8, dst: []const u8) Err!void {
     log.debug("ALIAS adding {s} = '{s}'\n", .{ src, dst });
     if (dst.len == 0) return del(src);
-    aliases.append(Alias{
-        .name = a.dupe(u8, src) catch return Err.Memory,
-        .value = a.dupe(u8, dst) catch return Err.Memory,
-    }) catch return Err.Memory;
+    try aliases.append(Alias{
+        .name = try a.dupe(u8, src),
+        .value = try a.dupe(u8, dst),
+    });
 }
 
 /// Returns true IFF existing value is replaced
 fn replace(a: std.mem.Allocator, key: []const u8, val: []const u8) !bool {
     if (find(key)) |*found| {
         a.free(found.*.value);
-        found.*.value = a.dupe(u8, val) catch return Err.Memory;
+        found.*.value = try a.dupe(u8, val);
         return true;
     }
     return false;
@@ -138,7 +144,31 @@ fn del(src: []const u8) Err!void {
     }
 }
 
-pub fn testing_setup(a: std.mem.Allocator) *std.ArrayList(Alias) {
-    aliases = std.ArrayList(Alias).init(a);
-    return &aliases;
+test "alias" {
+    var a = std.testing.allocator;
+    init(a);
+    defer raze(a);
+
+    try std.testing.expectEqual(aliases.items.len, 0);
+}
+
+test "save" {
+    var a = std.testing.allocator;
+    init(a);
+    defer raze(a);
+    const str = "alias haxzor='ssh 127.0.0.1 \"echo hsh was here | sudo tee /root/.lmao.txt\"'";
+
+    var itr = tokenizer.TokenIterator{ .raw = str };
+    var slice = try itr.toSliceExec(a);
+    defer a.free(slice);
+    var pitr = try Parse.Parser.parse(a, slice);
+
+    defer pitr.raze();
+    const res = alias_core(a, &pitr);
+    try std.testing.expectEqual(res, 0);
+
+    try std.testing.expectEqual(aliases.items.len, 1);
+    const tst = try std.fmt.allocPrint(a, "{save}\n", .{aliases.items[0]});
+    defer a.free(tst);
+    try std.testing.expectEqualStrings(str, tst[0 .. tst.len - 1]); // strip newline
 }

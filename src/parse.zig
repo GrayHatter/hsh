@@ -563,7 +563,8 @@ test "iterator alias is builtin" {
 
 test "iterator aliased" {
     var a = std.testing.allocator;
-    var als = Aliases.testing_setup(a);
+    Aliases.init(a);
+    var als = &Aliases.aliases;
     defer Aliases.raze(a);
     try als.append(Aliases.Alias{
         .name = a.dupe(u8, "la") catch unreachable,
@@ -591,7 +592,8 @@ test "iterator aliased" {
 
 test "iterator aliased self" {
     var a = std.testing.allocator;
-    var als = Aliases.testing_setup(a);
+    Aliases.init(a);
+    var als = &Aliases.aliases;
     defer Aliases.raze(a);
     try als.append(Aliases.Alias{
         .name = a.dupe(u8, "ls") catch unreachable,
@@ -620,7 +622,8 @@ test "iterator aliased self" {
 
 test "iterator aliased recurse" {
     var a = std.testing.allocator;
-    var als = Aliases.testing_setup(a);
+    Aliases.init(a);
+    var als = &Aliases.aliases;
     defer Aliases.raze(a);
     try als.append(Aliases.Alias{
         .name = a.dupe(u8, "la") catch unreachable,

@@ -22,6 +22,7 @@ const INEvent = @import("inotify.zig").Event;
 
 pub const Error = error{
     Unknown,
+    OutOfMemory,
     Memory,
     EOF,
     CorruptFile,
@@ -153,7 +154,7 @@ fn razeHSH(h: *HSH) void {
 var savestates: ArrayList(State) = undefined;
 
 pub fn addState(s: State) E!void {
-    savestates.append(s) catch return E.Memory;
+    try savestates.append(s);
 }
 
 fn writeLine(f: std.fs.File, line: []const u8) !usize {

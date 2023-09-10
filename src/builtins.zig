@@ -29,6 +29,7 @@ var Self = @This();
 pub const Err = error{
     Unknown,
     Memory,
+    OutOfMemory,
     IO,
     StdOut,
     InvalidToken,
