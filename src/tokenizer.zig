@@ -28,9 +28,14 @@ pub const OpKind = enum {
     Background,
 };
 
-pub const Error = token.Error;
+pub const Error = Token.Error;
+
+pub const TokenizerError = Error || error{
+    Exec,
+};
+
 pub const Token = token.Token;
-pub const TokenIterator = token.TokenIterator;
+pub const TokenIterator = token.Iterator;
 pub const Kind = token.Kind;
 
 pub const CursorMotion = enum(u8) {
@@ -428,6 +433,15 @@ pub const Tokenizer = struct {
         return t;
     }
 
+    /// Returns a Tokenizer error, or toSlice() with index = 0
+    pub fn validate(self: *Tokenizer) Error!void {
+        var i: usize = 0;
+        while (i < self.raw.items.len) {
+            const t = try any(self.raw.items[i..]);
+            i += t.str.len;
+        }
+    }
+
     // completion commands
 
     /// remove the completion maybe from input
@@ -522,7 +536,7 @@ pub const Tokenizer = struct {
         return safer;
     }
 
-    fn dropWhitespace(self: *Tokenizer) Error!usize {
+    fn dropWhitespace(self: *Tokenizer) TokenizerError!usize {
         if (self.c_idx == 0 or !std.ascii.isWhitespace(self.raw.items[self.c_idx - 1])) {
             return 0;
         }
@@ -541,7 +555,7 @@ pub const Tokenizer = struct {
         return count;
     }
 
-    fn dropAlphanum(self: *Tokenizer) Error!usize {
+    fn dropAlphanum(self: *Tokenizer) TokenizerError!usize {
         if (self.c_idx == 0 or !std.ascii.isAlphanumeric(self.raw.items[self.c_idx - 1])) {
             return 0;
         }
@@ -561,7 +575,7 @@ pub const Tokenizer = struct {
     }
 
     // this clearly needs a bit more love
-    pub fn dropWord(self: *Tokenizer) Error!usize {
+    pub fn dropWord(self: *Tokenizer) TokenizerError!usize {
         if (self.raw.items.len == 0 or self.c_idx == 0) return 0;
 
         var count = try self.dropWhitespace();
@@ -611,12 +625,16 @@ pub const Tokenizer = struct {
         self.err_idx = @min(self.c_idx, self.err_idx);
     }
 
-    pub fn consumes(self: *Tokenizer, str: []const u8) Error!void {
+    pub fn consumes(self: *Tokenizer, str: []const u8) TokenizerError!void {
         for (str) |s| try self.consumec(s);
     }
 
-    pub fn consumec(self: *Tokenizer, c: u8) Error!void {
-        self.raw.insert(self.c_idx, @bitCast(c)) catch return Error.Unknown;
+    pub fn consumec(self: *Tokenizer, c: u8) TokenizerError!void {
+        if (self.c_idx == self.raw.items.len and c == '\n') {
+            if (self.raw.items.len > 0 and self.raw.items[self.raw.items.len - 1] != '\\')
+                return TokenizerError.Exec;
+        }
+        try self.raw.insert(self.c_idx, @bitCast(c));
         self.c_idx += 1;
         self.user_data = true;
     }
@@ -1711,4 +1729,19 @@ test "naughty strings" {
         count += 1;
     }
     try expectEql(count, 9);
+}
+
+test "escape newline" {
+    var a = std.testing.allocator;
+
+    var tzr = Tokenizer.init(a);
+    defer tzr.raze();
+
+    try tzr.consumes("zig build test");
+    const e = tzr.consumec('\n');
+    try std.testing.expectError(TokenizerError.Exec, e);
+    const ee = tzr.consumes("\n");
+    try std.testing.expectError(TokenizerError.Exec, ee);
+    _ = try tzr.consumec('\\');
+    try tzr.consumes("\n"); // expect no error
 }

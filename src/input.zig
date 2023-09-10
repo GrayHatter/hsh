@@ -241,27 +241,25 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
                 return .Prompt;
             }
 
-            var titr = tkn.iterator();
-
-            const tkns = titr.toSliceError(hsh.alloc) catch |e| {
-                switch (e) {
-                    TokenErr.Empty => {
-                        try hsh.tty.print("\n", .{});
-                        return .None;
-                    },
-                    TokenErr.OpenGroup, TokenErr.OpenLogic => try tkn.consumec(nl),
-                    TokenErr.TokenizeFailed => {
-                        std.debug.print("tokenize Error {}\n", .{e});
-                        try tkn.consumec(b);
-                    },
-                    else => return .ExpectedError,
+            var nl_exec = tkn.consumec(nl);
+            if (nl_exec == error.Exec) {
+                if (tkn.validate()) {} else |e| {
+                    switch (e) {
+                        TokenErr.Empty => {
+                            try hsh.tty.print("\n", .{});
+                            return .None;
+                        },
+                        TokenErr.OpenGroup, TokenErr.OpenLogic => {},
+                        TokenErr.TokenizeFailed => log.err("tokenize Error {}\n", .{e}),
+                        else => return .ExpectedError,
+                    }
+                    return .Prompt;
                 }
-                return .Prompt;
-            };
-            defer hsh.alloc.free(tkns);
-            var run = Parser.parse(tkn.alloc, tkns) catch return .Redraw;
-            defer run.raze();
-            if (run.tokens.len > 0) return .Exec;
+                return .Exec;
+            }
+            //var run = Parser.parse(tkn.alloc, tkns) catch return .Redraw;
+            //defer run.raze();
+            //if (run.tokens.len > 0) return .Exec;
             return .Redraw;
         },
         // probably ctrl + bs

@@ -1,8 +1,11 @@
 const std = @import("std");
+const log = @import("log");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 pub const Reserved = @import("logic.zig").Reserved;
+
+pub const Token = @This();
 
 pub const IOKind = enum {
     In,
@@ -19,9 +22,10 @@ pub const OpKind = enum {
     Fail,
     Background,
 };
+
 pub const Error = error{
     Unknown,
-    Memory,
+    OutOfMemory,
     LineTooLong,
     TokenizeFailed,
     InvalidSrc,
@@ -53,41 +57,39 @@ pub const Kind = union(enum) {
     word: void,
 };
 
-pub const Token = struct {
-    str: []const u8,
-    kind: Kind = .nos,
-    parsed: bool = false,
-    subtoken: u8 = 0,
-    // I hate this but I've spent too much time on this already #YOLO
-    resolved: ?[]u8 = null,
-    substr: ?[]const u8 = null,
+str: []const u8,
+kind: Kind = .nos,
+parsed: bool = false,
+subtoken: u8 = 0,
+// I hate this but I've spent too much time on this already #YOLO
+resolved: ?[]u8 = null,
+substr: ?[]const u8 = null,
 
-    pub fn make(str: []const u8, k: Kind) Token {
-        return Token{
-            .str = str,
-            .kind = k,
-        };
-    }
+pub fn make(str: []const u8, k: Kind) Token {
+    return Token{
+        .str = str,
+        .kind = k,
+    };
+}
 
-    pub fn format(self: Token, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
-        // this is what net.zig does, so it's what I do
-        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
-        try std.fmt.format(out, "Token({}){{{s}}}", .{ self.kind, self.str });
-    }
+pub fn format(self: Token, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
+    // this is what net.zig does, so it's what I do
+    if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
+    try std.fmt.format(out, "Token({}){{{s}}}", .{ self.kind, self.str });
+}
 
-    pub fn cannon(self: Token) []const u8 {
-        if (self.resolved) |r| return r;
+pub fn cannon(self: Token) []const u8 {
+    if (self.resolved) |r| return r;
 
-        return switch (self.kind) {
-            .quote => return self.str[1 .. self.str.len - 1],
-            .io, .vari, .path => return self.substr orelse self.str,
-            .comment => return self.str[0..0],
-            else => self.str,
-        };
-    }
-};
+    return switch (self.kind) {
+        .quote => return self.str[1 .. self.str.len - 1],
+        .io, .vari, .path => return self.substr orelse self.str,
+        .comment => return self.str[0..0],
+        else => self.str,
+    };
+}
 
-pub const TokenIterator = struct {
+pub const Iterator = struct {
     raw: []const u8,
     index: ?usize = null,
     token: Token = undefined,
@@ -116,7 +118,7 @@ pub const TokenIterator = struct {
                 self.index = i + t.str.len;
                 return &self.token;
             } else |e| {
-                std.debug.print("tokenizer error {}\n", .{e});
+                log.err("tokenizer error {}\n", .{e});
                 return null;
             }
         } else {
@@ -186,17 +188,6 @@ pub const TokenIterator = struct {
             s.* = @constCast(t.str);
         }
         return strs;
-    }
-
-    /// Returns a Tokenizer error, or toSlice() with index = 0
-    pub fn toSliceError(self: *Self, a: Allocator) Error![]Token {
-        var i: usize = 0;
-        while (i < self.raw.len) {
-            const t = try Tokenizer.any(self.raw[i..]);
-            i += t.str.len;
-        }
-        self.index = 0;
-        return self.toSlice(a) catch return Error.Memory;
     }
 
     pub fn peek(self: *Self) ?*const Token {
