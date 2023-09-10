@@ -7,7 +7,8 @@ const complete = @import("completion.zig");
 const Keys = @import("keys.zig");
 const printAfter = Draw.printAfter;
 const Draw = @import("draw.zig");
-const TokenErr = tokenizer.Error;
+const Token = @import("token.zig");
+const TokenErr = Token.Error;
 const parser = @import("parse.zig");
 const Parser = parser.Parser;
 
@@ -245,10 +246,6 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
             if (nl_exec == error.Exec) {
                 if (tkn.validate()) {} else |e| {
                     switch (e) {
-                        TokenErr.Empty => {
-                            try hsh.tty.print("\n", .{});
-                            return .None;
-                        },
                         TokenErr.OpenGroup, TokenErr.OpenLogic => {},
                         TokenErr.TokenizeFailed => log.err("tokenize Error {}\n", .{e}),
                         else => return .ExpectedError,
@@ -379,7 +376,7 @@ fn ascii(hsh: *HSH, tkn: *Tokenizer, buf: u8, comp: *complete.CompSet) !Event {
         },
         0x7F => { // backspace
             tkn.pop() catch |err| {
-                if (err == TokenErr.Empty) return .None;
+                if (err == tokenizer.Error.Empty) return .None;
                 return err;
             };
             return .Prompt;

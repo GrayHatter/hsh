@@ -4,8 +4,8 @@ const Allocator = std.mem.Allocator;
 const HSH = @import("hsh.zig").HSH;
 const fs = @import("fs.zig");
 const IterableDir = std.fs.IterableDir;
-const tokenizer = @import("tokenizer.zig");
-const Token = tokenizer.Token;
+const Tokenizer = @import("tokenizer.zig").Tokenizer;
+const Token = @import("token.zig");
 const Parser = @import("parse.zig").Parser;
 const Draw = @import("draw.zig");
 const Cord = Draw.Cord;
@@ -177,7 +177,7 @@ pub const CompSet = struct {
     // actually using most of orig_token is much danger, such UB
     // the pointers contained within are likely already invalid!
     //orig_token: ?*const Token = null,
-    kind: tokenizer.Kind = .nos,
+    kind: Token.Kind = .nos,
     err: bool = false,
     draw_cache: [flavors_len]?[]Draw.LexTree = .{null} ** 3,
 
@@ -538,12 +538,12 @@ fn completeSysPath(cs: *CompSet, h: *HSH, target: []const u8) !void {
 }
 
 const TknPair = struct {
-    t: tokenizer.Token = .{ .str = "" },
+    t: Token = .{ .str = "" },
     offset: usize = 0,
     count: usize = 0,
 };
 
-fn findToken(tkns: *tokenizer.Tokenizer) TknPair {
+fn findToken(tkns: *Tokenizer) TknPair {
     var itr = tkns.iterator();
     var pair: TknPair = .{};
     var idx: usize = tkns.c_idx;
@@ -562,7 +562,7 @@ fn findToken(tkns: *tokenizer.Tokenizer) TknPair {
 
 /// Caller owns nothing, memory is only guaranteed until `complete` is
 /// called again.
-pub fn complete(cs: *CompSet, hsh: *HSH, tks: *tokenizer.Tokenizer) !void {
+pub fn complete(cs: *CompSet, hsh: *HSH, tks: *Tokenizer) !void {
     cs.raze();
 
     var iter = tks.iterator();

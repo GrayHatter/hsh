@@ -7,7 +7,8 @@ const Allocator = mem.Allocator;
 const Tokenizer = tokenizer.Tokenizer;
 const ArrayList = std.ArrayList;
 const Kind = tokenizer.Kind;
-const TokenIterator = tokenizer.TokenIterator;
+const Token = @import("token.zig");
+const TokenIterator = Token.Iterator;
 const parse = @import("parse.zig");
 const Parser = parse.Parser;
 const ParsedIterator = parse.ParsedIterator;
@@ -167,7 +168,7 @@ fn makeExeZ(a: Allocator, str: []const u8) Error!ARG {
 
 fn mkBuiltin(a: Allocator, parsed: ParsedIterator) Error!Builtin {
     var itr = parsed;
-    itr.tokens = try a.dupe(tokenizer.Token, itr.tokens);
+    itr.tokens = try a.dupe(Token, itr.tokens);
     return Builtin{
         .builtin = itr.first().cannon(),
         .argv = itr,
@@ -196,7 +197,7 @@ fn mkBinary(a: Allocator, itr: *ParsedIterator) Error!Binary {
     };
 }
 
-fn mkLogic(a: Allocator, t: tokenizer.Token) !Logic {
+fn mkLogic(a: Allocator, t: Token) !Logic {
     return .{
         .logic = try logic_.Logicizer.init(a, t),
     };
@@ -227,7 +228,6 @@ fn mkCallableStack(a: Allocator, itr: *TokenIterator) Error![]CallableStack {
             return try stack.toOwnedSlice();
         }
 
-        //var before: tokenizer.Token = peek.*;
         var eslice = itr.toSliceExec(a) catch unreachable;
         errdefer a.free(eslice);
         var parsed = Parser.parse(a, eslice) catch |err| {

@@ -7,36 +7,17 @@ const fs = @import("fs.zig");
 const io = std.io;
 const mem = std.mem;
 const CompOption = @import("completion.zig").CompOption;
-const token = @import("token.zig");
+const Token = @import("token.zig");
 
-const BREAKING_TOKENS = " \t\n\"\\'`${|><#;}";
-const BSLH = '\\';
+pub const TokenError = Token.Error;
 
-pub const IOKind = enum {
-    In,
-    HDoc,
-    Out,
-    Append,
-    Err,
-};
-
-pub const OpKind = enum {
-    Pipe,
-    Next,
-    Success,
-    Fail,
-    Background,
-};
-
-pub const Error = Token.Error;
-
-pub const TokenizerError = Error || error{
+pub const Error = error{
+    Empty,
     Exec,
+    OutOfMemory,
 };
 
-pub const Token = token.Token;
-pub const TokenIterator = token.Iterator;
-pub const Kind = token.Kind;
+pub const TokenIterator = Token.Iterator;
 
 pub const CursorMotion = enum(u8) {
     home,
@@ -111,7 +92,7 @@ pub const Tokenizer = struct {
         self.c_tkn = 0;
         if (self.raw.items.len == 0) return Error.Empty;
         while (i < self.raw.items.len) {
-            const t = any(self.raw.items[i..]) catch break;
+            const t = Token.any(self.raw.items[i..]) catch break;
             if (t.str.len == 0) break;
             i += t.str.len;
             if (i >= self.c_idx) return t;
@@ -129,305 +110,11 @@ pub const Tokenizer = struct {
         return TokenIterator{ .raw = self.raw.items };
     }
 
-    pub fn any(src: []const u8) Error!Token {
-        return switch (src[0]) {
-            '\'', '"' => group(src),
-            '`' => group(src), // TODO magic
-            '{' => group(src), // TODO magic
-            ' ', '\t', '\n' => Tokenizer.space(src),
-            '~', '/' => Tokenizer.path(src),
-            '>', '<' => Tokenizer.ioredir(src),
-            '|', '&', ';' => Tokenizer.execOp(src),
-            '$' => dollar(src),
-            '#' => comment(src),
-            '\\' => bkslsh(src),
-            else => wordExpanded(src),
-        };
-    }
-
-    fn ioredir(src: []const u8) Error!Token {
-        if (src.len < 3) return Error.InvalidSrc;
-        var i: usize = 1;
-        var t = Token.make(src[0..1], .{ .io = .Err });
-        switch (src[0]) {
-            '<' => {
-                t.str = if (src[1] == '<') src[0..2] else src[0..1];
-                t.kind = .{ .io = .In };
-            },
-            '>' => {
-                if (src[1] == '>') {
-                    t.str = src[0..2];
-                    t.kind = .{ .io = .Append };
-                    i = 2;
-                } else {
-                    t.str = src[0..1];
-                    t.kind = .{ .io = .Out };
-                }
-            },
-            else => return Error.InvalidSrc,
-        }
-        while (src[i] == ' ' or src[i] == '\t') : (i += 1) {}
-        var target = (try word(src[i..])).str;
-        t.substr = target;
-        t.str = src[0 .. i + target.len];
-        return t;
-    }
-
-    fn execOp(src: []const u8) Error!Token {
-        switch (src[0]) {
-            ';' => return Token.make(src[0..1], .{ .oper = .Next }),
-            '&' => {
-                if (src.len > 1 and src[1] == '&') {
-                    return Token.make(src[0..2], .{ .oper = .Success });
-                }
-                return Token.make(src[0..1], .{ .oper = .Background });
-            },
-            '|' => {
-                if (src.len > 1 and src[1] == '|') {
-                    return Token.make(src[0..2], .{ .oper = .Fail });
-                }
-                return Token.make(src[0..1], .{ .oper = .Pipe });
-            },
-            else => return Error.InvalidSrc,
-        }
-    }
-
-    pub fn uAlphaNum(src: []const u8) Error!Token {
-        var end: usize = 0;
-        for (src) |s| {
-            if (!std.ascii.isAlphanumeric(s) and s != '_')
-                break;
-            end += 1;
-        }
-        return Token.make(src[0..end], .word);
-    }
-
-    pub fn comment(src: []const u8) Error!Token {
-        if (std.mem.indexOf(u8, src, "\n")) |i| {
-            return Token.make(src[0 .. i + 1], .comment);
-        }
-
-        return Token.make(src, .comment);
-    }
-
-    pub fn dollar(src: []const u8) Error!Token {
-        if (src.len <= 1) return Error.InvalidSrc;
-        std.debug.assert(src[0] == '$');
-
-        switch (src[1]) {
-            '{' => return vari(src),
-            '(' => return cmdsub(src),
-            else => return vari(src),
-        }
-    }
-
-    pub fn cmdsub(src: []const u8) Error!Token {
-        std.debug.assert(src[0] == '$');
-        std.debug.assert(src[1] == '(');
-        if (src.len <= 2) return Error.InvalidSrc;
-
-        var offset: usize = 2;
-        // loop over the token sort functions to find the final ) which will
-        // close this command substitution. We can't simply look for the )
-        // because it might be within a quoted string.
-        while (offset < src.len and src[offset] != ')') {
-            const tmp = any(src[offset..]) catch {
-                offset += 1;
-                continue;
-            };
-            if (tmp.kind == .quote) {
-                offset += tmp.str.len;
-                continue;
-            }
-            offset += 1;
-        }
-        if (offset >= src.len) {
-            if (offset > src.len or src[offset - 1] != ')') {
-                return Error.InvalidSrc;
-            }
-        } else if (src[offset] == ')' and src[offset - 1] != ')') offset += 1;
-
-        return Token.make(src[0..offset], .subp);
-    }
-
-    pub fn vari(src: []const u8) Error!Token {
-        if (src.len <= 1) return Error.InvalidSrc;
-        std.debug.assert(src[0] == '$');
-
-        if (src[1] == '{') {
-            if (src.len < 4) return Error.InvalidSrc;
-            if (std.ascii.isDigit(src[2])) return Error.InvalidSrc;
-            if (std.mem.indexOf(u8, src, "}")) |end| {
-                var t = try uAlphaNum(src[2..end]);
-                t.substr = t.str;
-                t.str = src[0 .. t.str.len + 3];
-                t.kind = .vari;
-                return t;
-            } else return Error.InvalidSrc;
-        }
-
-        if (std.ascii.isDigit(src[1])) return Error.InvalidSrc;
-        var t = try uAlphaNum(src[1..]);
-        t.substr = t.str;
-        t.str = src[0 .. t.str.len + 1];
-        t.kind = .vari;
-
-        return t;
-    }
-
-    // ASCII only :<
-    pub fn word(src: []const u8) Error!Token {
-        var end: usize = 0;
-        while (end < src.len) {
-            const s = src[end];
-            if (std.mem.indexOfScalar(u8, BREAKING_TOKENS, s)) |_| {
-                break;
-            } else end += 1;
-        }
-
-        if (end <= 5) {
-            if (token.Reserved.fromStr(src[0..end])) |typ| {
-                return Token.make(src[0..end], .{ .resr = typ });
-            }
-        }
-
-        return Token.make(src[0..end], .word);
-    }
-
-    pub fn wordExpanded(src: []const u8) Error!Token {
-        var tkn = try word(src);
-        if (tkn.str.len <= 5) {
-            if (token.Reserved.fromStr(tkn.str)) |_| {
-                return logic(src);
-            }
-        }
-
-        return tkn;
-    }
-
-    pub fn logic(src: []const u8) Error!Token {
-        const end = std.mem.indexOfAny(u8, src, BREAKING_TOKENS) orelse {
-            if (token.Reserved.fromStr(src)) |typ| {
-                return Token.make(src, .{ .resr = typ });
-            }
-            return Error.InvalidSrc;
-        };
-        var r = token.Reserved.fromStr(src[0..end]) orelse unreachable;
-
-        const marker: token.Reserved = switch (r) {
-            .If => .Fi,
-            .Case => .Esac,
-            .While => .Done,
-            .For => .Done,
-            else => return Token.make(src[0..end], .{ .resr = r }),
-        };
-
-        var offset: usize = end;
-        while (offset < src.len) {
-            const t = try any(src[offset..]);
-            offset += t.str.len;
-            if (t.kind == .resr) {
-                if (t.kind.resr == marker) {
-                    return Token.make(src[0..offset], .{ .logic = .{} });
-                }
-            }
-        }
-        return Error.OpenLogic;
-    }
-
-    pub fn oper(src: []const u8) Error!Token {
-        switch (src[0]) {
-            '=' => return Token.make(src[0..1], .{ .io = .Err }),
-            else => return Error.InvalidSrc,
-        }
-    }
-
-    pub fn group(src: []const u8) Error!Token {
-        if (src.len <= 1) return Error.OpenGroup;
-        return switch (src[0]) {
-            '\'' => quoteSingle(src),
-            '"' => quoteDouble(src),
-            '(' => paren(src),
-            '[' => bracket(src),
-            '{' => bracketCurly(src),
-            '`' => backtick(src),
-            else => Error.InvalidSrc,
-        };
-    }
-
-    pub fn quoteSingle(src: []const u8) Error!Token {
-        return quote(src, '\'');
-    }
-
-    pub fn quoteDouble(src: []const u8) Error!Token {
-        return quote(src, '"');
-    }
-
-    pub fn paren(src: []const u8) Error!Token {
-        return quote(src, ')');
-    }
-
-    pub fn bracket(src: []const u8) Error!Token {
-        return quote(src, ']');
-    }
-
-    pub fn bracketCurly(src: []const u8) Error!Token {
-        return quote(src, '}');
-    }
-
-    pub fn backtick(src: []const u8) Error!Token {
-        return quote(src, '`');
-    }
-
-    /// Callers must ensure that src[0] is in (', ")
-    pub fn quote(src: []const u8, close: u8) Error!Token {
-        // TODO posix says a ' cannot appear within 'string'
-        if (src.len <= 1 or src[0] == BSLH) {
-            return Error.InvalidSrc;
-        }
-
-        var end: usize = 1;
-        for (src[1..], 1..) |s, i| {
-            end += 1;
-            if (s == close and !(src[i - 1] == BSLH and src[i - 2] != BSLH)) break;
-        }
-
-        if (src[end - 1] != close) return Error.OpenGroup;
-
-        return Token{
-            .str = src[0..end],
-            .kind = .quote,
-            .subtoken = close,
-        };
-    }
-
-    fn bkslsh(src: []const u8) Error!Token {
-        std.debug.assert(src.len > 1);
-        std.debug.assert(src[0] == '\\');
-
-        return Token.make(src[0..2], .word);
-    }
-
-    fn space(src: []const u8) Error!Token {
-        var end: usize = 0;
-        for (src) |s| {
-            if (s != ' ' and s != '\t' and s != '\n') break;
-            end += 1;
-        }
-        return Token.make(src[0..end], .ws);
-    }
-
-    fn path(src: []const u8) Error!Token {
-        var t = try Tokenizer.word(src);
-        t.kind = .path;
-        return t;
-    }
-
-    /// Returns a Tokenizer error, or toSlice() with index = 0
-    pub fn validate(self: *Tokenizer) Error!void {
+    /// Returns a Token error
+    pub fn validate(self: *Tokenizer) TokenError!void {
         var i: usize = 0;
         while (i < self.raw.items.len) {
-            const t = try any(self.raw.items[i..]);
+            const t = try Token.any(self.raw.items[i..]);
             i += t.str.len;
         }
     }
@@ -502,12 +189,12 @@ pub const Tokenizer = struct {
 
     /// if returned value is null, string is already safe.
     fn makeSafe(self: *Tokenizer, str: []const u8) !?[]u8 {
-        if (mem.indexOfAny(u8, str, BREAKING_TOKENS)) |_| {} else {
+        if (mem.indexOfAny(u8, str, Token.BREAKING_TOKENS)) |_| {} else {
             return null;
         }
         var extra: usize = str.len;
         var look = [1]u8{0};
-        for (BREAKING_TOKENS) |t| {
+        for (Token.BREAKING_TOKENS) |t| {
             look[0] = t;
             extra += mem.count(u8, str, &look);
         }
@@ -516,7 +203,7 @@ pub const Tokenizer = struct {
         var safer = try self.alloc.alloc(u8, extra);
         var i: usize = 0;
         for (str) |c| {
-            if (mem.indexOfScalar(u8, BREAKING_TOKENS, c)) |_| {
+            if (mem.indexOfScalar(u8, Token.BREAKING_TOKENS, c)) |_| {
                 safer[i] = '\\';
                 i += 1;
             }
@@ -526,7 +213,7 @@ pub const Tokenizer = struct {
         return safer;
     }
 
-    fn dropWhitespace(self: *Tokenizer) TokenizerError!usize {
+    fn dropWhitespace(self: *Tokenizer) Error!usize {
         if (self.c_idx == 0 or !std.ascii.isWhitespace(self.raw.items[self.c_idx - 1])) {
             return 0;
         }
@@ -545,7 +232,7 @@ pub const Tokenizer = struct {
         return count;
     }
 
-    fn dropAlphanum(self: *Tokenizer) TokenizerError!usize {
+    fn dropAlphanum(self: *Tokenizer) Error!usize {
         if (self.c_idx == 0 or !std.ascii.isAlphanumeric(self.raw.items[self.c_idx - 1])) {
             return 0;
         }
@@ -565,7 +252,7 @@ pub const Tokenizer = struct {
     }
 
     // this clearly needs a bit more love
-    pub fn dropWord(self: *Tokenizer) TokenizerError!usize {
+    pub fn dropWord(self: *Tokenizer) Error!usize {
         if (self.raw.items.len == 0 or self.c_idx == 0) return 0;
 
         var count = try self.dropWhitespace();
@@ -615,14 +302,14 @@ pub const Tokenizer = struct {
         self.err_idx = @min(self.c_idx, self.err_idx);
     }
 
-    pub fn consumes(self: *Tokenizer, str: []const u8) TokenizerError!void {
+    pub fn consumes(self: *Tokenizer, str: []const u8) Error!void {
         for (str) |s| try self.consumec(s);
     }
 
-    pub fn consumec(self: *Tokenizer, c: u8) TokenizerError!void {
+    pub fn consumec(self: *Tokenizer, c: u8) Error!void {
         if (self.c_idx == self.raw.items.len and c == '\n') {
             if (self.raw.items.len > 0 and self.raw.items[self.raw.items.len - 1] != '\\')
-                return TokenizerError.Exec;
+                return Error.Exec;
         }
         try self.raw.insert(self.c_idx, @bitCast(c));
         self.c_idx += 1;
@@ -710,61 +397,6 @@ const expectEql = std.testing.expectEqual;
 const expectError = std.testing.expectError;
 const eql = std.mem.eql;
 const eqlStr = std.testing.expectEqualStrings;
-test "quotes" {
-    var t = try Tokenizer.group("\"\"");
-    try expectEql(t.str.len, 2);
-    try expectEql(t.cannon().len, 0);
-
-    t = try Tokenizer.group("\"a\"");
-    try expectEql(t.str.len, 3);
-    try expectEql(t.cannon().len, 1);
-    try expect(std.mem.eql(u8, t.str, "\"a\""));
-    try expect(std.mem.eql(u8, t.cannon(), "a"));
-
-    var terr = Tokenizer.group("\"this is invalid");
-    try expectError(Error.OpenGroup, terr);
-
-    t = try Tokenizer.group("\"this is some text\" more text");
-    try expectEql(t.str.len, 19);
-    try expectEql(t.cannon().len, 17);
-    try expect(std.mem.eql(u8, t.str, "\"this is some text\""));
-    try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
-
-    t = try Tokenizer.group("`this is some text` more text");
-    try expectEql(t.str.len, 19);
-    try expectEql(t.cannon().len, 17);
-    try expect(std.mem.eql(u8, t.str, "`this is some text`"));
-    try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
-
-    t = try Tokenizer.group("\"this is some text\" more text");
-    try expectEql(t.str.len, 19);
-    try expectEql(t.cannon().len, 17);
-    try expect(std.mem.eql(u8, t.str, "\"this is some text\""));
-    try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
-
-    terr = Tokenizer.group(
-        \\"this is some text\" more text
-    );
-    try expectError(Error.OpenGroup, terr);
-
-    t = try Tokenizer.group("\"this is some text\\\" more text\"");
-    try expectEql(t.str.len, 31);
-    try expectEql(t.cannon().len, 29);
-    try expect(std.mem.eql(u8, t.str, "\"this is some text\\\" more text\""));
-    try expect(std.mem.eql(u8, t.cannon(), "this is some text\\\" more text"));
-
-    t = try Tokenizer.group("\"this is some text\\\\\" more text\"");
-    try expectEql(t.str.len, 21);
-    try expectEql(t.cannon().len, 19);
-    try expect(std.mem.eql(u8, t.str, "\"this is some text\\\\\""));
-    try expect(std.mem.eql(u8, t.cannon(), "this is some text\\\\"));
-
-    t = try Tokenizer.group("'this is some text' more text");
-    try expectEql(t.str.len, 19);
-    try expectEql(t.cannon().len, 17);
-    try expect(std.mem.eql(u8, t.str, "'this is some text'"));
-    try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
-}
 
 test "quotes tokened" {
     var a = std.testing.allocator;
@@ -787,10 +419,10 @@ test "quotes tokened" {
     try expectEql(tokens[0].cannon().len, 1);
     try expect(std.mem.eql(u8, tokens[0].cannon(), "a"));
 
-    var terr = Tokenizer.group(
+    var terr = Token.group(
         \\"this is invalid
     );
-    try expectError(Error.OpenGroup, terr);
+    try expectError(TokenError.OpenGroup, terr);
 
     t.reset();
     try t.consumes("\"this is some text\" more text");
@@ -822,10 +454,10 @@ test "quotes tokened" {
     try expect(std.mem.eql(u8, tokens[0].str, "\"this is some text\""));
     try expect(std.mem.eql(u8, tokens[0].cannon(), "this is some text"));
 
-    terr = Tokenizer.group(
+    terr = Token.group(
         \\"this is some text\" more text
     );
-    try expectError(Error.OpenGroup, terr);
+    try expectError(TokenError.OpenGroup, terr);
 
     t.reset();
     try t.consumes("\"this is some text\\\" more text\"");
@@ -862,9 +494,6 @@ test "tokens" {
 
 test "tokenize path" {
     var a = std.testing.allocator;
-    const tokenn = try Tokenizer.path("blerg");
-    try expect(eql(u8, tokenn.str, "blerg"));
-
     var t = Tokenizer.init(std.testing.allocator);
     defer t.reset();
 
@@ -1285,48 +914,48 @@ test "token ||" {
 }
 
 test "token vari" {
-    var t = try Tokenizer.vari("$string");
+    var t = try Token.vari("$string");
 
     try eqlStr("string", t.cannon());
 }
 
 test "token vari words" {
-    var t = try Tokenizer.vari("$string ");
+    var t = try Token.vari("$string ");
     try eqlStr("string", t.cannon());
 
-    t = try Tokenizer.vari("$string993");
+    t = try Token.vari("$string993");
     try eqlStr("string993", t.cannon());
 
-    t = try Tokenizer.vari("$string 993");
+    t = try Token.vari("$string 993");
     try eqlStr("string", t.cannon());
 
-    t = try Tokenizer.vari("$string{} 993");
+    t = try Token.vari("$string{} 993");
     try eqlStr("string", t.cannon());
 
-    t = try Tokenizer.vari("$string+");
+    t = try Token.vari("$string+");
     try eqlStr("string", t.cannon());
 
-    t = try Tokenizer.vari("$string:");
+    t = try Token.vari("$string:");
     try eqlStr("string", t.cannon());
 
-    t = try Tokenizer.vari("$string~");
+    t = try Token.vari("$string~");
     try eqlStr("string", t.cannon());
 
-    t = try Tokenizer.vari("$string-");
+    t = try Token.vari("$string-");
     try eqlStr("string", t.cannon());
 }
 
 test "token vari braces" {
-    var t = try Tokenizer.any("$STRING");
+    var t = try Token.any("$STRING");
     try eqlStr("STRING", t.cannon());
 
-    t = try Tokenizer.any("${STRING}");
+    t = try Token.any("${STRING}");
     try eqlStr("STRING", t.cannon());
 
-    t = try Tokenizer.any("${STRING}extra");
+    t = try Token.any("${STRING}extra");
     try eqlStr("STRING", t.cannon());
 
-    t = try Tokenizer.any("${STR_ING}extra");
+    t = try Token.any("${STR_ING}extra");
     try eqlStr("STR_ING", t.cannon());
 
     var itr = TokenIterator{ .raw = "${STR_ING}extra" };
@@ -1436,18 +1065,18 @@ test "dropWord" {
 }
 
 test "ualphanum" {
-    const t = try Tokenizer.uAlphaNum("word word");
+    const t = try Token.uAlphaNum("word word");
     try std.testing.expect(t.str.len == 4);
     try std.testing.expectEqualStrings("word", t.cannon());
 }
 
 test "any" {
-    var t = try Tokenizer.any("word");
+    var t = try Token.any("word");
     try std.testing.expectEqualStrings("word", t.cannon());
 }
 
 test "inline quotes" {
-    var t = try Tokenizer.any("--inline='quoted string'");
+    var t = try Token.any("--inline='quoted string'");
     try std.testing.expectEqualStrings("--inline=", t.cannon());
 
     var itr = TokenIterator{ .raw = "--inline='quoted string'" };
@@ -1456,16 +1085,16 @@ test "inline quotes" {
 }
 
 test "escapes" {
-    var t = try Tokenizer.any("--inline=quoted\\ string");
+    var t = try Token.any("--inline=quoted\\ string");
     try std.testing.expectEqualStrings("--inline=quoted", t.cannon());
 
-    t = try Tokenizer.any("--inline=quoted\\\\ string");
+    t = try Token.any("--inline=quoted\\\\ string");
     try std.testing.expectEqualStrings("--inline=quoted", t.cannon());
 
-    t = try Tokenizer.any("one\\ two");
+    t = try Token.any("one\\ two");
     try std.testing.expectEqualStrings("one", t.cannon());
 
-    t = try Tokenizer.any("one\\\\ two");
+    t = try Token.any("one\\\\ two");
     try std.testing.expectEqualStrings("one", t.cannon());
 }
 
@@ -1479,27 +1108,27 @@ test "reserved" {
     // zig fmt: on
     var t: Token = undefined;
     for (res) |r| {
-        t = try Tokenizer.any(r);
+        t = try Token.any(r);
         try std.testing.expect(t.kind == .resr);
     }
 }
 
 test "subp" {
-    var t = try Tokenizer.any("$(which cat)");
+    var t = try Token.any("$(which cat)");
 
     try std.testing.expectEqualStrings("$(which cat)", t.cannon());
     try std.testing.expect(t.kind == .subp);
 
-    t = try Tokenizer.any("$( echo 'lol good luck buddy)' )");
+    t = try Token.any("$( echo 'lol good luck buddy)' )");
 
     try std.testing.expectEqualStrings("$( echo 'lol good luck buddy)' )", t.cannon());
     try std.testing.expect(t.kind == .subp);
 
-    t = try Tokenizer.any("echo $(pwd))");
+    t = try Token.any("echo $(pwd))");
     try std.testing.expectEqualStrings("echo", t.cannon());
     try std.testing.expect(t.kind == .word);
 
-    t = try Tokenizer.any("$(pwd))");
+    t = try Token.any("$(pwd))");
     try std.testing.expectEqualStrings("$(pwd)", t.cannon());
     try std.testing.expect(t.kind == .subp);
 }
@@ -1517,7 +1146,7 @@ test "make safe" {
 
 test "comment" {
     //var a = std.testing.allocator;
-    var tk = try Tokenizer.any("# comment");
+    var tk = try Token.any("# comment");
 
     try std.testing.expectEqualStrings("# comment", tk.str);
     try std.testing.expectEqualStrings("", tk.cannon());
@@ -1568,7 +1197,7 @@ test "logic" {
         \\fi
     ;
 
-    var ifs = try Tokenizer.logic(if_str);
+    var ifs = try Token.logic(if_str);
     try eqlStr(if_str, ifs.cannon());
 
     const case_str =
@@ -1583,7 +1212,7 @@ test "logic" {
         \\esac
     ;
 
-    var cases = try Tokenizer.logic(case_str);
+    var cases = try Token.logic(case_str);
     try eqlStr(case_str, cases.cannon());
 
     const for_str =
@@ -1593,7 +1222,7 @@ test "logic" {
         \\done
     ;
 
-    var fors = try Tokenizer.logic(for_str);
+    var fors = try Token.logic(for_str);
     try eqlStr(for_str, fors.cannon());
 
     const while_str =
@@ -1603,7 +1232,7 @@ test "logic" {
         \\done
     ;
 
-    var whiles = try Tokenizer.logic(while_str);
+    var whiles = try Token.logic(while_str);
     try eqlStr(while_str, whiles.cannon());
 }
 
@@ -1615,8 +1244,8 @@ test "invalid logic" {
         \\done
     ;
 
-    var ifs = Tokenizer.logic(if_str);
-    try std.testing.expectError(Error.OpenLogic, ifs);
+    var ifs = Token.logic(if_str);
+    try std.testing.expectError(TokenError.OpenLogic, ifs);
 
     const case_str =
         \\case $WORD in
@@ -1626,8 +1255,8 @@ test "invalid logic" {
         \\fi
     ;
 
-    var cases = Tokenizer.logic(case_str);
-    try std.testing.expectError(Error.OpenLogic, cases);
+    var cases = Token.logic(case_str);
+    try std.testing.expectError(TokenError.OpenLogic, cases);
 
     const for_str =
         \\for num in $NUMS
@@ -1636,8 +1265,8 @@ test "invalid logic" {
         \\until
     ;
 
-    var fors = Tokenizer.logic(for_str);
-    try std.testing.expectError(Error.OpenLogic, fors);
+    var fors = Token.logic(for_str);
+    try std.testing.expectError(TokenError.OpenLogic, fors);
 
     const while_str =
         \\while false;
@@ -1646,8 +1275,8 @@ test "invalid logic" {
         \\true
     ;
 
-    var whiles = Tokenizer.logic(while_str);
-    try std.testing.expectError(Error.OpenLogic, whiles);
+    var whiles = Token.logic(while_str);
+    try std.testing.expectError(TokenError.OpenLogic, whiles);
 }
 
 test "nested logic" {
@@ -1665,7 +1294,7 @@ test "nested logic" {
         \\fi
     ;
 
-    var ifs = try Tokenizer.logic(if_str);
+    var ifs = try Token.logic(if_str);
     try eqlStr(if_str, ifs.cannon());
 
     const case_str =
@@ -1679,7 +1308,7 @@ test "nested logic" {
         \\    esac
     ;
 
-    var cases = try Tokenizer.logic(case_str);
+    var cases = try Token.logic(case_str);
     try eqlStr(case_str, cases.cannon());
 
     const for_str =
@@ -1692,7 +1321,7 @@ test "nested logic" {
         \\done
     ;
 
-    var fors = try Tokenizer.logic(for_str);
+    var fors = try Token.logic(for_str);
     try eqlStr(for_str, fors.cannon());
 
     const while_str =
@@ -1704,7 +1333,7 @@ test "nested logic" {
         \\ done
     ;
 
-    var whiles = try Tokenizer.logic(while_str);
+    var whiles = try Token.logic(while_str);
     try eqlStr(while_str, whiles.cannon());
 }
 
@@ -1729,9 +1358,9 @@ test "escape newline" {
 
     try tzr.consumes("zig build test");
     const e = tzr.consumec('\n');
-    try std.testing.expectError(TokenizerError.Exec, e);
+    try std.testing.expectError(Error.Exec, e);
     const ee = tzr.consumes("\n");
-    try std.testing.expectError(TokenizerError.Exec, ee);
+    try std.testing.expectError(Error.Exec, ee);
     _ = try tzr.consumec('\\');
     try tzr.consumes("\n"); // expect no error
 }

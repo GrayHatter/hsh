@@ -5,8 +5,8 @@ const ArrayList = std.ArrayList;
 const mem = std.mem;
 const tokenizer = @import("tokenizer.zig");
 const Tokenizer = tokenizer.Tokenizer;
-const Token = tokenizer.Token;
-const TokenIterator = tokenizer.TokenIterator;
+const Token = @import("token.zig");
+const TokenIterator = Token.Iterator;
 const Builtins = @import("builtins.zig");
 const Aliases = Builtins.Aliases;
 const Variables = @import("variables.zig");
@@ -26,8 +26,8 @@ pub const Parsed = struct {
     alloc: Allocator,
     str: []u8,
     capacity: usize,
-    io: ?tokenizer.IOKind,
-    op: ?tokenizer.OpKind,
+    io: ?Token.IOKind,
+    op: ?Token.OpKind,
 
     pub fn init(self: *Parsed, a: Allocator) void {
         self.alloc = a;
@@ -206,12 +206,12 @@ pub const ParsedIterator = struct {
                     '$' => {
                         var res: Token = undefined;
                         if (t.str[i + 1] == '(') {
-                            res = Tokenizer.cmdsub(t.str[i..]) catch {
+                            res = Token.cmdsub(t.str[i..]) catch {
                                 try list.append(c);
                                 continue;
                             };
                         } else {
-                            res = Tokenizer.vari(t.str[i..]) catch {
+                            res = Token.vari(t.str[i..]) catch {
                                 try list.append(c);
                                 continue;
                             };
@@ -661,11 +661,11 @@ test "parse vars" {
     var a = std.testing.allocator;
 
     comptime var ts = [5]Token{
-        try Tokenizer.any("echo"),
-        try Tokenizer.any(" "),
-        try Tokenizer.any("$string"),
-        try Tokenizer.any(" "),
-        try Tokenizer.any("blerg"),
+        try Token.any("echo"),
+        try Token.any(" "),
+        try Token.any("$string"),
+        try Token.any(" "),
+        try Token.any("blerg"),
     };
 
     var itr = try Parser.parse(a, &ts);
@@ -687,9 +687,9 @@ test "parse vars existing" {
     var a = std.testing.allocator;
 
     comptime var ts = [3]Token{
-        try Tokenizer.any("echo"),
-        try Tokenizer.any("$string"),
-        try Tokenizer.any("blerg"),
+        try Token.any("echo"),
+        try Token.any("$string"),
+        try Token.any("blerg"),
     };
 
     Variables.init(a);
@@ -716,11 +716,11 @@ test "parse vars existing with white space" {
     var a = std.testing.allocator;
 
     comptime var ts = [5]Token{
-        try Tokenizer.any("echo"),
-        try Tokenizer.any(" "),
-        try Tokenizer.any("$string"),
-        try Tokenizer.any(" "),
-        try Tokenizer.any("blerg"),
+        try Token.any("echo"),
+        try Token.any(" "),
+        try Token.any("$string"),
+        try Token.any(" "),
+        try Token.any("blerg"),
     };
 
     Variables.init(a);
