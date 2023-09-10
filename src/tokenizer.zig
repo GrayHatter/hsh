@@ -145,16 +145,6 @@ pub const Tokenizer = struct {
         };
     }
 
-    //pub fn string(src: []const u8) Error!Token {
-    //    if (mem.indexOfAny(u8, src[0..1], BREAKING_TOKENS)) |_| return Error.InvalidSrc;
-    //    var end: usize = 0;
-    //    for (src, 0..) |_, i| {
-    //        end = i;
-    //        if (mem.indexOfAny(u8, src[i .. i + 1], BREAKING_TOKENS)) |_| break else continue;
-    //    } else end += 1;
-    //    return Token.make(src[0..end], .word);
-    //}
-
     fn ioredir(src: []const u8) Error!Token {
         if (src.len < 3) return Error.InvalidSrc;
         var i: usize = 1;
