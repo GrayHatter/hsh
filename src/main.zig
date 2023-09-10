@@ -2,14 +2,9 @@ const std = @import("std");
 const log = @import("log");
 const hsh_build = @import("hsh_build");
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
 const TTY = @import("tty.zig");
 const tokenizer = @import("tokenizer.zig");
 const Tokenizer = tokenizer.Tokenizer;
-const TokenErr = tokenizer.Error;
-const TokenKind = tokenizer.Kind;
-const parser = @import("parse.zig");
-const Parser = parser.Parser;
 const Draw = @import("draw.zig");
 const Drawable = Draw.Drawable;
 const prompt = @import("prompt.zig").prompt;
@@ -18,9 +13,7 @@ const ctxContext = @import("prompt.zig").ctxContext;
 const Context = @import("context.zig");
 const HSH = @import("hsh.zig").HSH;
 const complete = @import("completion.zig");
-const Keys = @import("keys.zig");
 const Exec = @import("exec.zig");
-const exec = Exec.exec;
 const Signals = @import("signals.zig");
 const History = @import("history.zig");
 const jobs = @import("jobs.zig");
@@ -150,7 +143,7 @@ pub fn main() !void {
                 if (hsh.hist) |*hist| try hist.push(hsh.tkn.raw.items);
                 //var itr = hsh.tkn.iterator();
                 try Draw.newLine(&hsh.draw);
-                exec(&hsh, str) catch |err| {
+                Exec.exec(&hsh, str) catch |err| {
                     switch (err) {
                         error.ExeNotFound => {
                             const first = Exec.execFromInput(&hsh, str) catch @panic("memory");
