@@ -3,6 +3,7 @@ const std = @import("std");
 const Variables = @This();
 
 const Kind = enum {
+    nos,
     internal,
     sysenv,
     special,
@@ -35,11 +36,15 @@ pub fn getStr(k: []const u8) ?[]const u8 {
     if (variables.get(k)) |v| return v.value else return null;
 }
 
-pub fn put(k: []const u8, v: []const u8) !void {
+pub fn putKind(k: []const u8, v: []const u8, comptime g: Kind) !void {
     return variables.put(k, Var{
-        .kind = .internal,
+        .kind = g,
         .value = v,
     });
+}
+
+pub fn put(k: []const u8, v: []const u8) !void {
+    return putKind(k, v, .nos);
 }
 
 // del(k, v) where v can be an optional, delete only of v matches current value
