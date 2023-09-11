@@ -496,7 +496,7 @@ const eqlStr = std.testing.expectEqualStrings;
 test "iterator nows" {
     var a = std.testing.allocator;
     var t: Tokenizer = Tokenizer.init(std.testing.allocator);
-    defer t.reset();
+    defer t.raze();
 
     try t.consumes("\"this is some text\" more text");
     var itr = t.iterator();
@@ -514,7 +514,7 @@ test "iterator nows" {
 test "breaking" {
     var a = std.testing.allocator;
     var t = Tokenizer.init(std.testing.allocator);
-    defer t.reset();
+    defer t.raze();
 
     try t.consumes("alias la='ls -la'");
     var titr = t.iterator();

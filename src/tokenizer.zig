@@ -377,7 +377,7 @@ pub const Tokenizer = struct {
     }
 
     pub fn resetRaw(self: *Tokenizer) void {
-        self.raw.clearAndFree();
+        self.raw.clearRetainingCapacity();
         self.c_idx = 0;
         self.err_idx = 0;
         self.c_tkn = 0;
@@ -395,6 +395,7 @@ pub const Tokenizer = struct {
 
     pub fn raze(self: *Tokenizer) void {
         self.reset();
+        self.raw.clearAndFree();
     }
 };
 
@@ -407,7 +408,7 @@ const eqlStr = std.testing.expectEqualStrings;
 test "quotes tokened" {
     var a = std.testing.allocator;
     var t: Tokenizer = Tokenizer.init(std.testing.allocator);
-    defer t.reset();
+    defer t.raze();
 
     try t.consumes("\"\"");
     var titr = t.iterator();
@@ -488,7 +489,7 @@ test "alloc" {
 test "tokens" {
     var a = std.testing.allocator;
     var t = Tokenizer.init(std.testing.allocator);
-    defer t.reset();
+    defer t.raze();
     for ("token") |c| {
         try t.consumec(c);
     }
@@ -501,7 +502,7 @@ test "tokens" {
 test "tokenize path" {
     var a = std.testing.allocator;
     var t = Tokenizer.init(std.testing.allocator);
-    defer t.reset();
+    defer t.raze();
 
     try t.consumes("blerg ~/dir");
     var titr = t.iterator();
@@ -526,7 +527,7 @@ test "tokenize path" {
 test "replace token" {
     var a = std.testing.allocator;
     var t = Tokenizer.init(std.testing.allocator);
-    defer t.reset();
+    defer t.raze();
     try expect(std.mem.eql(u8, t.raw.items, ""));
 
     try t.consumes("one two three");
@@ -575,7 +576,7 @@ test "replace token" {
 test "breaking" {
     var a = std.testing.allocator;
     var t = Tokenizer.init(std.testing.allocator);
-    defer t.reset();
+    defer t.raze();
 
     try t.consumes("alias la='ls -la'");
     var titr = t.iterator();
@@ -993,12 +994,12 @@ test "pop" {
         try t.pop();
     }
     try std.testing.expectError(Error.Empty, t.pop());
-    t.reset();
+    t.raze();
 }
 
 test "dropWhitespace" {
     var t = Tokenizer.init(std.testing.allocator);
-    defer t.reset();
+    defer t.raze();
     try t.consumes("a      ");
     try std.testing.expect(t.raw.items.len == 7);
     try std.testing.expect(try t.dropWhitespace() == 6);
@@ -1018,7 +1019,7 @@ test "dropWhitespace" {
 
 test "dropAlpha" {
     var t = Tokenizer.init(std.testing.allocator);
-    defer t.reset();
+    defer t.raze();
     try t.consumes("a      aoeu");
     try std.testing.expect(t.raw.items.len == 11);
     try std.testing.expect(try t.dropAlphanum() == 4);
@@ -1038,7 +1039,7 @@ test "dropAlpha" {
 
 test "dropWord" {
     var t = Tokenizer.init(std.testing.allocator);
-    defer t.reset();
+    defer t.raze();
     try t.consumes("a      ");
     try std.testing.expect(t.raw.items.len == 7);
     try std.testing.expect(try t.dropWord() == 7);

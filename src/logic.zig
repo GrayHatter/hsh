@@ -9,7 +9,10 @@ const exec_ = @import("exec.zig");
 
 const HSH = @import("hsh.zig").HSH;
 
-const Error = tokens.Error || error{OutOfMemory};
+const Error = tokens.Error || error{
+    OutOfMemory,
+    ExecFailure,
+};
 
 const Self = @This();
 
@@ -38,6 +41,19 @@ pub const Reserved = enum {
         return null;
     }
 };
+
+fn execBody(a: Allocator, h: *HSH, body: []const u8) !void {
+    var tzr = Tokenizer.init(a);
+    defer tzr.raze();
+    for (body) |b| {
+        tzr.consumec(b) catch |err| {
+            if (err == tokenizer.Error.Exec) {
+                try exec_.exec(h, tzr.raw.items);
+                tzr.resetRaw();
+            }
+        };
+    }
+}
 
 const If = struct {
     alloc: Allocator,
@@ -155,21 +171,25 @@ const If = struct {
         return mkIf(a, str);
     }
 
-    /// If null logic completed successfully, if an If pointer is returned
-    /// caller should call exec on the returned pointer.
-    pub fn exec(self: *If, h: *HSH) Error!?*If {
+    fn execClause(self: *If) Error!bool {
         const clause = self.clause orelse return Error.InvalidLogic;
         log.debug("testing logic clasue \n    {s}\n", .{clause});
         var child = exec_.childParsed(self.alloc, clause) catch |err| {
             log.err("Unexpected error ({}) when attempting to run logic\n", .{err});
-            return null;
+            return Error.ExecFailure;
         };
         const ec = child.job.exit_code orelse {
             log.err("Logic exec called for an invalid job state.\n", .{});
-            return null;
+            return Error.ExecFailure;
         };
-        if (ec == 0) {
-            exec_.exec(h, self.body.?) catch |err| {
+        return ec == 0;
+    }
+
+    /// If null logic completed successfully, if an If pointer is returned
+    /// caller should call exec on the returned pointer.
+    pub fn exec(self: *If, h: *HSH) Error!?*If {
+        if (self.execClause() catch return null) {
+            execBody(self.alloc, h, self.body.?) catch |err| {
                 log.err(
                     "Unexpected error ({}) when attempting to run logic main body\n",
                     .{err},
@@ -180,7 +200,7 @@ const If = struct {
             if (self.elif) |elif| {
                 switch (elif.*) {
                     .elses => |elses| {
-                        exec_.exec(h, elses) catch |err| {
+                        execBody(self.alloc, h, elses) catch |err| {
                             log.err(
                                 "Unexpected error ({}) when attempting to run logic else body\n",
                                 .{err},
