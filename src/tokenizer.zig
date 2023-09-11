@@ -276,8 +276,14 @@ pub const Tokenizer = struct {
     pub fn pop(self: *Tokenizer) Error!void {
         self.user_data = true;
         if (self.raw.items.len == 0 or self.c_idx == 0) return Error.Empty;
+        if (self.c_idx < self.raw.items.len) {
+            self.c_idx -|= 1;
+            _ = self.raw.orderedRemove(self.c_idx);
+            return;
+        }
+
         self.c_idx -|= 1;
-        _ = self.raw.orderedRemove(self.c_idx);
+        self.raw.items.len -|= 1;
         self.err_idx = @min(self.c_idx, self.err_idx);
     }
 
@@ -307,13 +313,13 @@ pub const Tokenizer = struct {
     }
 
     pub fn consumec(self: *Tokenizer, c: u8) Error!void {
-        if (self.c_idx == self.raw.items.len and c == '\n') {
-            if (self.raw.items.len > 0 and self.raw.items[self.raw.items.len - 1] != '\\')
-                return Error.Exec;
-        }
         try self.raw.insert(self.c_idx, @bitCast(c));
         self.c_idx += 1;
         self.user_data = true;
+        if (self.c_idx == self.raw.items.len and c == '\n') {
+            if (self.raw.items.len > 1 and self.raw.items[self.raw.items.len - 2] != '\\')
+                return Error.Exec;
+        }
     }
 
     // TODO rename verbNoun -> lineVerb

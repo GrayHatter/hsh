@@ -245,6 +245,7 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
             var nl_exec = tkn.consumec(nl);
             if (nl_exec == error.Exec) {
                 if (tkn.validate()) {} else |e| {
+                    log.err("validate", .{});
                     switch (e) {
                         TokenErr.OpenGroup, TokenErr.OpenLogic => {},
                         TokenErr.TokenizeFailed => log.err("tokenize Error {}\n", .{e}),
@@ -252,6 +253,7 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
                     }
                     return .Prompt;
                 }
+                tkn.bsc();
                 return .Exec;
             }
             //var run = Parser.parse(tkn.alloc, tkns) catch return .Redraw;
