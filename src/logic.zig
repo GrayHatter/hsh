@@ -195,7 +195,6 @@ const If = struct {
                     .{err},
                 );
             };
-            return null;
         } else {
             if (self.elif) |elif| {
                 switch (elif.*) {
@@ -205,17 +204,13 @@ const If = struct {
                                 "Unexpected error ({}) when attempting to run logic else body\n",
                                 .{err},
                             );
-                            return null;
                         };
-                        return null;
                     },
-                    .elifs => |*elifs| {
-                        return elifs;
-                    },
+                    .elifs => |*elifs| return elifs,
                 }
             }
-            return null;
         }
+        return null;
     }
 
     pub fn raze(self: *If) void {
