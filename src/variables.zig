@@ -2,7 +2,7 @@ const std = @import("std");
 
 const Variables = @This();
 
-const Kind = enum {
+const Kind = enum(u4) {
     nos,
     internal,
     sysenv,
@@ -15,52 +15,62 @@ const Var = struct {
     exported: bool = false,
 };
 
-var variables: std.StringHashMap(Var) = undefined;
+var variables: [4]std.StringHashMap(Var) = undefined;
 
 pub fn init(a: std.mem.Allocator) void {
-    variables = std.StringHashMap(Var).init(a);
+    for (&variables) |*vari| {
+        vari.* = std.StringHashMap(Var).init(a);
+    }
 }
 
 pub fn load(sys: std.process.EnvMap) !void {
     var i = sys.iterator();
     while (i.next()) |each| {
-        try put(each.key_ptr.*, each.value_ptr.*);
+        try putKind(each.key_ptr.*, each.value_ptr.*, .sysenv);
     }
 }
 
+pub fn getKind(k: []const u8, comptime g: Kind) ?Var {
+    return variables[@intFromEnum(g)].get(k);
+}
+
 pub fn get(k: []const u8) ?Var {
-    return variables.get(k);
+    return getKind(k, .sysenv);
 }
 
 pub fn getStr(k: []const u8) ?[]const u8 {
-    if (variables.get(k)) |v| return v.value else return null;
+    if (get(k)) |v| return v.value else return null;
 }
 
 pub fn putKind(k: []const u8, v: []const u8, comptime g: Kind) !void {
-    return variables.put(k, Var{
+    return variables[@intFromEnum(g)].put(k, Var{
         .kind = g,
         .value = v,
     });
 }
 
 pub fn put(k: []const u8, v: []const u8) !void {
-    return putKind(k, v, .nos);
+    return putKind(k, v, .sysenv);
+}
+
+pub fn delKind(k: []const u8, comptime g: Kind) !void {
+    variables[@intFromEnum(g)].remove(k);
 }
 
 // del(k, v) where v can be an optional, delete only of v matches current value
 pub fn del(k: []const u8) !void {
-    variables.remove(k);
+    delKind(k, .nos);
 }
 
 /// named exports because I don't want to fight the compiler over the keyword
 pub fn exports(k: []const u8) !void {
-    if (variables.getPtr(k)) |v| {
+    if (variables[@intFromEnum(Kind.sysenv)].getPtr(k)) |v| {
         v.exported = true;
     }
 }
 
 pub fn unexport(k: []const u8) !void {
-    if (variables.getPtr(k)) |v| {
+    if (variables[@intFromEnum(Kind.sysenv)].getPtr(k)) |v| {
         v.exported = false;
     }
 }
@@ -71,7 +81,9 @@ pub fn raze() void {
     //    a.free(ent.key_ptr.*);
     //    a.free(ent.value_ptr.value);
     //}
-    variables.clearAndFree();
+    for (&variables) |*vari| {
+        vari.clearAndFree();
+    }
 }
 
 test "standard usage" {
