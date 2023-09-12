@@ -971,6 +971,12 @@ test "token vari braces" {
     try expectEql(count, 2);
 }
 
+test "dollar posix" {
+    var t = try Token.any("$!");
+    try expect(t.kind == .vari);
+    try eqlStr("!", t.cannon());
+}
+
 test "all execs" {
     var tt = TokenIterator{ .raw = "ls -with -some -params && files || thing | pipeline ; othercmd & screenshot && some/rel/exec" };
     var count: usize = 0;

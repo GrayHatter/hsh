@@ -229,6 +229,11 @@ pub fn vari(src: []const u8) Error!Token {
     }
 
     if (std.ascii.isDigit(src[1])) return Error.InvalidSrc;
+    if (std.mem.indexOfAny(u8, src[1..2], "@*#?-$!0")) |_| {
+        var t = Token.make(src[0..2], .vari);
+        t.substr = src[1..2];
+        return t;
+    }
     var t = try uAlphaNum(src[1..]);
     t.substr = t.str;
     t.str = src[0 .. t.str.len + 1];
