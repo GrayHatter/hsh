@@ -194,42 +194,13 @@ pub const ParsedIterator = struct {
             return try tokens.toOwnedSlice();
         }
 
-        if (std.mem.indexOf(u8, local.cannon(), "$") != null or local.kind == .vari) {
-            var skip: usize = 0;
-            var list = std.ArrayList(u8).init(self.alloc);
-            for (t.str, 0..) |c, i| {
-                if (skip > 0) {
-                    skip -|= 1;
-                    continue;
-                }
-                switch (c) {
-                    '$' => {
-                        var res: Token = undefined;
-                        if (t.str[i + 1] == '(') {
-                            res = Token.cmdsub(t.str[i..]) catch {
-                                try list.append(c);
-                                continue;
-                            };
-                        } else {
-                            res = Token.vari(t.str[i..]) catch {
-                                try list.append(c);
-                                continue;
-                            };
-                        }
-                        skip = res.str.len - 1;
-                        const resolved = Parser.single(self.alloc, res) catch continue;
-                        if (resolved.resolved) |str| {
-                            try list.appendSlice(str);
-                            self.alloc.free(str);
-                        } else {
-                            try list.appendSlice(resolved.cannon());
-                        }
-                    },
-                    else => try list.append(c),
-                }
-            }
-            const owned = try list.toOwnedSlice();
+        if (local.kind == .quote and local.subtoken == '\'') {
+            try tokens.append(local);
+            return try tokens.toOwnedSlice();
+        }
 
+        if (std.mem.indexOf(u8, local.cannon(), "$") != null or local.kind == .vari) {
+            var owned = try self.resolveDollar(local);
             try tokens.append(Token{ .str = "", .resolved = owned });
         } else if (std.mem.indexOf(u8, local.cannon(), "*")) |_| {
             var real = try Parser.single(self.alloc, local);
@@ -242,6 +213,43 @@ pub const ParsedIterator = struct {
             try tokens.append(real);
         }
         return try tokens.toOwnedSlice();
+    }
+
+    fn resolveDollar(self: *Self, token: Token) ![]u8 {
+        var skip: usize = 0;
+        var list = std.ArrayList(u8).init(self.alloc);
+        for (token.str, 0..) |c, i| {
+            if (skip > 0) {
+                skip -|= 1;
+                continue;
+            }
+            switch (c) {
+                '$' => {
+                    var res: Token = undefined;
+                    if (token.str[i + 1] == '(') {
+                        res = Token.cmdsub(token.str[i..]) catch {
+                            try list.append(c);
+                            continue;
+                        };
+                    } else {
+                        res = Token.vari(token.str[i..]) catch {
+                            try list.append(c);
+                            continue;
+                        };
+                    }
+                    skip = res.str.len - 1;
+                    const resolved = Parser.single(self.alloc, res) catch continue;
+                    if (resolved.resolved) |str| {
+                        try list.appendSlice(str);
+                        self.alloc.free(str);
+                    } else {
+                        try list.appendSlice(resolved.cannon());
+                    }
+                },
+                else => try list.append(c),
+            }
+        }
+        return try list.toOwnedSlice();
     }
 
     fn resolveGlob(self: *Self, token: Token) ![]Token {
@@ -838,6 +846,56 @@ test "parse vars existing braces inline both" {
     try eqlStr("extravaluethingy", itr.next().?.cannon());
     try eqlStr("blerg", itr.next().?.cannon());
     try expect(itr.next() == null);
+}
+
+test "parse dollar dollar bills y'all" {
+    var a = std.testing.allocator;
+
+    var tkns = [_]Token{
+        Token.make("echo", .word),
+        Token.make(" ", .ws),
+        Token.make("$!", .vari),
+        Token.make(" ", .ws),
+        Token.make("other", .word),
+    };
+
+    var psd = try Parser.parse(a, &tkns);
+    defer psd.raze();
+
+    try std.testing.expect(std.mem.indexOf(u8, psd.next().?.cannon(), "!") == null);
+    try std.testing.expect(std.mem.indexOf(u8, psd.next().?.cannon(), "!") == null);
+    try std.testing.expect(std.mem.indexOf(u8, psd.next().?.cannon(), "!") == null);
+    try std.testing.expect(psd.next() == null);
+    psd.raze();
+
+    tkns = [_]Token{
+        Token.make("echo", .word),
+        Token.make(" ", .ws),
+        try Token.quoteSingle("'$!'"),
+        Token.make(" ", .ws),
+        Token.make("other", .word),
+    };
+
+    psd = try Parser.parse(a, &tkns);
+    try std.testing.expect(std.mem.indexOf(u8, psd.next().?.cannon(), "!") == null);
+    try std.testing.expect(std.mem.indexOf(u8, psd.next().?.cannon(), "!") != null);
+    try std.testing.expect(std.mem.indexOf(u8, psd.next().?.cannon(), "!") == null);
+    try std.testing.expect(psd.next() == null);
+    psd.raze();
+
+    tkns = [_]Token{
+        Token.make("echo", .word),
+        Token.make(" ", .ws),
+        try Token.quoteDouble("\"$!\""),
+        Token.make(" ", .ws),
+        Token.make("other", .word),
+    };
+
+    psd = try Parser.parse(a, &tkns);
+    try std.testing.expect(std.mem.indexOf(u8, psd.next().?.cannon(), "!") == null);
+    try std.testing.expect(std.mem.indexOf(u8, psd.next().?.cannon(), "!") == null);
+    try std.testing.expect(std.mem.indexOf(u8, psd.next().?.cannon(), "!") == null);
+    try std.testing.expect(psd.next() == null);
 }
 
 test "parse path" {
