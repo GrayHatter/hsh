@@ -19,6 +19,7 @@ const fs = @import("fs.zig");
 const bi = @import("builtins.zig");
 const signal = @import("signals.zig");
 const logic_ = @import("logic.zig");
+const Variables = @import("variables.zig");
 
 const STDIN_FILENO = std.os.STDIN_FILENO;
 const STDOUT_FILENO = std.os.STDOUT_FILENO;
@@ -330,7 +331,9 @@ fn execBuiltin(h: *HSH, b: *Builtin) Error!u8 {
 
 fn execBin(e: Binary) Error!void {
     // TODO manage env
-    const res = std.os.execveZ(e.arg, e.argv, @ptrCast(std.os.environ));
+
+    const environ = Variables.henviron();
+    const res = std.os.execveZ(e.arg, e.argv, @ptrCast(environ));
     switch (res) {
         error.FileNotFound => {
             // we validate exes internally now this should be impossible
@@ -414,6 +417,10 @@ pub fn exec(h_: *HSH, input: []const u8) Error!void {
             log.err("TTY didn't respond as expected after exec error{}\n", .{e});
         };
     }
+
+    // This is where I'd like environ to live, but I'm not ready to change the
+    // api in this commit
+    //const environ = Variables.henviron();
 
     var fpid: std.os.pid_t = 0;
     for (stack) |*s| {
