@@ -91,6 +91,10 @@ pub const ParsedIterator = struct {
     t_index: usize = 0,
     tokens: []const Token,
     aliases: [][]const u8,
+    // command subexec may have side-effects which would be incompatible with
+    // completion suggestions.
+    exec_allowed: bool = true,
+
     const Self = @This();
 
     /// Restart iterator, and assumes length >= 1
