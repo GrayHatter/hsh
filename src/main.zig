@@ -173,6 +173,9 @@ pub fn main() !void {
                             try Draw.drawAfter(&hsh.draw, tree);
                             try Draw.render(&hsh.draw);
                         },
+                        error.StdIOError => {
+                            log.err("StdIoError\n", .{});
+                        },
                         else => {
                             log.err("Exec error {}\n", .{err});
                             unreachable;

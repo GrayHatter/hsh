@@ -71,7 +71,7 @@ fn initBuiltins(h: *HSH) !void {
     savestates = ArrayList(State).init(h.alloc);
     bi.Export.init(h.alloc);
     bi.Aliases.init(h.alloc);
-    bi.Set.init(h.alloc);
+    bi.Set.init();
 }
 
 fn razeBuiltins(h: *HSH) void {
@@ -154,6 +154,15 @@ var savestates: ArrayList(State) = undefined;
 
 pub fn addState(s: State) E!void {
     savestates.append(s) catch return E.Memory;
+}
+
+pub fn getState(name: []const u8) !*anyopaque {
+    for (savestates.items) |*s| {
+        if (std.mem.eql(u8, name, s.getName())) {
+            return s.getCtx();
+        }
+    }
+    return E.Other;
 }
 
 fn writeLine(f: std.fs.File, line: []const u8) !usize {

@@ -4,7 +4,11 @@ const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 const log = @import("log");
 const INotify = @import("inotify.zig");
-const HSH = @import("hsh.zig").HSH;
+const hsh = @import("hsh.zig");
+const HSH = hsh.HSH;
+const set = @import("builtins/set.zig");
+const KnOptions = set.KnOptions;
+const PathAlreadyExists = std.fs.File.OpenError.PathAlreadyExists;
 
 pub const fs = @This();
 
@@ -65,7 +69,14 @@ pub const Error = error{
     System,
     Missing,
     Perm,
+    Noclobber,
     Other,
+};
+
+pub const clobberMode = enum {
+    append, // Append to file, so noclobber option is irrelevent,
+    maybeClobber, // Check noclobber option before writing.
+    forceClobber, // Ignore noclobber option.
 };
 
 pub fn init(a: mem.Allocator, env: std.process.EnvMap) !fs {
@@ -286,6 +297,54 @@ pub fn findPath(
     }
 
     return Error.Missing;
+}
+
+pub fn openStdoutFile(name: []const u8, comptime create: bool, clobber: clobberMode) !std.fs.File {
+    switch (clobber) {
+        .append, .forceClobber => {
+            if (openFile(name, create)) |file| {
+                return file;
+            }
+        },
+        .maybeClobber => {
+            // Check for noclobber
+            if (hsh.getState("set")) |ctx| {
+                const opts: *KnOptions = @ptrCast(ctx);
+                if (opts.noclobber) |noclobber| {
+                    // noclobber enabled
+                    if (noclobber) {
+                        // Check for existing file
+                        if(std.fs.cwd().openFile(name, .{ .mode = .read_only })) |file| {
+                            file.close();
+                            return Error.Noclobber;
+                        }
+                        else |err| {
+                            switch (err) {
+                                std.fs.File.OpenError.FileNotFound => {
+                                    if (openFile(name, true)) |file| {
+                                        return file;
+                                    }
+                                },
+                                else => return err,
+                            }
+                        }
+                        return Error.Noclobber;
+                    }
+                    // noclobber disabled
+                    else {
+                        if (openFile(name, create)) |file| {
+                            return file;
+                        }
+                    }
+                }
+            }
+            else |_| {
+                log.err("set state not found.\n", .{});
+                return Error.Noclobber;
+            }
+        },
+    }
+    return Error.Noclobber;
 }
 
 pub const CoreFiles = enum {
