@@ -148,7 +148,7 @@ pub fn raze() void {
     environ_alloc.free(environ);
 }
 
-test "standard usage" {
+test "variables standard usage" {
     var a = std.testing.allocator;
 
     init(a);
