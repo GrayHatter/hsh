@@ -7,16 +7,33 @@ const Kind = enum(u4) {
     nos,
     internal,
     sysenv,
-    special,
+
+    const len = @typeInfo(@This()).Enum.fields.len;
 };
 
-const Var = struct {
+pub const SysEnv = struct {
     value: []const u8,
-    kind: Kind,
     exported: bool = false,
 };
 
-var variables: [4]std.StringHashMap(Var) = undefined;
+const Var = union(Kind) {
+    nos: []const u8,
+    internal: union(enum) {
+        int: usize,
+        str: []const u8,
+    },
+    sysenv: SysEnv,
+
+    pub fn getType(comptime G: Kind) type {
+        inline for (@typeInfo(Var).Union.fields) |each| {
+            if (std.mem.eql(u8, @tagName(G), each.name))
+                return each.type;
+        }
+        unreachable;
+    }
+};
+
+var variables: [Kind.len]std.StringHashMap(Var) = undefined;
 
 var environ: [:null]?[*:0]u8 = undefined;
 var environ_alloc: std.mem.Allocator = undefined;
@@ -71,7 +88,14 @@ fn environBuild() ![:null]?[*:0]u8 {
     var itr = variables[@intFromEnum(Kind.sysenv)].iterator();
     while (itr.next()) |ent| {
         const k = ent.key_ptr.*;
-        const v = ent.value_ptr.*.value;
+        const v = switch (ent.value_ptr.*) {
+            .nos => |n| n,
+            .sysenv => |s| s.value,
+            .internal => |i| switch (i) {
+                .int => continue,
+                .str => |s| s,
+            },
+        };
         var str = try environ_alloc.alloc(u8, k.len + v.len + 2);
         @memcpy(str[0..k.len], k);
         str[k.len] = '=';
@@ -91,23 +115,34 @@ pub fn henviron() [:null]?[*:0]u8 {
     return environBuild() catch @panic("unable to build environ");
 }
 
-pub fn getKind(k: []const u8, comptime g: Kind) ?Var {
-    return variables[@intFromEnum(g)].get(k);
+pub fn getKind(k: []const u8, comptime G: Kind) ?std.meta.FieldType(Var, G) {
+    var vs = variables[@intFromEnum(G)].get(k) orelse return null;
+    return switch (G) {
+        .nos => vs.nos,
+        .sysenv => vs.sysenv,
+        .internal => vs.internal,
+    };
 }
 
-pub fn get(k: []const u8) ?Var {
+pub fn get(k: []const u8) ?SysEnv {
     return getKind(k, .sysenv);
 }
 
 pub fn getStr(k: []const u8) ?[]const u8 {
-    if (get(k)) |v| return v.value else return null;
+    if (get(k)) |v| {
+        return v.value;
+    }
+    return null;
 }
 
-pub fn putKind(k: []const u8, v: []const u8, comptime g: Kind) !void {
-    return variables[@intFromEnum(g)].put(k, Var{
-        .kind = g,
-        .value = v,
-    });
+pub fn putKind(k: []const u8, v: []const u8, comptime G: Kind) !void {
+    var vs = &variables[@intFromEnum(G)];
+    var ret = switch (G) {
+        .nos => vs.put(k, Var{ .nos = v }),
+        .sysenv => vs.put(k, Var{ .sysenv = .{ .value = v } }),
+        .internal => vs.put(k, Var{ .internal = .{ .str = v } }),
+    };
+    return ret;
 }
 
 pub fn put(k: []const u8, v: []const u8) !void {
@@ -126,13 +161,13 @@ pub fn del(k: []const u8) !void {
 /// named exports because I don't want to fight the compiler over the keyword
 pub fn exports(k: []const u8) !void {
     if (variables[@intFromEnum(Kind.sysenv)].getPtr(k)) |v| {
-        v.exported = true;
+        v.sysenv.exported = true;
     }
 }
 
 pub fn unexport(k: []const u8) !void {
     if (variables[@intFromEnum(Kind.sysenv)].getPtr(k)) |v| {
-        v.exported = false;
+        v.sysenv.exported = false;
     }
 }
 
@@ -161,6 +196,7 @@ test "variables standard usage" {
 
     var x = get("key").?;
     try std.testing.expectEqual(x.exported, false);
+    try std.testing.expectEqual(@TypeOf(get("str")), ?SysEnv);
     try exports("key");
     x = get("key").?;
     try std.testing.expectEqual(x.exported, true);

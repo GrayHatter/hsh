@@ -18,11 +18,3 @@ pub const API = struct {
 pub fn save(self: *State, h: *HSH) ?[][]const u8 {
     return self.api.save(h, self.ctx);
 }
-
-pub fn getName(self: *State) []const u8 {
-    return self.name;
-}
-
-pub fn getCtx(self: *State) *anyopaque {
-    return self.ctx;
-}

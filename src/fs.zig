@@ -4,14 +4,19 @@ const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 const log = @import("log");
 const INotify = @import("inotify.zig");
-const hsh = @import("hsh.zig");
 const HSH = @import("hsh.zig").HSH;
 const rand = @import("random.zig");
-const set = @import("builtins/set.zig");
-const KnOptions = set.KnOptions;
-const PathAlreadyExists = std.fs.File.OpenError.PathAlreadyExists;
+const vars = @import("variables.zig");
 
 pub const fs = @This();
+
+pub const Error = error{
+    System,
+    Missing,
+    Perm,
+    NoClobber,
+    Other,
+};
 
 const Names = struct {
     cwd: []u8,
@@ -45,6 +50,7 @@ const Names = struct {
         self.paths.clearAndFree();
     }
 };
+
 const Dirs = struct {
     cwd: std.fs.IterableDir,
     conf: ?std.fs.IterableDir = null,
@@ -65,20 +71,6 @@ dirs: Dirs,
 names: Names,
 inotify_fd: ?i32,
 watches: [1]?INotify,
-
-pub const Error = error{
-    System,
-    Missing,
-    Perm,
-    Noclobber,
-    Other,
-};
-
-pub const clobberMode = enum {
-    append, // Append to file, so noclobber option is irrelevent,
-    maybeClobber, // Check noclobber option before writing.
-    forceClobber, // Ignore noclobber option.
-};
 
 pub fn init(a: mem.Allocator, env: std.process.EnvMap) !fs {
     var paths = std.ArrayList([]const u8).init(a);
@@ -218,10 +210,10 @@ pub fn mktemp(a: std.mem.Allocator, data: ?[]const u8) ![]u8 {
 fn fileAt(
     dir: std.fs.Dir,
     name: []const u8,
-    comptime create: bool,
+    comptime ccreate: bool,
     comptime rw: bool,
 ) ?std.fs.File {
-    if (create) {
+    if (ccreate) {
         return dir.createFile(
             name,
             .{ .read = true, .truncate = false },
@@ -234,20 +226,24 @@ fn fileAt(
     }
 }
 
-pub fn writeFileAt(dir: std.fs.Dir, name: []const u8, comptime create: bool) ?std.fs.File {
-    return fileAt(dir, name, create, true);
+pub fn writeFileAt(dir: std.fs.Dir, name: []const u8, comptime ccreate: bool) ?std.fs.File {
+    return fileAt(dir, name, ccreate, true);
 }
 
-pub fn writeFile(name: []const u8, comptime create: bool) ?std.fs.File {
-    return fileAt(std.fs.cwd(), name, create, true);
+pub fn writeFile(name: []const u8, comptime ccreate: bool) ?std.fs.File {
+    return fileAt(std.fs.cwd(), name, ccreate, true);
 }
 
-pub fn openFileAt(dir: std.fs.Dir, name: []const u8, comptime create: bool) ?std.fs.File {
-    return fileAt(dir, name, create, false);
+pub fn openFileAt(dir: std.fs.Dir, name: []const u8, comptime ccreate: bool) ?std.fs.File {
+    return fileAt(dir, name, ccreate, false);
 }
 
-pub fn openFile(name: []const u8, comptime create: bool) ?std.fs.File {
-    return fileAt(std.fs.cwd(), name, create, false);
+pub fn openFile(name: []const u8, comptime ccreate: bool) ?std.fs.File {
+    return fileAt(std.fs.cwd(), name, ccreate, false);
+}
+
+pub fn create(name: []const u8) ?std.fs.File {
+    return fileAt(std.fs.cwd(), name, true, false);
 }
 
 pub fn globCwd(a: Allocator, search: []const u8) ![][]u8 {
@@ -290,14 +286,14 @@ pub fn findPath(
     a: Allocator,
     env: *const std.process.EnvMap,
     name: []const u8,
-    comptime create: bool,
+    comptime ccreate: bool,
 ) !std.fs.File {
     if (env.get("XDG_CONFIG_HOME")) |xdg| {
         var out = try a.dupe(u8, xdg);
         out = try mem.concatPath(a, out, "hsh");
         defer a.free(out);
         if (std.fs.openDirAbsolute(out, .{})) |d| {
-            if (writeFileAt(d, name, create)) |file| return file;
+            if (writeFileAt(d, name, ccreate)) |file| return file;
         } else |_| {
             log.debug("unable to open {s}\n", .{out});
         }
@@ -307,13 +303,13 @@ pub fn findPath(
         if (std.fs.openDirAbsolute(home, .{})) |h| {
             if (h.openDir(".config", .{})) |hc| {
                 if (hc.openDir("hsh", .{})) |hch| {
-                    if (writeFileAt(hch, name[1..], create)) |file| {
+                    if (writeFileAt(hch, name[1..], ccreate)) |file| {
                         return file;
                     }
                 } else |e| log.debug("unable to open {s} {}\n", .{ "hsh", e });
                 //return hc;
             } else |e| log.debug("unable to open {s} {}\n", .{ "conf", e });
-            if (writeFileAt(h, name, create)) |file| {
+            if (writeFileAt(h, name, ccreate)) |file| {
                 return file;
             }
         } else |e| log.debug("unable to open {s} {}\n", .{ "home", e });
@@ -322,50 +318,37 @@ pub fn findPath(
     return Error.Missing;
 }
 
-pub fn openStdoutFile(name: []const u8, comptime create: bool, clobber: clobberMode) !std.fs.File {
-    switch (clobber) {
-        .append, .forceClobber => {
-            if (openFile(name, create)) |file| {
-                return file;
-            }
-        },
-        .maybeClobber => {
-            // Check for noclobber
-            if (hsh.getState("set")) |ctx| {
-                const opts: *KnOptions = @ptrCast(ctx);
-                if (opts.noclobber) |noclobber| {
-                    // noclobber enabled
-                    if (noclobber) {
-                        // Check for existing file
-                        if (std.fs.cwd().openFile(name, .{ .mode = .read_only })) |file| {
-                            file.close();
-                            return Error.Noclobber;
-                        } else |err| {
-                            switch (err) {
-                                std.fs.File.OpenError.FileNotFound => {
-                                    if (openFile(name, true)) |file| {
-                                        return file;
-                                    }
-                                },
-                                else => return err,
-                            }
-                        }
-                        return Error.Noclobber;
-                    }
-                    // noclobber disabled
-                    else {
-                        if (openFile(name, create)) |file| {
+pub fn openFileStdout(name: []const u8, append: bool) !std.fs.File {
+    if (append) {
+        var file = openFile(name, true) orelse unreachable;
+        file.seekFromEnd(0) catch unreachable;
+        return file;
+    }
+
+    // TODO don't use string here
+    if (vars.getKind("noclobber", .internal)) |noclobber| {
+        if (std.mem.eql(u8, noclobber.str, "true")) {
+            if (std.fs.cwd().openFile(name, .{ .mode = .read_only })) |file| {
+                file.close();
+                return Error.NoClobber;
+            } else |err| {
+                switch (err) {
+                    std.fs.File.OpenError.FileNotFound => {
+                        if (openFile(name, true)) |file| {
                             return file;
                         }
-                    }
+                    },
+                    else => return err,
                 }
-            } else |_| {
-                log.err("set state not found.\n", .{});
-                return Error.Noclobber;
             }
-        },
+            return Error.NoClobber;
+        }
     }
-    return Error.Noclobber;
+
+    if (create(name)) |file| {
+        return file;
+    }
+    unreachable;
 }
 
 pub const CoreFiles = enum {

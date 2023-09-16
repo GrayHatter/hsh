@@ -1,13 +1,13 @@
 const std = @import("std");
 const hsh = @import("../hsh.zig");
 const HSH = hsh.HSH;
-const tokenizer = @import("../tokenizer.zig");
-const Token = tokenizer.Token;
 const bi = @import("../builtins.zig");
 const print = bi.print;
 const Err = bi.Err;
-const ParsedIterator = @import("../parse.zig").ParsedIterator;
+const Token = bi.Token;
+const ParsedIterator = bi.ParsedIterator;
 const State = bi.State;
+const Vars = bi.Variables;
 
 pub const Set = @This();
 
@@ -31,8 +31,7 @@ pub const Opts = enum(u8) {
     }
 };
 
-pub const OOptions = enum {
-    // posix magic
+pub const PosixOpts = enum {
     allexport,
     errexit,
     ignoreeof,
@@ -46,10 +45,9 @@ pub const OOptions = enum {
     verbose,
     vi,
     xtrace,
-    // hsh magic
 };
 
-const OptState = union(OOptions) {
+const PosixState = union(PosixOpts) {
     allexport: ?bool,
     errexit: ?bool,
     ignoreeof: ?bool,
@@ -64,50 +62,15 @@ const OptState = union(OOptions) {
     vi: ?bool,
     xtrace: ?bool,
 };
-
-pub const KnOptions = struct {
-    allexport: ?bool,
-    errexit: ?bool,
-    ignoreeof: ?bool,
-    monitor: ?bool,
-    noclobber: ?bool,
-    noglob: ?bool,
-    noexec: ?bool,
-    nolog: ?bool,
-    notify: ?bool,
-    nounset: ?bool,
-    verbose: ?bool,
-    vi: ?bool,
-    xtrace: ?bool,
-
-    pub fn init() KnOptions {
-        return KnOptions {
-            .allexport = false,
-            .errexit = false,
-            .ignoreeof = false,
-            .monitor = false,
-            .noclobber = false,
-            .noglob = false,
-            .noexec = false,
-            .nolog = false,
-            .notify = false,
-            .nounset = false,
-            .verbose = false,
-            .vi = false,
-            .xtrace = false,
-        };
-    }
-};
-
-var known_options: KnOptions = undefined;
 
 pub fn init() void {
-    known_options = KnOptions.init();
     hsh.addState(State{
         .name = "set",
-        .ctx = &known_options,
+        .ctx = &.{},
         .api = &.{ .save = save },
     }) catch unreachable;
+
+    enable(.NoClobber) catch unreachable;
 }
 
 pub fn raze() void {
@@ -120,12 +83,11 @@ fn save(_: *HSH, _: *anyopaque) ?[][]const u8 {
 
 fn nop() void {}
 
-fn enable(h: *HSH, o: Opts) !void {
-    _ = h;
+fn enable(o: Opts) !void {
     switch (o) {
         .Export => return nop(),
         .BgJob => return nop(),
-        .NoClobber => known_options.noclobber = true,
+        .NoClobber => try Vars.putKind("noclobber", "true", .internal),
         .ErrExit => return nop(),
         .PathExpan => return nop(),
         .HashAll => return nop(),
@@ -136,12 +98,11 @@ fn enable(h: *HSH, o: Opts) !void {
     }
 }
 
-fn disable(h: *HSH, o: Opts) !void {
-    _ = h;
+fn disable(o: Opts) !void {
     switch (o) {
         .Export => return nop(),
         .BgJob => return nop(),
-        .NoClobber => known_options.noclobber = false,
+        .NoClobber => try Vars.putKind("noclobber", "false", .internal),
         .ErrExit => return nop(),
         .PathExpan => return nop(),
         .HashAll => return nop(),
@@ -158,7 +119,7 @@ fn special(h: *HSH, titr: *ParsedIterator) Err!u8 {
     return 0;
 }
 
-fn posix(h: *HSH, opt: []const u8, titr: *ParsedIterator) Err!u8 {
+fn posix(opt: []const u8, titr: *ParsedIterator) Err!u8 {
     _ = titr;
     const mode = if (opt[0] == '-')
         true
@@ -168,7 +129,7 @@ fn posix(h: *HSH, opt: []const u8, titr: *ParsedIterator) Err!u8 {
         return Err.InvalidCommand;
     for (opt[1..]) |opt_c| {
         const o = try Opts.find(opt_c);
-        if (mode) try enable(h, o) else try disable(h, o);
+        if (mode) try enable(o) else try disable(o);
     }
     return 0;
 }
@@ -183,10 +144,6 @@ fn option(h: *HSH, opt: []const u8, titr: *ParsedIterator) Err!u8 {
 fn dump(h: *HSH) Err!u8 {
     _ = h;
     return 0;
-}
-
-pub fn get_noclobber() bool {
-    return known_options.noclobber;
 }
 
 pub fn set(h: *HSH, titr: *ParsedIterator) Err!u8 {
@@ -208,7 +165,7 @@ pub fn set(h: *HSH, titr: *ParsedIterator) Err!u8 {
             if (opt[0] == '-' or opt[0] == '+') {
                 switch (opt[1]) {
                     'o' => {
-                        return posix(h, arg.cannon(), titr);
+                        return posix(arg.cannon(), titr);
                     },
                     '-' => {
                         if (opt.len == 2) return special(h, titr);

@@ -137,33 +137,25 @@ fn readFromRC(hsh: *HSH) E!void {
 }
 
 fn initHSH(hsh: *HSH) !void {
+    Variables.init(hsh.alloc);
+
     try initBuiltins(hsh);
     try Context.init(&hsh.alloc);
     try readFromRC(hsh);
 
-    Variables.init(hsh.alloc);
     Variables.load(hsh.env) catch return E.Memory;
 }
 
 fn razeHSH(h: *HSH) void {
-    Variables.raze();
     Context.raze();
     razeBuiltins(h);
+    Variables.raze();
 }
 
 var savestates: ArrayList(State) = undefined;
 
 pub fn addState(s: State) E!void {
     try savestates.append(s);
-}
-
-pub fn getState(name: []const u8) !*anyopaque {
-    for (savestates.items) |*s| {
-        if (std.mem.eql(u8, name, s.getName())) {
-            return s.getCtx();
-        }
-    }
-    return E.Other;
 }
 
 fn writeLine(f: std.fs.File, line: []const u8) !usize {

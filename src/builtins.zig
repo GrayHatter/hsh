@@ -1,10 +1,11 @@
 const std = @import("std");
-const Token = @import("tokenizer.zig").Token;
 const HSH = @import("hsh.zig").HSH;
 const jobs_ = @import("jobs.zig");
-const ParsedIterator = @import("parse.zig").ParsedIterator;
 const log = @import("log");
 const hsh_build = @import("hsh_build");
+pub const Token = @import("tokenizer.zig").Token;
+pub const ParsedIterator = @import("parse.zig").ParsedIterator;
+pub const Variables = @import("variables.zig");
 
 // files should be lowercased, but #YOLO
 pub const Aliases = @import("builtins/alias.zig");
