@@ -14,6 +14,7 @@ const Kind = enum(u4) {
 pub const SysEnv = struct {
     value: []const u8,
     exported: bool = false,
+    manual: bool = false,
 };
 
 const Var = union(Kind) {
