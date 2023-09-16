@@ -15,11 +15,14 @@ const ParsedIterator = parse.ParsedIterator;
 const log = @import("log");
 const mem = std.mem;
 const fd_t = std.os.fd_t;
-const fs = @import("fs.zig");
 const bi = @import("builtins.zig");
 const signal = @import("signals.zig");
 const logic_ = @import("logic.zig");
 const Variables = @import("variables.zig");
+
+const fs = @import("fs.zig");
+const noclobberError = fs.Error.Noclobber;
+const clobberMode = fs.clobberMode;
 
 const STDIN_FILENO = std.os.STDIN_FILENO;
 const STDOUT_FILENO = std.os.STDOUT_FILENO;
@@ -263,13 +266,20 @@ fn mkCallableStack(a: Allocator, itr: *TokenIterator) Error![]CallableStack {
         for (eslice) |maybeio| {
             if (maybeio.kind == .io) {
                 switch (maybeio.kind.io) {
-                    .Out, .Append => {
-                        if (fs.openFile(maybeio.cannon(), true)) |file| {
-                            io.out = file.handle;
-                            if (maybeio.kind.io == .Append) {
-                                file.seekFromEnd(0) catch return Error.StdIOError;
+                    .Out => {
+                        const f = fs.openStdoutFile(maybeio.cannon(), true, clobberMode.maybeClobber) catch |err| {
+                            switch (err) {
+                                noclobberError => log.err("Noclobber is enabled.\n", .{}),
+                                else => log.err("Failed to open file {s}\n", .{maybeio.cannon()}),
                             }
-                        }
+                            return Error.StdIOError;
+                        };
+                        io.out = f.handle;
+                    },
+                    .Append => {
+                        const f = fs.openStdoutFile(maybeio.cannon(), true, clobberMode.append) catch return Error.StdIOError;
+                        io.out = f.handle;
+                        f.seekFromEnd(0) catch return Error.StdIOError;
                     },
                     .In, .HDoc => {
                         if (prev_stdout) |out| {

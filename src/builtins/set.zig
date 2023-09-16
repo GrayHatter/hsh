@@ -14,7 +14,7 @@ pub const Set = @This();
 pub const Opts = enum(u8) {
     Export = 'a',
     BgJob = 'b',
-    NoColbber = 'C',
+    NoClobber = 'C',
     ErrExit = 'e',
     PathExpan = 'f',
     HashAll = 'h',
@@ -64,21 +64,54 @@ const OptState = union(OOptions) {
     vi: ?bool,
     xtrace: ?bool,
 };
-const KnOptions = std.ArrayList(OptState);
+
+pub const KnOptions = struct {
+    allexport: ?bool,
+    errexit: ?bool,
+    ignoreeof: ?bool,
+    monitor: ?bool,
+    noclobber: ?bool,
+    noglob: ?bool,
+    noexec: ?bool,
+    nolog: ?bool,
+    notify: ?bool,
+    nounset: ?bool,
+    verbose: ?bool,
+    vi: ?bool,
+    xtrace: ?bool,
+
+    pub fn init() KnOptions {
+        return KnOptions {
+            .allexport = false,
+            .errexit = false,
+            .ignoreeof = false,
+            .monitor = false,
+            .noclobber = false,
+            .noglob = false,
+            .noexec = false,
+            .nolog = false,
+            .notify = false,
+            .nounset = false,
+            .verbose = false,
+            .vi = false,
+            .xtrace = false,
+        };
+    }
+};
 
 var known_options: KnOptions = undefined;
 
-pub fn init(a: std.mem.Allocator) void {
-    known_options = KnOptions.init(a);
+pub fn init() void {
+    known_options = KnOptions.init();
     hsh.addState(State{
         .name = "set",
-        .ctx = &.{},
+        .ctx = &known_options,
         .api = &.{ .save = save },
     }) catch unreachable;
 }
 
 pub fn raze() void {
-    known_options.clearAndFree();
+    return nop();
 }
 
 fn save(_: *HSH, _: *anyopaque) ?[][]const u8 {
@@ -92,7 +125,7 @@ fn enable(h: *HSH, o: Opts) !void {
     switch (o) {
         .Export => return nop(),
         .BgJob => return nop(),
-        .NoColbber => return nop(),
+        .NoClobber => known_options.noclobber = true,
         .ErrExit => return nop(),
         .PathExpan => return nop(),
         .HashAll => return nop(),
@@ -108,7 +141,7 @@ fn disable(h: *HSH, o: Opts) !void {
     switch (o) {
         .Export => return nop(),
         .BgJob => return nop(),
-        .NoColbber => return nop(),
+        .NoClobber => known_options.noclobber = false,
         .ErrExit => return nop(),
         .PathExpan => return nop(),
         .HashAll => return nop(),
@@ -150,6 +183,10 @@ fn option(h: *HSH, opt: []const u8, titr: *ParsedIterator) Err!u8 {
 fn dump(h: *HSH) Err!u8 {
     _ = h;
     return 0;
+}
+
+pub fn get_noclobber() bool {
+    return known_options.noclobber;
 }
 
 pub fn set(h: *HSH, titr: *ParsedIterator) Err!u8 {
