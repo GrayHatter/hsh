@@ -1,2 +1,6 @@
 zig-cache
 zig-out
+test.zig
+
+# Probably a bad wildcard, delete as needed
+*.txt
