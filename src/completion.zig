@@ -13,6 +13,8 @@ const log = @import("log");
 const S = @import("strings.zig");
 const ERRSTR_TOOBIG = S.COMPLETE_TOOBIG;
 const ERRSTR_NOOPTS = S.COMPLETE_NOOPTS;
+const indexOfScalar = std.mem.indexOfScalar;
+const toUpper = std.ascii.toUpper;
 
 const Self = @This();
 
@@ -111,23 +113,36 @@ pub const CompOption = struct {
     }
 };
 
-fn searchMatch(items: []const u8, search: []const u8) bool {
-    if (search.len > items.len) return false;
+fn searchMatch(items: []const u8, search: []const u8) ?usize {
+    if (search.len == 0) return 0;
+    if (search.len > items.len) return null;
 
     var offset: usize = 0;
     for (search) |s| {
-        if (offset >= items.len) break;
-        if (std.mem.indexOfScalar(u8, items[offset..], s)) |i| {
-            offset += i;
+        if (offset >= items.len) return null;
+        if (indexOfScalar(u8, items[offset..], s)) |i| {
+            offset += i + 1;
             continue;
-        } else if (std.mem.indexOfScalar(u8, items[offset..], std.ascii.toUpper(s))) |i| {
-            offset += i;
-            continue;
-        } else {
-            return false;
         }
+        if (indexOfScalar(u8, items[offset..], toUpper(s))) |i| {
+            offset += i + 1;
+            continue;
+        }
+        return null;
     }
-    return offset < items.len;
+    return offset - search.len;
+}
+
+test "search match" {
+    const n: ?usize = null;
+    try std.testing.expectEqual(0, comptime searchMatch("string", "s").?);
+    try std.testing.expectEqual(1, comptime searchMatch("string", "t").?);
+    try std.testing.expectEqual(0, comptime searchMatch("string", "str").?);
+    try std.testing.expectEqual(1, comptime searchMatch("string", "tri").?);
+    try std.testing.expectEqual(n, comptime searchMatch("string", "strI"));
+    try std.testing.expectEqual(0, comptime searchMatch("STRINg", "strI").?);
+    try std.testing.expectEqual(n, comptime searchMatch("string", "q"));
+    try std.testing.expectEqual(0, comptime searchMatch("string", "").?);
 }
 
 fn styleToggle(lex: *Draw.Lexeme) void {
@@ -190,11 +205,12 @@ pub const CompSet = struct {
         return c;
     }
 
+    // TODO cache
     pub fn countFiltered(self: *const CompSet) usize {
         var c: usize = 0;
         for (self.groups) |grp| {
             for (grp.items) |item| {
-                if (searchMatch(item.str, self.search.items)) {
+                if (searchMatch(item.str, self.search.items)) |_| {
                     c += 1;
                 }
             }
@@ -258,7 +274,7 @@ pub const CompSet = struct {
 
     fn curSearchMatch(self: *CompSet) bool {
         const curr = &self.group.items[self.index];
-        return searchMatch(curr.str, self.search.items);
+        return searchMatch(curr.str, self.search.items) != null;
     }
 
     pub fn revr(self: *CompSet) void {
@@ -316,7 +332,7 @@ pub const CompSet = struct {
             for (dc.*, 0..) |tree, row| {
                 var plz_draw = false;
                 for (tree.siblings) |*sib| {
-                    if (!searchMatch(sib.char, self.search.items)) {
+                    if (searchMatch(sib.char, self.search.items) == null) {
                         sib.style.attr = .dim;
                     } else {
                         styleInactive(sib);
@@ -387,8 +403,27 @@ pub const CompSet = struct {
     pub fn searchChar(self: *CompSet, char: u8) !void {
         try self.search.append(char);
         // TODO when searching, set to the lowest sum of search offsets
-        // e.g. search string hsh should auto move to result hsh before hashtool
-        //if (self.countFiltered() == 0) {}
+
+        self.searchMove();
+    }
+
+    fn searchMove(self: *CompSet) void {
+        var mcount: usize = 0;
+        var best_cost: usize = ~@as(usize, 0);
+        for (self.groups, 0..) |grp, gi| {
+            for (grp.items, 0..) |each, ei| {
+                if (searchMatch(each.str, self.search.items)) |cost| {
+                    mcount += 1;
+                    if (cost < best_cost) {
+                        self.group_index = gi;
+                        self.index = ei;
+                        self.index -|= 1;
+                        best_cost = cost;
+                    }
+                }
+            }
+        }
+        self.group = &self.groups[self.group_index];
     }
 
     pub fn searchStr(self: *CompSet, str: []const u8) !void {
@@ -400,6 +435,7 @@ pub const CompSet = struct {
             return Error.search_empty;
         }
         _ = self.search.pop();
+        self.searchMove();
     }
 
     fn razeDrawing(self: *CompSet) void {
