@@ -192,12 +192,10 @@ pub fn do(hsh: *HSH) SigEvent {
             },
             std.os.SIG.TTOU => {
                 log.err("TTOU RIP us!\n", .{});
-                //hsh.tty.pwnTTY();
             },
             std.os.SIG.TTIN => {
                 log.err("TTIN RIP us! ({} -> {})\n", .{ hsh.pid, pid });
                 hsh.waiting = true;
-                //hsh.tty.pwnTTY();
             },
             else => {
                 log.err("Unknown signal {} => ({})\n", .{ sig.signal, sig.info });
