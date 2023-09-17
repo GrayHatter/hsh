@@ -1,6 +1,6 @@
 const std = @import("std");
 const HSH = @import("hsh.zig").HSH;
-const jobs_ = @import("jobs.zig");
+const Jobs = @import("jobs.zig");
 const log = @import("log");
 const hsh_build = @import("hsh_build");
 pub const Token = @import("tokenizer.zig").Token;
@@ -198,22 +198,16 @@ fn exit(hsh: *HSH, i: *ParsedIterator) Err!u8 {
 
 /// TODO implement job selection support
 fn fg(hsh: *HSH, _: *ParsedIterator) Err!u8 {
-    var paused: usize = 0;
-    for (hsh.jobs.items) |j| {
-        paused += if (j.status == .paused or j.status == .waiting) 1 else 0;
-    }
-    if (paused == 0) {
-        hsh.tty.print("No resumeable jobs\n", .{}) catch {};
-        return 1;
-    }
-    if (paused == 1) {
-        hsh.tty.print("Restarting job\n", .{}) catch {};
-        jobs_.contNext(hsh, true) catch unreachable;
+    if (Jobs.getBg()) |job| {
+        try print("Restarting job\n", .{});
+        if (!job.forground(&hsh.tty)) {
+            try print("Not not alive\n", .{});
+            return 1;
+        }
         return 0;
     }
-
-    print("More than one job paused, fg not yet implemented\n", .{}) catch return Err.Unknown;
-    return 0;
+    try print("No resumeable jobs\n", .{});
+    return 1;
 }
 
 fn jobs(hsh: *HSH, _: *ParsedIterator) Err!u8 {

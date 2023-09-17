@@ -150,21 +150,20 @@ pub fn do(hsh: *HSH) SigEvent {
                 };
                 switch (@as(SI_CODE, @enumFromInt(sig.info.code))) {
                     .STOPPED => {
-                        if (child.pause(hsh.tty.getAttr())) {
-                            hsh.tty.setRaw() catch unreachable;
-                        }
+                        _ = child.pause(&hsh.tty);
+                        //hsh.tty.setRaw() catch unreachable;
                     },
                     .EXITED,
                     .KILLED,
                     => {
+                        log.debug("Child exit signal\n", .{});
                         // if (child.exit(@intCast(sig.info.fields.common.second.sigchld.status))) {
                         //     hsh.tty.setRaw() catch unreachable;
                         // }
                     },
                     .CONTINUED => {
-                        if (child.forground()) |tio| {
-                            hsh.tty.setTTY(tio);
-                        }
+                        log.debug("Child cont signal\n", .{});
+                        //_ = child.forground(&hsh.tty);
                     },
                     .DUMPED, .TRAPPED => {
                         log.err("CHLD CRASH on {}\n", .{pid});

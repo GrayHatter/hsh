@@ -4,6 +4,7 @@ const ArrayList = std.ArrayList;
 const HSH = @import("hsh.zig").HSH;
 const SI_CODE = @import("signals.zig").SI_CODE;
 const log = @import("log");
+const TTY = @import("tty.zig");
 
 pub const Error = error{
     Unknown,
@@ -32,7 +33,7 @@ pub const Status = enum {
 };
 
 pub const Job = struct {
-    name: ?[]const u8,
+    name: ?[]const u8 = null,
     pid: std.os.pid_t = -1,
     pgid: std.os.pid_t = -1,
     exit_code: ?u8 = null,
@@ -43,10 +44,10 @@ pub const Job = struct {
         return self.status.alive();
     }
 
-    pub fn pause(self: *Job, tio: std.os.termios) bool {
+    pub fn pause(self: *Job, tty: *TTY) bool {
         defer self.status = .paused;
         if (self.status == .running) {
-            self.termattr = tio;
+            self.termattr = tty.getAttr();
             return true;
         }
         return false;
@@ -61,10 +62,15 @@ pub const Job = struct {
         self.termattr = tio;
     }
 
-    pub fn forground(self: *Job) ?std.os.termios {
-        defer self.status = .running;
-        if (self.status == .background) return self.termattr;
-        return null;
+    pub fn forground(self: *Job, tty: *TTY) bool {
+        if (!self.alive()) return false;
+
+        if (self.termattr) |tio| {
+            tty.setTTY(tio);
+        }
+        self.status = .running;
+        std.os.kill(self.pid, std.os.SIG.CONT) catch unreachable;
+        return true;
     }
 
     pub fn exit(self: *Job, code: ?u8) void {
@@ -76,8 +82,6 @@ pub const Job = struct {
         self.status = .crashed;
         self.exit_code = code;
     }
-
-    fn waitfor(_: *Job) Status {}
 
     pub fn format(self: Job, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
         if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
@@ -152,21 +156,24 @@ pub fn haltActive() Error!usize {
     return count;
 }
 
-pub fn contNext(h: *HSH, comptime fg: bool) Error!void {
-    const job: ?*Job = try getWaiting();
-    if (job) |j| {
-        if (fg) {
-            if (j.termattr) |tio| {
-                h.tty.setTTY(tio);
-            }
-        } else {}
-        std.os.kill(j.pid, std.os.SIG.CONT) catch return Error.Unknown;
+pub fn getBg() ?*Job {
+    for (jobs.items) |*j| {
+        switch (j.status) {
+            .background,
+            .waiting,
+            .paused,
+            => {
+                return j;
+            },
+            else => continue,
+        }
     }
+    return null;
 }
 
-pub fn getBg(a: Allocator) Error!ArrayList(Job) {
-    var out = ArrayList(Job).init(a);
-    for (jobs.items) |j| {
+pub fn getBgSlice(a: Allocator) ![]*Job {
+    var out = ArrayList(*Job).init(a);
+    for (jobs.items) |*j| {
         switch (j.status) {
             .background,
             .waiting,
@@ -177,7 +184,7 @@ pub fn getBg(a: Allocator) Error!ArrayList(Job) {
             else => continue,
         }
     }
-    return out;
+    return out.toOwnedSlice();
 }
 
 pub fn getFg() ?*const Job {
@@ -196,7 +203,7 @@ const WaitError = if (@hasDecl(std.os, "WaitError")) std.os.WaitError else error
     CHILD,
 };
 
-fn linux_waitpid(pid: std.os.pid_t, flags: u32) WaitError!std.os.WaitPidResult {
+fn hsh_waitpid(pid: std.os.pid_t, flags: u32) WaitError!std.os.WaitPidResult {
     const Status_t = if (builtin.link_libc) c_int else u32;
     var status: Status_t = undefined;
     const coerced_flags = if (builtin.link_libc) @as(c_int, @intCast(flags)) else flags;
@@ -216,49 +223,46 @@ fn linux_waitpid(pid: std.os.pid_t, flags: u32) WaitError!std.os.WaitPidResult {
 }
 
 const waitpid = if (@TypeOf(std.os.waitpid) == fn (i32, u32) std.os.WaitPidResult)
-    linux_waitpid
+    hsh_waitpid
 else
     std.os.waitpid;
 
 pub fn waitForFg() void {
     while (getFg()) |fg| {
         log.debug("Waiting on {}\n", .{fg.pid});
-        _ = waitFor() catch {
-            log.warn("waitFor didn't find this child", .{});
+        _ = waitFor(-1) catch {
+            log.warn("waitFor didn't find this child\n", .{});
             continue;
         };
     }
 }
 
-pub fn waitForPid(jid: std.os.pid_t) !*Job {
-    var job = try get(jid);
-    if (!job.status.alive()) {
-        return job;
+pub fn waitFor(jid: std.os.pid_t) !*Job {
+    if (jid > 0) {
+        var job = try get(jid);
+        if (!job.status.alive()) {
+            return job;
+        }
     }
 
-    const s = try waitpid(jid, 0);
+    var local = Job{};
+    const s = try hsh_waitpid(jid, std.os.linux.W.UNTRACED);
     log.debug("status {} {} \n", .{ s.pid, s.status });
+    var job: *Job = if (s.pid != jid)
+        get(s.pid) catch &local
+    else
+        &local;
 
     if (std.os.linux.W.IFSIGNALED(s.status)) {
         job.crash(0);
+    } else if (std.os.linux.W.IFSTOPPED(s.status)) {
+        var tty = TTY.current_tty orelse unreachable;
+        tty.waitForFg();
+        log.err("stop sig {}\n", .{std.os.linux.W.STOPSIG(s.status)});
+        _ = job.pause(&tty);
+        tty.setRaw() catch unreachable;
     } else if (std.os.linux.W.IFEXITED(s.status)) {
         job.exit(std.os.linux.W.EXITSTATUS(s.status));
     }
-    return job;
-}
-
-/// waits for the job to complete, and reports true if it exited successfully
-pub fn waitFor() !*Job {
-    const s = try waitpid(-1, 0);
-
-    log.debug("status {} {} \n", .{ s.pid, s.status });
-    var job = try get(s.pid);
-
-    if (std.os.linux.W.IFSIGNALED(s.status)) {
-        job.crash(0);
-    } else if (std.os.linux.W.IFEXITED(s.status)) {
-        job.exit(std.os.linux.W.EXITSTATUS(s.status));
-    }
-
     return job;
 }

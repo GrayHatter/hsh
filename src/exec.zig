@@ -401,10 +401,16 @@ pub fn exec(h_: *HSH, input: []const u8) Error!void {
         if (stack[0].callable == .builtin) {
             _ = try execBuiltin(h_, &stack[0].callable.builtin);
             free(a, &stack[0]);
+            _ = jobs.waitForFg();
+            tty.setRaw() catch log.err("Unable to setRaw after child event\n", .{});
+            tty.setOwner(null) catch log.err("Unable to setOwner after child event\n", .{});
             return;
-        } else if (stack[0].callable == .logic) {
+        }
+
+        if (stack[0].callable == .logic) {
             execLogic(h_, &stack[0].callable.logic) catch return Error.Unknown;
             free(a, &stack[0]);
+            _ = jobs.waitForFg();
             return;
         }
     }
@@ -429,7 +435,7 @@ pub fn exec(h_: *HSH, input: []const u8) Error!void {
         defer free(a, s);
         if (s.conditional) |cond| {
             if (fpid == 0) unreachable;
-            var waited_job = jobs.waitForPid(fpid) catch @panic("job doesn't exist");
+            var waited_job = jobs.waitFor(fpid) catch @panic("job doesn't exist");
             switch (cond) {
                 .After => {},
                 .Failure => {
@@ -582,7 +588,7 @@ pub fn childZ(a: Allocator, argv: [:null]const ?[*:0]const u8) Error!ChildResult
     var r = f.reader();
     var list = std.ArrayList([]u8).init(a);
 
-    var job = jobs.waitForPid(pid) catch return Error.Unknown;
+    var job = jobs.waitFor(pid) catch return Error.Unknown;
 
     while (r.readUntilDelimiterOrEofAlloc(a, '\n', 2048) catch unreachable) |line| {
         try list.append(line);

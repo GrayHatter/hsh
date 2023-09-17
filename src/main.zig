@@ -7,7 +7,7 @@ const tokenizer = @import("tokenizer.zig");
 const Tokenizer = tokenizer.Tokenizer;
 const Draw = @import("draw.zig");
 const Drawable = Draw.Drawable;
-const prompt = @import("prompt.zig").prompt;
+const prompt = @import("prompt.zig");
 const jobsContext = @import("prompt.zig").jobsContext;
 const ctxContext = @import("prompt.zig").ctxContext;
 const Context = @import("context.zig");
@@ -34,14 +34,9 @@ fn core(hsh: *HSH) !bool {
 
     while (true) {
         hsh.draw.clear();
-        var bgjobs = jobs.getBg(hsh.alloc) catch unreachable;
-        try jobsContext(hsh, bgjobs.items);
-        //try ctxContext(hsh, try Context.fetch(hsh, .git));
-        bgjobs.clearAndFree();
-
         redraw = hsh.spin() or redraw;
         if (redraw) {
-            try prompt(hsh, tkn);
+            try prompt.draw(hsh, tkn);
             try Draw.render(&hsh.draw);
             redraw = false;
         }
