@@ -126,7 +126,7 @@ pub fn get(jid: std.os.pid_t) Error!*Job {
     return Error.JobNotFound;
 }
 
-pub fn add(j: Job) Error!void {
+pub fn add(j: Job) !void {
     try jobs.append(j);
 }
 

@@ -31,7 +31,6 @@ pub const Error = error{
     Unknown,
     OSErr,
     OutOfMemory,
-    Memory, // DON'T USE, GETTING DELETED
     NotFound,
     ExecFailed,
     ChildExecFailed,
@@ -185,16 +184,16 @@ fn mkBinary(a: Allocator, itr: *ParsedIterator) Error!Binary {
         log.warn("path missing {s}\n", .{itr.first().cannon()});
         return e;
     };
-    argv.append(exeZ) catch return Error.Memory;
+    try argv.append(exeZ);
 
     while (itr.next()) |t| {
-        argv.append(
-            a.dupeZ(u8, t.cannon()) catch return Error.Memory,
-        ) catch return Error.Memory;
+        try argv.append(
+            try a.dupeZ(u8, t.cannon()),
+        );
     }
     return Binary{
         .arg = exeZ.?,
-        .argv = argv.toOwnedSliceSentinel(null) catch return Error.Memory,
+        .argv = try argv.toOwnedSliceSentinel(null),
     };
 }
 
@@ -315,7 +314,7 @@ fn mkCallableStack(a: Allocator, itr: *TokenIterator) Error![]CallableStack {
                 }
             }
         }
-        stack.append(stk) catch return Error.Memory;
+        try stack.append(stk);
         a.free(eslice);
     }
     return try stack.toOwnedSlice();
@@ -494,11 +493,11 @@ pub fn exec(h_: *HSH, input: []const u8) Error!void {
             .exec => |e| std.mem.sliceTo(e.arg, 0),
             .logic => "logic stuff",
         };
-        jobs.add(jobs.Job{
+        try jobs.add(jobs.Job{
             .status = if (s.stdio.pipe) .piped else .running,
             .pid = fpid,
-            .name = a.dupe(u8, name) catch return Error.Memory,
-        }) catch return Error.Memory;
+            .name = try a.dupe(u8, name),
+        });
         if (s.stdio.in != std.os.STDIN_FILENO) std.os.close(s.stdio.in);
         if (s.stdio.out != std.os.STDOUT_FILENO) std.os.close(s.stdio.out);
         if (s.stdio.err != std.os.STDERR_FILENO) std.os.close(s.stdio.err);
@@ -578,11 +577,11 @@ pub fn childZ(a: Allocator, argv: [:null]const ?[*:0]const u8) Error!ChildResult
     std.os.close(pipe[1]);
     defer std.os.close(pipe[0]);
     const name = std.mem.span(argv[0].?);
-    jobs.add(jobs.Job{
+    try jobs.add(jobs.Job{
         .status = .child,
         .pid = pid,
         .name = try a.dupe(u8, name[0 .. name.len - 1]),
-    }) catch return Error.Memory;
+    });
 
     var f = std.fs.File{ .handle = pipe[0] };
     var r = f.reader();
