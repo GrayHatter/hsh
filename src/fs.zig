@@ -212,11 +212,12 @@ fn fileAt(
     name: []const u8,
     comptime ccreate: bool,
     comptime rw: bool,
+    comptime truncate: bool,
 ) ?std.fs.File {
     if (ccreate) {
         return dir.createFile(
             name,
-            .{ .read = true, .truncate = false },
+            .{ .read = true, .truncate = truncate },
         ) catch return null;
     } else {
         return dir.openFile(
@@ -227,23 +228,27 @@ fn fileAt(
 }
 
 pub fn writeFileAt(dir: std.fs.Dir, name: []const u8, comptime ccreate: bool) ?std.fs.File {
-    return fileAt(dir, name, ccreate, true);
+    return fileAt(dir, name, ccreate, true, false);
 }
 
 pub fn writeFile(name: []const u8, comptime ccreate: bool) ?std.fs.File {
-    return fileAt(std.fs.cwd(), name, ccreate, true);
+    return fileAt(std.fs.cwd(), name, ccreate, true, false);
 }
 
 pub fn openFileAt(dir: std.fs.Dir, name: []const u8, comptime ccreate: bool) ?std.fs.File {
-    return fileAt(dir, name, ccreate, false);
+    return fileAt(dir, name, ccreate, false, false);
 }
 
 pub fn openFile(name: []const u8, comptime ccreate: bool) ?std.fs.File {
-    return fileAt(std.fs.cwd(), name, ccreate, false);
+    return fileAt(std.fs.cwd(), name, ccreate, false, false);
 }
 
 pub fn create(name: []const u8) ?std.fs.File {
-    return fileAt(std.fs.cwd(), name, true, false);
+    return fileAt(std.fs.cwd(), name, true, false, false);
+}
+
+pub fn reCreate(name: []const u8) ?std.fs.File {
+    return fileAt(std.fs.cwd(), name, true, false, true);
 }
 
 pub fn globCwd(a: Allocator, search: []const u8) ![][]u8 {
@@ -345,7 +350,7 @@ pub fn openFileStdout(name: []const u8, append: bool) !std.fs.File {
         }
     }
 
-    if (create(name)) |file| {
+    if (reCreate(name)) |file| {
         return file;
     }
     unreachable;
