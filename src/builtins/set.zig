@@ -121,12 +121,9 @@ fn special(h: *HSH, titr: *ParsedIterator) Err!u8 {
 
 fn posix(opt: []const u8, titr: *ParsedIterator) Err!u8 {
     _ = titr;
-    const mode = if (opt[0] == '-')
-        true
-    else if (opt[0] == '+')
-        false
-    else
-        return Err.InvalidCommand;
+    const mode = opt[0] == '-';
+    if (!mode and opt[0] != '+') return Err.InvalidCommand;
+
     for (opt[1..]) |opt_c| {
         const o = try Opts.find(opt_c);
         if (mode) try enable(o) else try disable(o);
@@ -141,8 +138,16 @@ fn option(h: *HSH, opt: []const u8, titr: *ParsedIterator) Err!u8 {
     return 0;
 }
 
-fn dump(h: *HSH) Err!u8 {
-    _ = h;
+fn dump() Err!u8 {
+    inline for (@typeInfo(PosixOpts).Enum.fields) |o| {
+        const name = o.name;
+        var truthy = if (Vars.getKind(name, .internal)) |str|
+            std.mem.eql(u8, "true", str.str)
+        else
+            false;
+
+        try print("set {s}o {s}\n", .{ if (truthy) "-" else "+", name });
+    }
     return 0;
 }
 
@@ -155,7 +160,7 @@ pub fn set(h: *HSH, titr: *ParsedIterator) Err!u8 {
         if (opt.len > 1) {
             if (std.mem.eql(u8, opt, "vi")) {
                 try print("sorry robinli, not yet\n", .{});
-                return 0;
+                return 1;
             }
 
             if (std.mem.eql(u8, opt, "emacs") or std.mem.eql(u8, opt, "vscode")) {
@@ -163,21 +168,16 @@ pub fn set(h: *HSH, titr: *ParsedIterator) Err!u8 {
             }
 
             if (opt[0] == '-' or opt[0] == '+') {
-                switch (opt[1]) {
-                    'o' => {
-                        return posix(arg.cannon(), titr);
-                    },
-                    '-' => {
-                        if (opt.len == 2) return special(h, titr);
-                    },
-                    else => unreachable,
+                if (opt[1] == '-') {
+                    return special(h, titr);
                 }
+                return posix(opt, titr);
             } else {
                 return option(h, arg.cannon(), titr);
             }
         }
     } else {
-        return dump(h);
+        return dump();
     }
     return 0;
 }
