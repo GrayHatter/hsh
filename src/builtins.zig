@@ -3,7 +3,7 @@ const HSH = @import("hsh.zig").HSH;
 const Jobs = @import("jobs.zig");
 const log = @import("log");
 const hsh_build = @import("hsh_build");
-pub const Token = @import("tokenizer.zig").Token;
+pub const Token = @import("token.zig");
 pub const ParsedIterator = @import("parse.zig").ParsedIterator;
 pub const Variables = @import("variables.zig");
 

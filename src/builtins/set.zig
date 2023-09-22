@@ -113,9 +113,7 @@ fn disable(o: Opts) !void {
     }
 }
 
-fn special(h: *HSH, titr: *ParsedIterator) Err!u8 {
-    _ = h;
-    _ = titr;
+fn special(_: std.mem.Allocator, _: *ParsedIterator) Err!u8 {
     return 0;
 }
 
@@ -131,8 +129,7 @@ fn posix(opt: []const u8, titr: *ParsedIterator) Err!u8 {
     return 0;
 }
 
-fn option(h: *HSH, opt: []const u8, titr: *ParsedIterator) Err!u8 {
-    _ = h;
+fn option(_: std.mem.Allocator, opt: []const u8, titr: *ParsedIterator) Err!u8 {
     _ = opt;
     _ = titr;
     return 0;
@@ -151,10 +148,10 @@ fn dump() Err!u8 {
     return 0;
 }
 
-pub fn set(h: *HSH, titr: *ParsedIterator) Err!u8 {
-    if (!std.mem.eql(u8, titr.first().cannon(), "set")) return Err.InvalidCommand;
+fn setCore(a: std.mem.Allocator, pi: *ParsedIterator) Err!u8 {
+    if (!std.mem.eql(u8, pi.first().cannon(), "set")) return Err.InvalidCommand;
 
-    if (titr.next()) |arg| {
+    if (pi.next()) |arg| {
         const opt = arg.cannon();
 
         if (opt.len > 1) {
@@ -169,15 +166,39 @@ pub fn set(h: *HSH, titr: *ParsedIterator) Err!u8 {
 
             if (opt[0] == '-' or opt[0] == '+') {
                 if (opt[1] == '-') {
-                    return special(h, titr);
+                    return special(a, pi);
                 }
-                return posix(opt, titr);
+                return posix(opt, pi);
             } else {
-                return option(h, arg.cannon(), titr);
+                return option(a, arg.cannon(), pi);
             }
         }
     } else {
         return dump();
     }
     return 0;
+}
+pub fn set(h: *HSH, titr: *ParsedIterator) Err!u8 {
+    return setCore(h.alloc, titr);
+}
+
+test "set" {
+    var a = std.testing.allocator;
+    Vars.init(a);
+    defer Vars.raze();
+
+    var ts = [_]Token{
+        Token{ .kind = .word, .str = "set" },
+        Token{ .kind = .ws, .str = " " },
+        Token{ .kind = .word, .str = "-C" },
+    };
+
+    const Parse = @import("../parse.zig");
+    var p = try Parse.Parser.parse(a, &ts);
+    defer p.raze();
+
+    _ = try setCore(a, &p);
+
+    const nc = Vars.getKind("noclobber", .internal);
+    try std.testing.expectEqualStrings("true", nc.?.str);
 }
