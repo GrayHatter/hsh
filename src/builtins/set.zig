@@ -183,6 +183,7 @@ pub fn set(h: *HSH, titr: *ParsedIterator) Err!u8 {
 }
 
 test "set" {
+    const Parse = @import("../parse.zig");
     var a = std.testing.allocator;
     Vars.init(a);
     defer Vars.raze();
@@ -193,7 +194,6 @@ test "set" {
         Token{ .kind = .word, .str = "-C" },
     };
 
-    const Parse = @import("../parse.zig");
     var p = try Parse.Parser.parse(a, &ts);
     defer p.raze();
 
@@ -201,4 +201,18 @@ test "set" {
 
     const nc = Vars.getKind("noclobber", .internal);
     try std.testing.expectEqualStrings("true", nc.?.str);
+
+    ts = [_]Token{
+        Token{ .kind = .word, .str = "set" },
+        Token{ .kind = .ws, .str = " " },
+        Token{ .kind = .word, .str = "+C" },
+    };
+
+    p.raze();
+    p = try Parse.Parser.parse(a, &ts);
+
+    _ = try setCore(a, &p);
+
+    const ync = Vars.getKind("noclobber", .internal);
+    try std.testing.expectEqualStrings("false", ync.?.str);
 }
