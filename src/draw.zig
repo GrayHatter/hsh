@@ -18,7 +18,7 @@ pub const Cord = struct {
 
 pub const Err = error{
     Unknown,
-    Memory,
+    OutOfMemory,
     WriterIO,
 };
 
@@ -135,6 +135,7 @@ pub const Drawable = struct {
     pub fn reset(d: *Drawable) void {
         d.clear();
         d.lines = 0;
+        d.cursor = 0;
     }
 
     pub fn raze(d: *Drawable) void {
@@ -148,12 +149,12 @@ pub const Drawable = struct {
 fn setAttr(buf: *DrawBuf, attr: ?Attr) Err!void {
     if (attr) |a| {
         switch (a) {
-            .bold => buf.appendSlice("\x1B[1m") catch return Err.Memory,
-            .dim => buf.appendSlice("\x1B[2m") catch return Err.Memory,
-            .reverse => buf.appendSlice("\x1B[7m") catch return Err.Memory,
-            .reverse_bold => buf.appendSlice("\x1B[1m\x1B[7m") catch return Err.Memory,
-            .reverse_dim => buf.appendSlice("\x1B[2m\x1B[7m") catch return Err.Memory,
-            else => buf.appendSlice("\x1B[0m") catch return Err.Memory,
+            .bold => try buf.appendSlice("\x1B[1m"),
+            .dim => try buf.appendSlice("\x1B[2m"),
+            .reverse => try buf.appendSlice("\x1B[7m"),
+            .reverse_bold => try buf.appendSlice("\x1B[1m\x1B[7m"),
+            .reverse_dim => try buf.appendSlice("\x1B[2m\x1B[7m"),
+            else => try buf.appendSlice("\x1B[0m"),
         }
     }
 }
@@ -166,7 +167,7 @@ fn bgColor(buf: *DrawBuf, c: ?Color) Err!void {
             .green => "\x1B[42m",
             else => "\x1B[39m",
         };
-        buf.appendSlice(color) catch return Err.Memory;
+        try buf.appendSlice(color);
     }
 }
 
@@ -178,7 +179,7 @@ fn fgColor(buf: *DrawBuf, c: ?Color) Err!void {
             .green => "\x1B[32m",
             else => "\x1B[39m",
         };
-        buf.appendSlice(color) catch return Err.Memory;
+        try buf.appendSlice(color);
     }
 }
 
@@ -191,7 +192,7 @@ fn drawLexeme(buf: *DrawBuf, x: usize, y: usize, l: Lexeme) Err!void {
         try fgColor(buf, l.style.fg);
         try bgColor(buf, l.style.bg);
     }
-    buf.appendSlice(l.char) catch return Err.Memory;
+    try buf.appendSlice(l.char);
     if (colorize) {
         try bgColor(buf, .none);
         try fgColor(buf, .none);
@@ -201,7 +202,7 @@ fn drawLexeme(buf: *DrawBuf, x: usize, y: usize, l: Lexeme) Err!void {
 
 fn drawSibling(buf: *DrawBuf, x: usize, y: usize, s: []Lexeme) Err!void {
     for (s) |sib| {
-        drawLexeme(buf, x, y, sib) catch return Err.Memory;
+        try drawLexeme(buf, x, y, sib);
     }
 }
 
@@ -215,7 +216,7 @@ fn drawTree(buf: *DrawBuf, x: usize, y: usize, t: LexTree) Err!void {
 
 fn drawTrees(buf: *DrawBuf, x: usize, y: usize, tree: []LexTree) Err!void {
     for (tree) |t| {
-        drawTree(buf, x, y, t) catch return Err.Memory;
+        try drawTree(buf, x, y, t);
     }
 }
 
