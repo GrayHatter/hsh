@@ -357,7 +357,6 @@ fn execLogic(h: *HSH, l: *Logic) Error!void {
 }
 
 fn free(a: Allocator, s: *CallableStack) void {
-    // TODO implement
     switch (s.callable) {
         .builtin => |b| {
             a.free(b.argv.tokens);
@@ -393,6 +392,8 @@ pub fn exec(h_: *HSH, input: []const u8) Error!void {
     };
     defer a.free(stack);
 
+    // TODO replace this hack with real logic to determine what env builtins
+    // need to execute in.
     if (stack.len == 1 and
         stack[0].stdio.in == STDIN_FILENO and
         stack[0].stdio.out == STDOUT_FILENO)
