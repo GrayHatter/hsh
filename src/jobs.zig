@@ -188,9 +188,9 @@ pub fn getBgSlice(a: Allocator) ![]*Job {
 }
 
 pub fn getFg() ?*const Job {
-    for (jobs.items) |j| {
+    for (jobs.items) |*j| {
         if (j.status == .running) {
-            return &j;
+            return j;
         }
     }
     return null;
@@ -230,9 +230,13 @@ else
 pub fn waitForFg() void {
     while (getFg()) |fg| {
         log.debug("Waiting on {}\n", .{fg.pid});
-        _ = waitFor(-1) catch {
-            log.warn("waitFor didn't find this child\n", .{});
-            continue;
+        _ = waitFor(fg.pid) catch {
+            // Debug because jobs aren't created in some exec cases (which? ¯\_(ツ)_/¯)
+            log.debug(
+                "waitFor didn't find child \"{s}\" {}\n",
+                .{ fg.name orelse "Unknown Job", fg.pid },
+            );
+            (get(fg.pid) catch unreachable).status = .unknown;
         };
     }
 }
@@ -252,6 +256,8 @@ pub fn waitFor(jid: std.os.pid_t) !*Job {
         get(s.pid) catch &local
     else
         &local;
+
+    if (job == &local) log.debug("using local val for job {}\n", .{jid});
 
     if (std.os.linux.W.IFSIGNALED(s.status)) {
         job.crash(0);
