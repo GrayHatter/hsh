@@ -231,7 +231,11 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
             } else try hsh.tty.print("^E\r\n", .{}); // ENQ
         },
         0x07 => try hsh.tty.print("^bel\r\n", .{}),
-        0x08 => try hsh.tty.print("\r\ninput: backspace\r\n", .{}),
+        // probably ctrl + bs
+        0x08 => {
+            _ = try tkn.dropWord();
+            return .Redraw;
+        },
         0x09 => |c| { // \t
             return completing(hsh, tkn, Keys.Event.ascii(c).keysm, comp) catch unreachable;
         },
@@ -261,7 +265,6 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
             //if (run.tokens.len > 0) return .Exec;
             return .Redraw;
         },
-        // probably ctrl + bs
         0x0C => try hsh.tty.print("^L (reset term)\x1B[J\n", .{}),
         0x0E => try hsh.tty.print("shift in\r\n", .{}),
         0x0F => try hsh.tty.print("^shift out\r\n", .{}),
@@ -356,7 +359,7 @@ fn event(hsh: *HSH, tkn: *Tokenizer, km: Keys.KeyMod) !Event {
                 else => {}, // unable to use range on Key :<
             }
             // TODO find a better scope for this call
-            hsh.draw.cursor = @truncate(tkn.cadj());
+            hsh.draw.cursor = tkn.cadj();
         },
     }
     return .Redraw;

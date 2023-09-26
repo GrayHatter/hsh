@@ -102,8 +102,8 @@ pub const Tokenizer = struct {
     }
 
     // Cursor adjustment to send to tty
-    pub fn cadj(self: Tokenizer) usize {
-        return self.raw.items.len - self.c_idx;
+    pub fn cadj(self: Tokenizer) u32 {
+        return @truncate(self.raw.items.len - self.c_idx);
     }
 
     pub fn iterator(self: *Tokenizer) TokenIterator {
