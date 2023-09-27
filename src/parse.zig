@@ -1272,3 +1272,24 @@ test "sub process" {
     // try std.testing.expectEqualStrings("ls", p.cannon());
     // a.free(p.resolved.?);
 }
+
+test "naughty strings parsed" {
+    var a = std.testing.allocator;
+    const while_str = "thingy (b.argv.next()) |_| {}";
+
+    var itr = TokenIterator{ .raw = while_str };
+
+    var slice = try itr.toSlice(a);
+    defer a.free(slice);
+
+    var pitr = try Parser.parse(a, slice);
+    defer pitr.raze();
+
+    var count: usize = 0;
+    while (pitr.next()) |t| {
+        if (false) log.err("{}\n", .{t});
+        count += 1;
+    }
+    try expectEql(count, 4);
+
+}

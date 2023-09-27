@@ -1360,7 +1360,7 @@ test "naughty strings" {
         if (false) log.err("{}\n", .{t});
         count += 1;
     }
-    try expectEql(count, 9);
+    try expectEql(count, 10);
 }
 
 test "escape newline" {
@@ -1376,4 +1376,35 @@ test "escape newline" {
     try std.testing.expectError(Error.Exec, ee);
     _ = try tzr.consumec('\\');
     try tzr.consumes("\n"); // expect no error
+}
+
+test "build functions" {
+    var a = std.testing.allocator;
+    var tzr = Tokenizer.init(a);
+    defer tzr.raze();
+
+
+    try tzr.consumes("func () a");
+    var itr = tzr.iterator();
+
+    var count: usize = 0;
+    while (itr.next()) |t| {
+        if (false) log.dump(t);
+        count += 1;
+    }
+    try std.testing.expectEqual(count, 5);
+    tzr.raze();
+
+    try tzr.consumes("func () {}");
+    itr = tzr.iterator();
+
+    count = 0;
+    while (itr.next()) |t| {
+        if (false) log.dump(t);
+        count += 1;
+    }
+    try std.testing.expectEqual(count, 3);
+
+
+
 }

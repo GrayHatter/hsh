@@ -95,7 +95,7 @@ pub fn any(src: []const u8) Error!Token {
     return switch (src[0]) {
         '\'', '"' => group(src),
         '`' => group(src), // TODO magic
-        '{' => group(src), // TODO magic
+        '{', '(' => group(src), // TODO magic
         ' ', '\t', '\n' => space(src),
         '~', '/' => path(src),
         '>', '<' => ioredir(src),
@@ -302,6 +302,10 @@ pub fn logic(src: []const u8) Error!Token {
     return Error.OpenLogic;
 }
 
+pub fn func(src: []const u8) Error!Token {
+    return Token.make(src, .nos);
+}
+
 pub fn oper(src: []const u8) Error!Token {
     switch (src[0]) {
         '=' => return Token.make(src[0..1], .{ .io = .Err }),
@@ -331,6 +335,10 @@ pub fn quoteDouble(src: []const u8) Error!Token {
 }
 
 pub fn paren(src: []const u8) Error!Token {
+    if (src.len > 2 and src[1] == ')') {
+        const ws = try space(src[2..]);
+        if (ws.str.len > 0 and src[ws.str.len + 2] == '{') return func(src);
+    }
     return quote(src, ')');
 }
 
