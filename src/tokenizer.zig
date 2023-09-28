@@ -1393,8 +1393,8 @@ test "build functions" {
         count += 1;
     }
     try std.testing.expectEqual(count, 5);
-    tzr.raze();
 
+    tzr.raze();
     try tzr.consumes("func () {}");
     itr = tzr.iterator();
 
@@ -1405,6 +1405,17 @@ test "build functions" {
     }
     try std.testing.expectEqual(count, 3);
 
+
+    tzr.raze();
+    try tzr.consumes("func () {   }   ");
+    itr = tzr.iterator();
+
+    count = 0;
+    while (itr.next()) |t| {
+        if (false) log.dump(t);
+        count += 1;
+    }
+    try std.testing.expectEqual(count, 4);
 
 
 }

@@ -303,7 +303,14 @@ pub fn logic(src: []const u8) Error!Token {
 }
 
 pub fn func(src: []const u8) Error!Token {
-    return Token.make(src, .nos);
+    std.debug.assert(src[0] == '(');
+    std.debug.assert(src[1] == ')');
+    const ws = try space(src[2..]);
+    var end: usize = 2 + ws.str.len;
+    const t = try any(src[end..]);
+    end += t.str.len;
+
+    return Token.make(src[0..end], .nos);
 }
 
 pub fn oper(src: []const u8) Error!Token {
@@ -573,6 +580,7 @@ test "quotes" {
     try expect(std.mem.eql(u8, t.str, "'this is some text'"));
     try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
 }
+
 test "path" {
     const tokenn = try path("blerg");
     try std.testing.expectEqualStrings(tokenn.str, "blerg");
