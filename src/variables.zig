@@ -7,6 +7,7 @@ const Kind = enum(u4) {
     nos,
     internal,
     sysenv,
+    ephemeral, // VAR=thing exec_command
 
     const len = @typeInfo(@This()).Enum.fields.len;
 };
@@ -24,6 +25,7 @@ const Var = union(Kind) {
         str: []const u8,
     },
     sysenv: SysEnv,
+    ephemeral: []const u8,
 
     pub fn getType(comptime G: Kind) type {
         inline for (@typeInfo(Var).Union.fields) |each| {
@@ -96,6 +98,7 @@ fn environBuild() ![:null]?[*:0]u8 {
                 .int => continue,
                 .str => |s| s,
             },
+            .ephemeral => |e| e,
         };
         var str = try environ_alloc.alloc(u8, k.len + v.len + 2);
         @memcpy(str[0..k.len], k);
@@ -122,6 +125,7 @@ pub fn getKind(k: []const u8, comptime G: Kind) ?std.meta.FieldType(Var, G) {
         .nos => vs.nos,
         .sysenv => vs.sysenv,
         .internal => vs.internal,
+        .ephemeral => vs.ephemeral,
     };
 }
 
@@ -142,6 +146,7 @@ pub fn putKind(k: []const u8, v: []const u8, comptime G: Kind) !void {
         .nos => vs.put(k, Var{ .nos = v }),
         .sysenv => vs.put(k, Var{ .sysenv = .{ .value = v } }),
         .internal => vs.put(k, Var{ .internal = .{ .str = v } }),
+        .ephemeral => vs.put(k, Var{ .ephemeral = v }),
     };
     return ret;
 }
@@ -170,6 +175,10 @@ pub fn unexport(k: []const u8) !void {
     if (variables[@intFromEnum(Kind.sysenv)].getPtr(k)) |v| {
         v.sysenv.exported = false;
     }
+}
+
+pub fn razeEphemeral() void {
+    variables[@intFromEnum(Kind.ephemeral)].clearAndFree();
 }
 
 pub fn raze() void {
@@ -204,4 +213,20 @@ test "variables standard usage" {
     try unexport("key");
     x = get("key").?;
     try std.testing.expectEqual(x.exported, false);
+}
+
+test "variables ephemeral" {
+    var a = std.testing.allocator;
+
+    init(a);
+    defer raze();
+
+    try putKind("key", "value", .ephemeral);
+
+    var str = getKind("key", .ephemeral).?;
+    try std.testing.expectEqualStrings("value", str);
+    razeEphemeral();
+
+    var n = getKind("key", .ephemeral);
+    try std.testing.expect(n == null);
 }
