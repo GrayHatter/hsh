@@ -341,27 +341,48 @@ pub fn quoteDouble(src: []const u8) Error!Token {
     return quote(src, '"');
 }
 
-pub fn paren(src: []const u8) Error!Token {
-    if (src.len > 2 and src[1] == ')') {
-        const ws = try space(src[2..]);
-        if (ws.str.len > 0 and src[ws.str.len + 2] == '{') return func(src);
-    }
-    return quote(src, ')');
-}
-
-pub fn bracket(src: []const u8) Error!Token {
-    return quote(src, ']');
-}
-
-pub fn bracketCurly(src: []const u8) Error!Token {
-    return quote(src, '}');
-}
-
 pub fn backtick(src: []const u8) Error!Token {
     return quote(src, '`');
 }
 
 pub fn quote(src: []const u8, close: u8) Error!Token {
+    // TODO posix says a ' cannot appear within 'string'
+    if (src.len <= 1 or src[0] == BSLH) {
+        return Error.InvalidSrc;
+    }
+
+    var end: usize = 1;
+    for (src[1..], 1..) |s, i| {
+        end += 1;
+        if (s == close and !(src[i - 1] == BSLH and src[i - 2] != BSLH)) break;
+    }
+
+    if (src[end - 1] != close) return Error.OpenGroup;
+
+    return Token{
+        .str = src[0..end],
+        .kind = .quote,
+        .subtoken = close,
+    };
+}
+
+pub fn paren(src: []const u8) Error!Token {
+    if (src.len > 2 and src[1] == ')') {
+        const ws = try space(src[2..]);
+        if (ws.str.len > 0 and src[ws.str.len + 2] == '{') return func(src);
+    }
+    return brace(src, ')');
+}
+
+pub fn bracket(src: []const u8) Error!Token {
+    return brace(src, ']');
+}
+
+pub fn bracketCurly(src: []const u8) Error!Token {
+    return brace(src, '}');
+}
+
+pub fn brace(src: []const u8, close: u8) Error!Token {
     // TODO posix says a ' cannot appear within 'string'
     if (src.len <= 1 or src[0] == BSLH) {
         return Error.InvalidSrc;
