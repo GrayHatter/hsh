@@ -354,7 +354,6 @@ pub fn backtick(src: []const u8) Error!Token {
     return quote(src, '`');
 }
 
-/// Callers must ensure that src[0] is in (', ")
 pub fn quote(src: []const u8, close: u8) Error!Token {
     // TODO posix says a ' cannot appear within 'string'
     if (src.len <= 1 or src[0] == BSLH) {
