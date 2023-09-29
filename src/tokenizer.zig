@@ -308,8 +308,15 @@ pub const Tokenizer = struct {
         self.err_idx = @min(self.c_idx, self.err_idx);
     }
 
+    /// consumes(tring) will swallow exec, assuming strings shouldn't be able to
+    /// start execution
     pub fn consumes(self: *Tokenizer, str: []const u8) Error!void {
-        for (str) |s| try self.consumec(s);
+        for (str) |s| {
+            self.consumec(s) catch |e| {
+                if (e == Error.Exec) continue;
+                return e;
+            };
+        }
     }
 
     pub fn consumec(self: *Tokenizer, c: u8) Error!void {
@@ -1372,8 +1379,13 @@ test "escape newline" {
     try tzr.consumes("zig build test");
     const e = tzr.consumec('\n');
     try std.testing.expectError(Error.Exec, e);
-    const ee = tzr.consumes("\n");
-    try std.testing.expectError(Error.Exec, ee);
+    //const ee = tzr.consumes("\n");
+    //try std.testing.expectError(Error.Exec, ee);
+    // This API is mildly unstable, if you need string to err.exec create a new
+    // handler
+    tzr.consumes("\n") catch {
+        try std.testing.expect(false); // consume string doesn't error
+    };
     _ = try tzr.consumec('\\');
     try tzr.consumes("\n"); // expect no error
 }
@@ -1417,5 +1429,20 @@ test "build functions" {
     }
     try std.testing.expectEqual(count, 4);
 
+
+    tzr.raze();
+    try tzr.consumes(
+        \\func () {
+        \\    some function call here
+        \\}
+    );
+    itr = tzr.iterator();
+
+    count = 0;
+    while (itr.next()) |t| {
+        if (false) log.dump(t);
+        count += 1;
+    }
+    try std.testing.expectEqual(count, 3);
 
 }

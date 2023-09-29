@@ -383,15 +383,22 @@ pub fn bracketCurly(src: []const u8) Error!Token {
 }
 
 pub fn brace(src: []const u8, close: u8) Error!Token {
-    // TODO posix says a ' cannot appear within 'string'
-    if (src.len <= 1 or src[0] == BSLH) {
-        return Error.InvalidSrc;
-    }
-
     var end: usize = 1;
-    for (src[1..], 1..) |s, i| {
+    var skip: usize = 0;
+    for (src[1..]) |s| {
+        if (skip > 0) {
+            skip -|= 1;
+            end += 1;
+            continue;
+        }
+        if (s == '"' or s == '\'') {
+            const qut = try group(src[end..]);
+            end += @max(1, qut.str.len);
+            skip += qut.str.len;
+            continue;
+        }
         end += 1;
-        if (s == close and !(src[i - 1] == BSLH and src[i - 2] != BSLH)) break;
+        if (s == close) break;
     }
 
     if (src[end - 1] != close) return Error.OpenGroup;
