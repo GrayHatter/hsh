@@ -1395,7 +1395,6 @@ test "build functions" {
     var tzr = Tokenizer.init(a);
     defer tzr.raze();
 
-
     try tzr.consumes("func () a");
     var itr = tzr.iterator();
 
@@ -1417,7 +1416,6 @@ test "build functions" {
     }
     try std.testing.expectEqual(count, 1);
 
-
     tzr.raze();
     try tzr.consumes("func () {   }   ");
     itr = tzr.iterator();
@@ -1428,7 +1426,6 @@ test "build functions" {
         count += 1;
     }
     try std.testing.expectEqual(count, 2);
-
 
     tzr.raze();
     try tzr.consumes(
@@ -1444,5 +1441,4 @@ test "build functions" {
         count += 1;
     }
     try std.testing.expectEqual(count, 1);
-
 }

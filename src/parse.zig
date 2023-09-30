@@ -1291,5 +1291,4 @@ test "naughty strings parsed" {
         count += 1;
     }
     try expectEql(count, 4);
-
 }

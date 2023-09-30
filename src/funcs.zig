@@ -20,5 +20,3 @@ pub fn init(a: std.mem.Allocator) void {
 fn save(_: *hsh.HSH, _: *anyopaque) ?[][]const u8 {
     return null;
 }
-
-
