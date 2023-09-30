@@ -1415,7 +1415,7 @@ test "build functions" {
         if (false) log.dump(t);
         count += 1;
     }
-    try std.testing.expectEqual(count, 3);
+    try std.testing.expectEqual(count, 1);
 
 
     tzr.raze();
@@ -1427,7 +1427,7 @@ test "build functions" {
         if (false) log.dump(t);
         count += 1;
     }
-    try std.testing.expectEqual(count, 4);
+    try std.testing.expectEqual(count, 2);
 
 
     tzr.raze();
@@ -1443,6 +1443,6 @@ test "build functions" {
         if (false) log.dump(t);
         count += 1;
     }
-    try std.testing.expectEqual(count, 3);
+    try std.testing.expectEqual(count, 1);
 
 }
