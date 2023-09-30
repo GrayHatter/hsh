@@ -380,10 +380,6 @@ pub fn quote(src: []const u8, close: u8) Error!Token {
 }
 
 pub fn paren(src: []const u8) Error!Token {
-    //if (src.len > 2 and src[1] == ')') {
-        //const ws = try space(src[2..]);
-        //if (ws.str.len > 0 and src[ws.str.len + 2] == '{') return func(src);
-    //}
     return brace(src, ')');
 }
 
