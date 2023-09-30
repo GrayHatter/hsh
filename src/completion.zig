@@ -180,6 +180,19 @@ fn styleInactive(lex: *Draw.Lexeme) void {
     }
 }
 
+fn sortAscStr(_: void, a: []const u8, b: []const u8) bool {
+    const end = @min(a.len, b.len);
+
+    for (a[0..end], b[0..end]) |l, r| {
+        if (l != r) return l < r;
+    }
+    return false;
+}
+
+fn sortAscCompOption(ctx: void, a: CompOption, b: CompOption) bool {
+    return sortAscStr(ctx, a.str, b.str);
+}
+
 pub const CompSet = struct {
     alloc: Allocator,
     original: ?CompOption,
@@ -238,6 +251,12 @@ pub const CompSet = struct {
     pub fn reset(self: *CompSet) void {
         self.index = 0;
         self.groupSet(.any);
+    }
+
+    pub fn sort(self: *CompSet) void {
+        for (self.groups) |group| {
+            std.sort.heap(CompOption, group.items, {}, sortAscCompOption);
+        }
     }
 
     pub fn first(self: *CompSet) *const CompOption {
@@ -651,6 +670,7 @@ pub fn complete(cs: *CompSet, hsh: *HSH, tks: *Tokenizer) !void {
         log.debug("Completion original is null\n\n", .{});
     }
 
+    cs.sort();
     cs.reset();
     return;
 }
