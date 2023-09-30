@@ -274,7 +274,7 @@ pub fn wordExpanded(src: []const u8) Error!Token {
     if (src.len > tkn.str.len) {
         var offset: usize = tkn.str.len;
         // TODO accept other whitespace?
-        while (src[offset] == ' ') offset += 1;
+        while (offset < src.len and src[offset] == ' ') offset += 1;
 
         var f = func(src[offset..]) catch return tkn;
         return Token.make(src[0 .. offset + f.str.len], .nos);
@@ -314,8 +314,9 @@ pub fn logic(src: []const u8) Error!Token {
 }
 
 pub fn func(src: []const u8) Error!Token {
+    if (src.len < 4) return Error.InvalidSrc;
     if (src[0] != '(' or src[1] != ')') {
-         return Error.InvalidSrc;
+        return Error.InvalidSrc;
     }
     const ws = try space(src[2..]);
     var end: usize = 2 + ws.str.len;
