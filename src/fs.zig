@@ -388,9 +388,9 @@ fn openHistFile(a: Allocator, env: *const std.process.EnvMap) !?std.fs.File {
 test "fs" {
     const a = std.testing.allocator;
     var env = try std.process.getEnvMap(a);
+    defer env.deinit();
     //var p = try findPath(a, &env) orelse unreachable;
     //var buf: [200]u8 = undefined;
     //std.debug.print("path {s}\n", .{try p.realpath(".", &buf)});
     _ = try openRcFile(a, &env);
-    defer env.deinit();
 }
