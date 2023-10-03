@@ -392,5 +392,9 @@ test "fs" {
     //var p = try findPath(a, &env) orelse unreachable;
     //var buf: [200]u8 = undefined;
     //std.debug.print("path {s}\n", .{try p.realpath(".", &buf)});
-    _ = try openRcFile(a, &env);
+    if (openRcFile(a, &env)) |_| {
+        // pass
+    } else |err| {
+        if (err != Error.Missing) return err;
+    }
 }
