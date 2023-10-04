@@ -20,6 +20,7 @@ const fs = @import("fs.zig");
 const signal = @import("signals.zig");
 const logic_ = @import("logic.zig");
 const Variables = @import("variables.zig");
+const Funcs = @import("funcs.zig");
 
 const STDIN_FILENO = std.os.STDIN_FILENO;
 const STDOUT_FILENO = std.os.STDOUT_FILENO;
@@ -93,6 +94,7 @@ pub fn execFromInput(h: *HSH, str: []const u8) ![]u8 {
 
 pub fn executable(h: *HSH, str: []const u8) bool {
     if (bi.exists(str)) return true;
+    if (Funcs.exists(str)) return true;
     paths = h.hfs.names.paths.items;
     var plsfree = makeAbsExecutable(h.alloc, str) catch return bi.existsOptional(str);
     h.alloc.free(plsfree);
