@@ -92,13 +92,28 @@ pub fn execFromInput(h: *HSH, str: []const u8) ![]u8 {
     return h.alloc.dupe(u8, ps.first().cannon());
 }
 
-pub fn executable(h: *HSH, str: []const u8) bool {
-    if (bi.exists(str)) return true;
-    if (Funcs.exists(str)) return true;
+const ExeKind = enum {
+    exe,
+    builtin,
+    function,
+};
+
+pub fn executableType(h: *HSH, str: []const u8) ?ExeKind {
+    if (Funcs.exists(str)) return .function;
+    if (bi.exists(str)) return .builtin;
     paths = h.hfs.names.paths.items;
-    var plsfree = makeAbsExecutable(h.alloc, str) catch return bi.existsOptional(str);
+    var plsfree = makeAbsExecutable(h.alloc, str) catch {
+        if (bi.existsOptional(str)) {
+            return .builtin;
+        }
+        return null;
+    };
     h.alloc.free(plsfree);
-    return true;
+    return .exe;
+}
+
+pub fn executable(h: *HSH, str: []const u8) bool {
+    return executableType(h, str) != null;
 }
 
 fn validPath(path: []const u8) bool {
