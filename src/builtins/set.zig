@@ -11,6 +11,9 @@ const Vars = bi.Variables;
 
 pub const Set = @This();
 
+pub const Context = struct {
+};
+
 pub const Opts = enum(u8) {
     Export = 'a',
     BgJob = 'b',
@@ -63,10 +66,12 @@ const PosixState = union(PosixOpts) {
     xtrace: ?bool,
 };
 
+var context = Context{};
+
 pub fn init() void {
     hsh.addState(State{
         .name = "set",
-        .ctx = &.{},
+	.ctx = &context,
         .api = &.{ .save = save },
     }) catch unreachable;
 
