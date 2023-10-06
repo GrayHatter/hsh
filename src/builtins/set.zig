@@ -11,8 +11,7 @@ const Vars = bi.Variables;
 
 pub const Set = @This();
 
-pub const Context = struct {
-};
+pub const Context = struct {};
 
 pub const Opts = enum(u8) {
     Export = 'a',
@@ -71,7 +70,7 @@ var context = Context{};
 pub fn init() void {
     hsh.addState(State{
         .name = "set",
-	.ctx = &context,
+        .ctx = &context,
         .api = &.{ .save = save },
     }) catch unreachable;
 
