@@ -121,7 +121,7 @@ pub fn get(jid: std.os.pid_t) Error!*Job {
     for (jobs.items) |*j| {
         if (j.pid == jid) {
             return j;
-        } else log.err("job search {} {} \n", .{ j.pid, jid });
+        } else log.debug("job search {} {} \n", .{ j.pid, jid });
     }
     return Error.JobNotFound;
 }
