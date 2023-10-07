@@ -65,6 +65,33 @@ fn usage() void {
     std.debug.print("hsh usage:\n", .{});
 }
 
+/// No, I don't really like this hack either, but autoformatting :/
+/// return 255 == unknown
+/// return   1 == exec error
+/// return   2 == alloc error
+fn execTacC(args: *std.process.ArgIterator) u8 {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var a = gpa.allocator();
+    var hsh = HSH.init(a) catch return 255;
+    defer hsh.raze();
+    hsh.tkn = Tokenizer.init(a);
+    defer hsh.tkn.raze();
+    hsh.tty = TTY.init(a) catch return 255;
+    defer hsh.tty.raze();
+
+    while (args.next()) |arg| {
+        hsh.tkn.consumes(arg) catch return 2;
+    }
+    var str = hsh.alloc.dupe(u8, hsh.tkn.raw.items) catch return 2;
+    defer hsh.alloc.free(str);
+
+    Exec.exec(&hsh, str) catch |err| {
+        log.err("-c error [{}]\n", .{err});
+        return 1;
+    };
+    return 0;
+}
+
 fn readArgs() ?u8 {
     var args = std.process.args();
     _ = args.next(); // argv[0] bin name
@@ -85,6 +112,8 @@ fn readArgs() ?u8 {
             // ELSE print config search locations
             // and print the config file[s] that would be sourced or updated
             @panic("Not Implemented");
+        } else if (std.mem.eql(u8, "-c", arg)) {
+            return execTacC(&args);
         } else {
             log.warn("unknown arg: {s}\n", .{arg});
         }
