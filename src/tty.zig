@@ -31,21 +31,26 @@ dev: i32,
 is_tty: bool,
 in: Reader,
 out: Writer,
-orig_attr: os.termios,
+orig_attr: ?os.termios,
 pid: std.os.pid_t = undefined,
 owner: ?std.os.pid_t = null,
 
 /// Calling init multiple times is UB
 pub fn init(a: Allocator) !TTY {
     // TODO figure out how to handle multiple calls to current_tty?
-    const tty = os.open("/dev/tty", os.linux.O.RDWR, 0) catch unreachable;
+    const is_tty = std.io.getStdOut().isTty() and std.io.getStdIn().isTty();
+
+    const tty = if (is_tty)
+        os.open("/dev/tty", os.linux.O.RDWR, 0) catch std.io.getStdOut().handle
+    else
+        std.io.getStdOut().handle;
 
     std.debug.assert(current_tty == null);
 
     var self = TTY{
         .alloc = a,
         .dev = tty,
-        .is_tty = std.io.getStdOut().isTty() and std.io.getStdIn().isTty(),
+        .is_tty = is_tty,
         .in = std.io.getStdIn().reader(),
         .out = std.io.getStdOut().writer(),
         .orig_attr = tcAttr(tty),
@@ -55,16 +60,25 @@ pub fn init(a: Allocator) !TTY {
     return self;
 }
 
-fn tcAttr(tty_fd: i32) os.termios {
-    return os.tcgetattr(tty_fd) catch unreachable;
+fn tcAttr(tty_fd: i32) ?os.termios {
+    return os.tcgetattr(tty_fd) catch null;
 }
 
-pub fn getAttr(self: *TTY) os.termios {
+pub fn getAttr(self: *TTY) ?os.termios {
     return tcAttr(self.dev);
 }
 
-fn makeRaw(orig: os.termios) os.termios {
-    var next = orig;
+fn makeRaw(orig: ?os.termios) os.termios {
+    var next = orig orelse os.termios{
+        .oflag = os.linux.OPOST | os.linux.ONLCR,
+        .cflag = os.linux.CS8 | os.linux.CREAD | os.linux.CLOCAL,
+        .lflag = os.linux.ISIG | os.linux.ICANON | os.linux.ECHO | os.linux.IEXTEN | os.linux.ECHOE,
+        .iflag = os.linux.BRKINT | os.linux.ICRNL | os.linux.IMAXBEL,
+        .line = 0,
+        .cc = .{},
+        .ispeed = 9600,
+        .ospeed = 9600,
+    };
     next.iflag &= ~(os.linux.IXON |
         os.linux.BRKINT | os.linux.INPCK | os.linux.ISTRIP);
     next.iflag |= os.linux.ICRNL;
@@ -75,17 +89,18 @@ fn makeRaw(orig: os.termios) os.termios {
     return next;
 }
 
-fn setTTYWhen(self: *TTY, tio: os.termios, when: TCSA) !void {
-    try os.tcsetattr(self.dev, when, tio);
+fn setTTYWhen(self: *TTY, mtio: ?os.termios, when: TCSA) !void {
+    if (mtio) |tio| try os.tcsetattr(self.dev, when, tio);
 }
 
-pub fn setTTY(self: *TTY, tio: os.termios) void {
+pub fn setTTY(self: *TTY, tio: ?os.termios) void {
     self.setTTYWhen(tio, .DRAIN) catch |err| {
         log.err("TTY ERROR encountered, {} when popping.\n", .{err});
     };
 }
 
 pub fn setOrig(self: *TTY) !void {
+    if (!self.is_tty) return;
     try self.setTTYWhen(self.orig_attr, .DRAIN);
     // try self.command(.ReqMouseEvents, false);
     try self.command(.ModOtherKeys, false);
@@ -94,6 +109,7 @@ pub fn setOrig(self: *TTY) !void {
 }
 
 pub fn setRaw(self: *TTY) !void {
+    if (!self.is_tty) return;
     try self.setTTYWhen(makeRaw(self.orig_attr), .DRAIN);
     // try self.command(.ReqMouseEvents, true);
     try self.command(.ModOtherKeys, true);
@@ -102,7 +118,7 @@ pub fn setRaw(self: *TTY) !void {
 }
 
 pub fn setOwner(self: *TTY, mpgrp: ?std.os.pid_t) !void {
-    if (self.owner == null) return;
+    if (!self.is_tty or self.owner == null) return;
     const pgrp = mpgrp orelse self.pid;
     _ = try std.os.tcsetpgrp(self.dev, pgrp);
 }
@@ -129,6 +145,7 @@ pub fn pwnTTY(self: *TTY) void {
 }
 
 pub fn waitForFg(self: *TTY) void {
+    if (!self.is_tty) return;
     var pgid = custom_syscalls.getpgid(0);
     var fg = std.os.tcgetpgrp(self.dev) catch |err| {
         log.err("died waiting for fg {}\n", .{err});
@@ -199,12 +216,14 @@ pub fn geom(self: *TTY) !Cord {
 }
 
 pub fn raze(self: *TTY) void {
-    self.setTTYWhen(self.orig_attr, .NOW) catch |err| {
-        std.debug.print(
-            "\r\n\nTTY ERROR RAZE encountered, {} when attempting to raze.\r\n\n",
-            .{err},
-        );
-    };
+    if (self.orig_attr) |attr| {
+        self.setTTYWhen(attr, .NOW) catch |err| {
+            std.debug.print(
+                "\r\n\nTTY ERROR RAZE encountered, {} when attempting to raze.\r\n\n",
+                .{err},
+            );
+        };
+    }
 }
 
 const expect = std.testing.expect;

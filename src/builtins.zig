@@ -97,6 +97,7 @@ pub fn exec(self: Builtins) BuiltinFn {
         .set => set,
         .source => source,
         .which => which,
+
         // DEBUGGING BUILTIN
         .tty => tty,
     };
@@ -265,18 +266,18 @@ fn tty(hsh: *HSH, pi: *ParsedIterator) Err!u8 {
 
     if (pi.next()) |next| {
         if (std.mem.eql(u8, "raw", next.cannon())) {
-            try print("changing tty from \n{any}\n", .{hsh.tty.getAttr()});
+            try print("changing tty from \n{any}\n", .{hsh.tty.getAttr().?});
             hsh.tty.setRaw() catch return Err.Unknown;
-            try print("to raw \n{}\n", .{hsh.tty.getAttr()});
+            try print("to raw \n{}\n", .{hsh.tty.getAttr().?});
         } else if (std.mem.eql(u8, "orig", next.cannon())) {
-            try print("changing tty from \n{any}\n", .{hsh.tty.getAttr()});
+            try print("changing tty from \n{any}\n", .{hsh.tty.getAttr().?});
             hsh.tty.setOrig() catch return Err.Unknown;
-            try print("to orig \n{}\n", .{hsh.tty.getAttr()});
+            try print("to orig \n{}\n", .{hsh.tty.getAttr().?});
         } else {
-            try print("changing tty from \n{any}\n", .{hsh.tty.getAttr()});
+            try print("changing tty from \n{any}\n", .{hsh.tty.getAttr().?});
         }
     } else {
-        try print("current tty settings \n{any}\n", .{hsh.tty.getAttr()});
+        try print("current tty settings \n{any}\n", .{hsh.tty.getAttr().?});
     }
 
     return 0;
