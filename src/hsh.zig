@@ -67,21 +67,6 @@ fn readLine(a: *Allocator, r: std.fs.File.Reader) ![]u8 {
     } else |err| return err;
 }
 
-fn initBuiltins(h: *HSH) !void {
-    // builtins that wish to save data depend on this being available
-    savestates = ArrayList(State).init(h.alloc);
-    bi.Export.init(h.alloc);
-    bi.Aliases.init(h.alloc);
-    bi.Set.init();
-}
-
-fn razeBuiltins(h: *HSH) void {
-    bi.Set.raze();
-    bi.Aliases.raze(h.alloc);
-    bi.Export.raze(h.alloc);
-    savestates.clearAndFree();
-}
-
 /// TODO delete this helper
 pub fn readRCINotify(h: *HSH, e: INEvent) void {
     // This isn't the right way, but I'm doing it this way because I'll hate
@@ -136,19 +121,24 @@ fn readFromRC(hsh: *HSH) E!void {
     }
 }
 
-fn initHSH(hsh: *HSH) !void {
-    Variables.init(hsh.alloc);
+fn initHSH(h: *HSH) !void {
+    Variables.init(h.alloc);
 
-    try initBuiltins(hsh);
-    try Context.init(&hsh.alloc);
-    try readFromRC(hsh);
+    // builtins that wish to save data depend on this being available
+    savestates = ArrayList(State).init(h.alloc);
+    try bi.init(h.alloc);
+    try Context.init(&h.alloc);
+    try readFromRC(h);
 
-    Variables.load(hsh.env) catch return E.Memory;
+    Variables.load(h.env) catch return E.Memory;
 }
 
 fn razeHSH(h: *HSH) void {
     Context.raze();
-    razeBuiltins(h);
+
+    bi.raze(h.alloc);
+    savestates.clearAndFree();
+
     Variables.raze();
 }
 

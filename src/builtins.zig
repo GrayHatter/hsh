@@ -66,6 +66,18 @@ pub const BuiltinOptionals = enum {
     version,
 };
 
+pub fn init(a: std.mem.Allocator) !void {
+    Export.init(a);
+    Aliases.init(a);
+    Set.init();
+}
+
+pub fn raze(a: std.mem.Allocator) void {
+    Set.raze();
+    Aliases.raze(a);
+    Export.raze();
+}
+
 pub fn builtinToName(comptime bi: Builtins) []const u8 {
     return @tagName(bi);
 }

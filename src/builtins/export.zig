@@ -8,12 +8,22 @@ const State = bi.State;
 const print = bi.print;
 const log = @import("log");
 const Variables = @import("../variables.zig");
+const Allocator = std.mem.Allocator;
 
-pub const Exports = struct {
-    name: []const u8, // name is owned internally
-    value: []const u8, // value is both tied and owned by Variables
+pub const Export = struct {
+    // name is owned internally
+    name: []u8,
+    // value is both tied and owned by Variables
+    value: []const u8,
 
-    pub fn format(self: Exports, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
+    pub fn new(a: Allocator, name: []const u8, val: []const u8) !Export {
+        return .{
+            .name = try a.dupe(u8, name),
+            .value = val,
+        };
+    }
+
+    pub fn format(self: Export, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
         if (fmt.len == 4) {
             try std.fmt.format(out, "export {s}='{s}'", .{ self.name, self.value });
         } else {
@@ -22,11 +32,13 @@ pub const Exports = struct {
     }
 };
 
-var export_list: std.ArrayList(Exports) = undefined;
+var alloc: std.mem.Allocator = undefined;
+var export_list: std.ArrayList(Export) = undefined;
 
 pub fn init(a: std.mem.Allocator) void {
     // Set up the local list of exports
-    export_list = std.ArrayList(Exports).init(a);
+    alloc = a;
+    export_list = std.ArrayList(Export).init(a);
     hsh.addState(State{
         .name = "exports",
         .ctx = &export_list,
@@ -34,9 +46,9 @@ pub fn init(a: std.mem.Allocator) void {
     }) catch unreachable;
 }
 
-pub fn raze(a: std.mem.Allocator) void {
+pub fn raze() void {
     for (export_list.items) |ex| {
-        a.free(ex.name);
+        alloc.free(ex.name);
     }
     export_list.clearAndFree();
 }
@@ -98,8 +110,5 @@ pub fn exports(h: *HSH, pitr: *ParsedIterator) Err!u8 {
 pub fn unexport(_: *HSH, _: *ParsedIterator) Err!u8 {}
 
 fn add(k: []const u8, v: []const u8) !void {
-    return try export_list.append(Exports{
-        .name = k,
-        .value = v,
-    });
+    return try export_list.append(try Export.new(alloc, k, v));
 }
