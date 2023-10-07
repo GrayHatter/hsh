@@ -33,6 +33,7 @@ in: Reader,
 out: Writer,
 orig_attr: os.termios,
 pid: std.os.pid_t = undefined,
+owner: ?std.os.pid_t = null,
 
 /// Calling init multiple times is UB
 pub fn init(a: Allocator) !TTY {
@@ -101,6 +102,7 @@ pub fn setRaw(self: *TTY) !void {
 }
 
 pub fn setOwner(self: *TTY, mpgrp: ?std.os.pid_t) !void {
+    if (self.owner == null) return;
     const pgrp = mpgrp orelse self.pid;
     _ = try std.os.tcsetpgrp(self.dev, pgrp);
 }
@@ -112,6 +114,7 @@ pub fn pwnTTY(self: *TTY) void {
     if (ssid != self.pid) _ = custom_syscalls.setpgid(self.pid, self.pid);
 
     const res = std.os.tcsetpgrp(self.dev, self.pid) catch |err| {
+        self.owner = self.pid;
         log.err("tcsetpgrp failed on pid {}, error was: {}\n", .{ self.pid, err });
         const get = std.os.tcgetpgrp(self.dev) catch |err2| {
             log.err("tcgetpgrp err {}\n", .{err2});
