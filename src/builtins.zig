@@ -224,13 +224,13 @@ fn fg(hsh: *HSH, _: *ParsedIterator) Err!u8 {
 
 fn jobs(hsh: *HSH, _: *ParsedIterator) Err!u8 {
     for (hsh.jobs.items) |j| {
-        hsh.tty.print("{}", .{j}) catch return Err.Unknown;
+        try print("{}", .{j});
     }
     return 0;
 }
 
 fn noimpl(_: *HSH, i: *ParsedIterator) Err!u8 {
-    print("{s} not yet implemented\n", .{i.first().cannon()}) catch return Err.Unknown;
+    print("{s} not yet implemented\n", .{i.first().cannon()});
     while (i.next()) |_| {}
     return 0;
 }
