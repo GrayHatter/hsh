@@ -209,17 +209,17 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, ks: Keys.KeyMod, comp: *complete.CompS
 fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
     switch (b) {
         0x03 => {
-            try hsh.tty.print("^C\n\n", .{});
+            try hsh.tty.out.print("^C\n\n", .{});
             tkn.reset();
             return .Prompt;
         },
         0x04 => {
             if (tkn.raw.items.len == 0) {
-                try hsh.tty.print("^D\r\nExit caught... Good bye :)\n", .{});
+                try hsh.tty.out.print("^D\r\nExit caught... Good bye :)\n", .{});
                 return .ExitHSH;
             }
 
-            try hsh.tty.print("^D\r\n", .{});
+            try hsh.tty.out.print("^D\r\n", .{});
             return .Redraw;
         },
         0x05 => {
@@ -228,9 +228,9 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
                 state.edinput = true;
                 tkn.lineEditor();
                 return .Exec;
-            } else try hsh.tty.print("^E\r\n", .{}); // ENQ
+            } else try hsh.tty.out.print("^E\r\n", .{}); // ENQ
         },
-        0x07 => try hsh.tty.print("^bel\r\n", .{}),
+        0x07 => try hsh.tty.out.print("^bel\r\n", .{}),
         // probably ctrl + bs
         0x08 => {
             _ = try tkn.dropWord();
@@ -242,7 +242,7 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
         0x0A, 0x0D => |nl| {
             //hsh.draw.cursor = 0;
             if (tkn.raw.items.len == 0) {
-                try hsh.tty.print("\n", .{});
+                try hsh.tty.out.print("\n", .{});
                 return .Prompt;
             }
 
@@ -265,19 +265,19 @@ fn ctrlCode(hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompSet) !Event {
             //if (run.tokens.len > 0) return .Exec;
             return .Redraw;
         },
-        0x0C => try hsh.tty.print("^L (reset term)\x1B[J\n", .{}),
-        0x0E => try hsh.tty.print("shift in\r\n", .{}),
-        0x0F => try hsh.tty.print("^shift out\r\n", .{}),
-        0x12 => try hsh.tty.print("^R\r\n", .{}), // DC2
-        0x13 => try hsh.tty.print("^S\r\n", .{}), // DC3
-        0x14 => try hsh.tty.print("^T\r\n", .{}), // DC4
+        0x0C => try hsh.tty.out.print("^L (reset term)\x1B[J\n", .{}),
+        0x0E => try hsh.tty.out.print("shift in\r\n", .{}),
+        0x0F => try hsh.tty.out.print("^shift out\r\n", .{}),
+        0x12 => try hsh.tty.out.print("^R\r\n", .{}), // DC2
+        0x13 => try hsh.tty.out.print("^S\r\n", .{}), // DC3
+        0x14 => try hsh.tty.out.print("^T\r\n", .{}), // DC4
         // this is supposed to be ^v but it's ^x on mine an another system
-        0x16 => try hsh.tty.print("^X\r\n", .{}), // SYN
+        0x16 => try hsh.tty.out.print("^X\r\n", .{}), // SYN
         0x18 => {
-            //try hsh.tty.print("^X (or something else?)\r\n", .{}); // CAN
+            //try hsh.tty.out.print("^X (or something else?)\r\n", .{}); // CAN
             state.mode = .EXEDIT;
         },
-        0x1A => try hsh.tty.print("^Z\r\n", .{}),
+        0x1A => try hsh.tty.out.print("^Z\r\n", .{}),
         0x17 => { // ^w
             _ = try tkn.dropWord();
             return .Redraw;
@@ -376,7 +376,7 @@ fn ascii(hsh: *HSH, tkn: *Tokenizer, buf: u8, comp: *complete.CompSet) !Event {
         0x00...0x1F => return ctrlCode(hsh, tkn, buf, comp),
         ' '...'~' => |b| { // Normal printable ascii
             try tkn.consumec(b);
-            try hsh.tty.print("{c}", .{b});
+            try hsh.tty.out.print("{c}", .{b});
             return if (tkn.cadj() == 0) .None else .Redraw;
         },
         0x7F => { // backspace
