@@ -119,9 +119,9 @@ pub fn raze(a: Allocator) void {
 
 pub fn get(jid: std.os.pid_t) Error!*Job {
     for (jobs.items) |*j| {
-        if (j.*.pid == jid) {
+        if (j.pid == jid) {
             return j;
-        }
+        } else log.err("job search {} {} \n", .{ j.pid, jid });
     }
     return Error.JobNotFound;
 }
@@ -249,26 +249,25 @@ pub fn waitFor(jid: std.os.pid_t) !*Job {
         }
     }
 
-    var local = Job{};
     const s = try hsh_waitpid(jid, std.os.linux.W.UNTRACED);
     log.debug("status {} {} \n", .{ s.pid, s.status });
-    var job: *Job = if (s.pid != jid)
-        get(s.pid) catch &local
-    else
-        &local;
-
-    if (job == &local) log.debug("using local val for job {}\n", .{jid});
-
-    if (std.os.linux.W.IFSIGNALED(s.status)) {
-        job.crash(0);
-    } else if (std.os.linux.W.IFSTOPPED(s.status)) {
-        var tty = TTY.current_tty orelse unreachable;
-        tty.waitForFg();
-        log.err("stop sig {}\n", .{std.os.linux.W.STOPSIG(s.status)});
-        _ = job.pause(&tty);
-        tty.setRaw() catch unreachable;
-    } else if (std.os.linux.W.IFEXITED(s.status)) {
-        job.exit(std.os.linux.W.EXITSTATUS(s.status));
-    }
-    return job;
+    if (s.pid == jid) {
+        if (get(s.pid)) |job| {
+            if (std.os.linux.W.IFSIGNALED(s.status)) {
+                job.crash(0);
+            } else if (std.os.linux.W.IFSTOPPED(s.status)) {
+                var tty = TTY.current_tty orelse unreachable;
+                tty.waitForFg();
+                log.err("stop sig {}\n", .{std.os.linux.W.STOPSIG(s.status)});
+                _ = job.pause(&tty);
+                tty.setRaw() catch unreachable;
+            } else if (std.os.linux.W.IFEXITED(s.status)) {
+                job.exit(std.os.linux.W.EXITSTATUS(s.status));
+            }
+            return job;
+        } else |_| {
+            log.debug("can't get job {} did get {} \n", .{ jid, s.pid });
+        }
+    } else log.debug("search != found {} did get {} \n", .{ jid, s.pid });
+    return Error.JobNotFound;
 }

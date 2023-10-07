@@ -89,6 +89,11 @@ fn execTacC(args: *std.process.ArgIterator) u8 {
         log.err("-c error [{}]\n", .{err});
         return 1;
     };
+    for (jobs.jobs.items) |job| {
+        if (job.exit_code != null and job.exit_code.? > 0) {
+            return job.exit_code.?;
+        }
+    }
     return 0;
 }
 
