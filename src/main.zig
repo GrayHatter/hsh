@@ -44,6 +44,7 @@ fn core(hsh: *HSH) !bool {
         switch (event) {
             .None => continue,
             .Redraw, .Prompt, .Update => {
+                hsh.draw.cursor = hsh.tkn.cadj();
                 Draw.clearCtx(&hsh.draw);
                 try Draw.render(&hsh.draw);
 
