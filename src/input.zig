@@ -196,13 +196,21 @@ fn completing(hsh: *HSH, tkn: *Tokenizer, ks: Keys.KeyMod, comp: *complete.CompS
                     // TODO implement arrows
                     return .Redraw;
                 },
+                .Home, .End => |h_e| {
+                    state.mode = .TYPING;
+                    try tkn.maybeCommit(null);
+                    tkn.cPos(if (h_e == .Home) .home else .end);
+                    return .Redraw;
+                },
                 else => {
+                    log.err("unexpected key  [{}]\n", .{ks});
                     state.mode = .TYPING;
                     try tkn.maybeCommit(null);
                 },
             }
         },
     }
+    log.err("end of completing... oops\n  [{}]\n", .{ks});
     unreachable;
 }
 
