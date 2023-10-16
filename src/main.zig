@@ -17,7 +17,7 @@ const Exec = @import("exec.zig");
 const Signals = @import("signals.zig");
 const History = @import("history.zig");
 const jobs = @import("jobs.zig");
-const input = @import("input.zig");
+const Input = @import("input.zig");
 
 test "main" {
     std.testing.refAllDecls(@This());
@@ -31,6 +31,8 @@ fn core(hsh: *HSH) !bool {
     defer comp.raze();
 
     var redraw = true;
+    // TODO drop hsh
+    var input = Input.init(hsh, hsh.tty.is_tty);
 
     while (true) {
         hsh.draw.clear();
@@ -40,7 +42,8 @@ fn core(hsh: *HSH) !bool {
             try Draw.render(&hsh.draw);
             redraw = false;
         }
-        const event = if (hsh.tty.is_tty) try input.do(hsh, &comp) else try input.nonInteractive(hsh, &comp);
+
+        const event = try input.do(hsh, &comp);
         switch (event) {
             .None => continue,
             .Redraw, .Prompt, .Update => {
@@ -170,7 +173,6 @@ pub fn main() !void {
                 var str = try hsh.alloc.dupe(u8, hsh.tkn.raw.items);
                 defer hsh.alloc.free(str);
 
-                if (hsh.hist) |*hist| try hist.push(hsh.tkn.raw.items);
                 //var itr = hsh.tkn.iterator();
                 try Draw.newLine(&hsh.draw);
                 Exec.exec(&hsh, str) catch |err| {

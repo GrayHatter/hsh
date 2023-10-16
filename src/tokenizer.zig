@@ -33,7 +33,6 @@ pub const Tokenizer = struct {
     raw: ArrayList(u8),
     raw_maybe: ?[]const u8 = null,
     prev_exec: ?ArrayList(u8) = null,
-    hist_z: ?ArrayList(u8) = null,
     c_idx: usize = 0,
     c_tkn: usize = 0, // cursor is over this token
     err_idx: usize = 0,
@@ -354,8 +353,6 @@ pub const Tokenizer = struct {
     }
 
     pub fn saveLine(self: *Tokenizer) void {
-        self.resetHist();
-        self.hist_z = self.raw;
         self.raw = ArrayList(u8).init(self.alloc);
         self.c_idx = 0;
         self.user_data = false;
@@ -363,24 +360,12 @@ pub const Tokenizer = struct {
 
     pub fn restoreLine(self: *Tokenizer) void {
         self.resetRaw();
-        if (self.hist_z) |h| {
-            self.raw = h;
-            self.hist_z = null;
-        }
         self.user_data = true;
         self.c_idx = self.raw.items.len;
     }
 
     pub fn reset(self: *Tokenizer) void {
         self.resetRaw();
-        self.resetHist();
-    }
-
-    fn resetHist(self: *Tokenizer) void {
-        if (self.hist_z) |*hz| hz.clearAndFree();
-        self.hist_z = null;
-        if (self.prev_exec) |*pr| pr.clearAndFree();
-        self.prev_exec = null;
     }
 
     pub fn resetRaw(self: *Tokenizer) void {

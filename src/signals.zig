@@ -131,9 +131,9 @@ pub fn do(hsh: *HSH) SigEvent {
         flags.int -|= 1;
         hsh.tkn.reset();
         _ = hsh.draw.write("^C\n\r") catch {};
-        if (hsh.hist) |*hist| {
-            hist.cnt = 0;
-        }
+        //if (hsh.hist) |*hist| {
+        //    hist.cnt = 0;
+        //}
         return .clear;
     }
 

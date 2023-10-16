@@ -13,7 +13,6 @@ const parser = @import("parse.zig");
 const Parser = parser.Parser;
 const bi = @import("builtins.zig");
 const State = @import("state.zig");
-const History = @import("history.zig");
 const Context = @import("context.zig");
 const fs = @import("fs.zig");
 const Variables = @import("variables.zig");
@@ -187,7 +186,6 @@ pub const HSH = struct {
     pid: std.os.pid_t,
     pgrp: std.os.pid_t = -1,
     jobs: *jobs.Jobs,
-    hist: ?History,
     tty: TTY = undefined,
     draw: Drawable = undefined,
     tkn: Tokenizer = undefined,
@@ -214,7 +212,6 @@ pub const HSH = struct {
             .pid = std.os.linux.getpid(),
             .jobs = jobs.init(a),
             .hfs = hfs,
-            .hist = if (fs.findCoreFile(a, &env, .history)) |hst| History.init(hst) else null,
         };
 
         try initHSH(&hsh);
@@ -230,7 +227,6 @@ pub const HSH = struct {
     }
 
     pub fn raze(hsh: *HSH) void {
-        if (hsh.hist) |hist| hist.raze();
         if (hsh.hfs.rc) |rc| {
             rc.seekTo(0) catch @panic("unable to seek rc");
             writeState(hsh, savestates.items) catch {};
