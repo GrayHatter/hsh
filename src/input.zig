@@ -315,52 +315,47 @@ fn ctrlCode(in: *Input, hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompS
 }
 
 fn history(in: *Input, tkn: *Tokenizer, km: Keys.KeyMod) Event {
+    var hist = &(in.hist orelse return .None);
+    //in.line_hist = if (tkn.user_data) tkn.raw.items else null;
+    in.line_hist = null;
+
     switch (km.evt) {
         .ascii => unreachable,
         .key => |k| {
             switch (k) {
                 else => unreachable,
                 .Up => {
-                    if (in.hist) |*hist| {
-                        if (hist.cnt == 0) {
-                            if (tkn.raw.items.len > 0) {
-                                tkn.saveLine();
-                            } else if (tkn.prev_exec) |pe| {
-                                tkn.raw = pe;
-                                tkn.prev_exec = null;
-                                tkn.c_idx = tkn.raw.items.len;
-                                return .Redraw;
-                            }
-                        }
-                        tkn.resetRaw();
-                        hist.cnt += 1;
-                        if (in.line_hist) |hz| {
-                            _ = hist.readAtFiltered(&tkn.raw, hz);
-                        } else {
-                            _ = hist.readAt(&tkn.raw);
-                        }
-                        tkn.c_idx = tkn.raw.items.len;
-                    } else return .None;
+                    //if (hist.cnt == 0) {
+                    //    if (tkn.prev_exec) |pe| {
+                    //        tkn.raw = pe;
+                    //        tkn.prev_exec = null;
+                    //        tkn.c_idx = tkn.raw.items.len;
+                    //        return .Redraw;
+                    //    }
+                    //}
+                    hist.cnt += 1;
                 },
                 .Down => {
-                    var hist = &(in.hist orelse return .None);
                     if (hist.cnt > 1) {
                         hist.cnt -= 1;
                         tkn.resetRaw();
-                        if (in.line_hist) |hz| {
-                            _ = hist.readAtFiltered(&tkn.raw, hz);
-                        } else {
-                            _ = hist.readAt(&tkn.raw);
-                        }
-                        tkn.c_idx = tkn.raw.items.len;
                     } else {
                         hist.cnt -|= 1;
-                        tkn.restoreLine();
+                        tkn.resetRaw();
+                        if (in.line_hist) |_| tkn.user_data = true;
+                        return .Redraw;
                     }
                 },
             }
         },
     }
+    tkn.resetRaw();
+    if (in.line_hist) |hz| {
+        _ = hist.readAtFiltered(&tkn.raw, hz);
+    } else {
+        _ = hist.readAt(&tkn.raw);
+    }
+    tkn.c_idx = tkn.raw.items.len;
     return .Redraw;
 }
 
