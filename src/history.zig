@@ -50,7 +50,7 @@ fn readLinePrev(self: *History, buffer: ?*BufArray) !bool {
 pub fn readAt(self: *History, buffer: *BufArray) bool {
     var hist = self.file;
     var row = self.cnt;
-    hist.seekFromEnd(-1) catch return false;
+    hist.seekFromEnd(0) catch return false;
     while (row > 0) {
         if (!(readLinePrev(self, null) catch false)) break;
         row -= 1;

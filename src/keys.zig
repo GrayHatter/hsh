@@ -8,7 +8,7 @@ pub const Error = error{
 };
 
 // zig fmt: off
-const Key = enum(u8) {
+pub const Key = enum(u8) {
     Esc,
     Up,   Down, Left,  Right,
     Home, End,  Insert, Delete,

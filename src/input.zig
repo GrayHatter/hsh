@@ -314,49 +314,52 @@ fn ctrlCode(in: *Input, hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompS
     return .None;
 }
 
-fn history(in: *Input, tkn: *Tokenizer, km: Keys.KeyMod) Event {
+fn history(in: *Input, tkn: *Tokenizer, k: Keys.Key) Event {
     var hist = &(in.hist orelse return .None);
     //in.line_hist = if (tkn.user_data) tkn.raw.items else null;
     in.line_hist = null;
 
-    switch (km.evt) {
-        .ascii => unreachable,
-        .key => |k| {
-            switch (k) {
-                else => unreachable,
-                .Up => {
-                    //if (hist.cnt == 0) {
-                    //    if (tkn.prev_exec) |pe| {
-                    //        tkn.raw = pe;
-                    //        tkn.prev_exec = null;
-                    //        tkn.c_idx = tkn.raw.items.len;
-                    //        return .Redraw;
-                    //    }
-                    //}
-                    hist.cnt += 1;
-                },
-                .Down => {
-                    if (hist.cnt > 1) {
-                        hist.cnt -= 1;
-                        tkn.resetRaw();
-                    } else {
-                        hist.cnt -|= 1;
-                        tkn.resetRaw();
-                        if (in.line_hist) |_| tkn.user_data = true;
-                        return .Redraw;
-                    }
-                },
+    switch (k) {
+        .Up => {
+            defer hist.cnt += 1;
+            if (hist.cnt == 0) {
+                if (tkn.prev_exec) |pe| {
+                    tkn.raw = pe;
+                    tkn.prev_exec = null;
+                    tkn.c_idx = tkn.raw.items.len;
+                    return .Redraw;
+                }
             }
+            tkn.resetRaw();
+            if (in.line_hist) |hz| {
+                _ = hist.readAtFiltered(&tkn.raw, hz);
+            } else {
+                _ = hist.readAt(&tkn.raw);
+            }
+            tkn.c_idx = tkn.raw.items.len;
+            return .Redraw;
         },
+        .Down => {
+            if (hist.cnt > 1) {
+                hist.cnt -= 1;
+                tkn.resetRaw();
+            } else {
+                hist.cnt -|= 1;
+                tkn.resetRaw();
+                if (in.line_hist) |_| tkn.user_data = true;
+                return .Redraw;
+            }
+            tkn.resetRaw();
+            if (in.line_hist) |hz| {
+                _ = hist.readAtFiltered(&tkn.raw, hz);
+            } else {
+                _ = hist.readAt(&tkn.raw);
+            }
+            tkn.c_idx = tkn.raw.items.len;
+            return .Redraw;
+        },
+        else => unreachable,
     }
-    tkn.resetRaw();
-    if (in.line_hist) |hz| {
-        _ = hist.readAtFiltered(&tkn.raw, hz);
-    } else {
-        _ = hist.readAt(&tkn.raw);
-    }
-    tkn.c_idx = tkn.raw.items.len;
-    return .Redraw;
 }
 
 fn event(in: *Input, hsh: *HSH, tkn: *Tokenizer, km: Keys.KeyMod) !Event {
@@ -370,7 +373,7 @@ fn event(in: *Input, hsh: *HSH, tkn: *Tokenizer, km: Keys.KeyMod) !Event {
         },
         .key => |k| {
             switch (k) {
-                .Up, .Down => return in.history(tkn, km),
+                .Up, .Down => |ud| return in.history(tkn, ud),
                 .Left => if (km.mods.ctrl) tkn.cPos(.back) else tkn.cPos(.dec),
                 .Right => if (km.mods.ctrl) tkn.cPos(.word) else tkn.cPos(.inc),
                 .Home => tkn.cPos(.home),
@@ -509,6 +512,8 @@ pub fn interactive(in: *Input, hsh: *HSH, comp: *complete.CompSet) !Event {
         },
     }
     //defer next = if (prevm == mode) null else .Redraw;
-    //if (hsh.hist) |*hist| try hist.push(hsh.tkn.raw.items);
+    if (result == .Exec) {
+        if (in.hist) |*hist| try hist.push(hsh.tkn.raw.items);
+    }
     return result;
 }
