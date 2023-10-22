@@ -328,8 +328,12 @@ fn history(in: *Input, tkn: *Tokenizer, k: Keys.Key) Event {
         .Up => {
             defer hist.cnt += 1;
             if (hist.cnt == 0) {
-                if (tkn.prev_exec) |pe| {
+                if (tkn.user_data == true) {
+                    // TODO let token manage it's own brain :<
+                    tkn.prev_exec = null;
+                } else if (tkn.prev_exec) |pe| {
                     tkn.raw = pe;
+                    // lol, super leaks
                     tkn.prev_exec = null;
                     tkn.c_idx = tkn.raw.items.len;
                     return .Redraw;
