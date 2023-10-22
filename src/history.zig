@@ -4,12 +4,41 @@ const BufArray = std.ArrayList(u8);
 
 pub const History = @This();
 
+alloc: ?std.mem.Allocator = null,
+seen_list: ?std.ArrayList([]const u8) = null,
 file: std.fs.File,
 cnt: usize = 0,
 
-pub fn init(f: std.fs.File) History {
+fn seenAdd(self: *History, seen: []const u8) void {
+    if (self.seen_list) |*sl| {
+        var dupe = self.alloc.?.dupe(u8, seen) catch unreachable;
+        sl.append(dupe) catch unreachable;
+    }
+}
+
+fn seenReset(self: *History) void {
+    if (self.seen_list) |*sl| {
+        for (sl.items) |item| {
+            self.alloc.?.free(item);
+        }
+        sl.clearAndFree();
+    }
+}
+
+fn seenExists(self: *History, this: []const u8) bool {
+    if (self.seen_list) |*sl| {
+        for (sl.items) |item| {
+            if (std.mem.eql(u8, item, this)) return true;
+        }
+    }
+    return false;
+}
+
+pub fn init(f: std.fs.File, a: ?std.mem.Allocator) History {
     return .{
         .file = f,
+        .alloc = a,
+        .seen_list = if (a) |aa| std.ArrayList([]const u8).init(aa) else null,
     };
 }
 
@@ -58,14 +87,21 @@ pub fn readAt(self: *History, buffer: *BufArray) bool {
     return readLinePrev(self, buffer) catch false;
 }
 
-pub fn readAtFiltered(self: *History, buffer: *BufArray, str: []const u8) bool {
+pub fn readAtFiltered(self: *History, buffer: *BufArray, search: []const u8) bool {
     var hist = self.file;
     var row = self.cnt;
     hist.seekFromEnd(-1) catch return false;
+    defer self.seenReset();
     while (row > 0) {
         const mdata = readLinePrev(self, buffer) catch return false;
-        if (std.mem.startsWith(u8, buffer.items, str)) row -= 1;
+        if (!self.seenExists(buffer.items)) {
+            if (std.mem.startsWith(u8, buffer.items, search)) {
+                row -= 1;
+                self.seenAdd(buffer.items);
+            }
+        }
         if (!mdata or row == 0) return false;
+        // skip this for next read
         _ = readLinePrev(self, null) catch return false;
     }
     return readLinePrev(self, buffer) catch false;

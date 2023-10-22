@@ -42,17 +42,20 @@ mode: Mode = .TYPING,
 edinput: bool = false,
 next: ?Event = null,
 hist: ?History = null,
-line_hist: ?[]u8 = null,
+hist_data: [1024]u8 = undefined,
+hist_orig: []u8 = undefined,
 //func: *const fn (in: *Input, hsh: *HSH, comp: *complete.CompSet) !Event,
 interact: bool,
 
 // TODO drop hsh
 pub fn init(hsh: *const HSH, interact: bool) Input {
-    return .{
+    var in = Input{
         //.do = if (interact) interactive else nonInteractive,
-        .hist = if (fs.findCoreFile(hsh.alloc, &hsh.env, .history)) |hst| History.init(hst) else null,
+        .hist = if (fs.findCoreFile(hsh.alloc, &hsh.env, .history)) |hst| History.init(hst, hsh.alloc) else null,
         .interact = interact,
     };
+    in.hist_orig = in.hist_data[0..0];
+    return in;
 }
 
 // TODO fix the error types so this will work :<
@@ -316,8 +319,10 @@ fn ctrlCode(in: *Input, hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompS
 
 fn history(in: *Input, tkn: *Tokenizer, k: Keys.Key) Event {
     var hist = &(in.hist orelse return .None);
-    //in.line_hist = if (tkn.user_data) tkn.raw.items else null;
-    in.line_hist = null;
+    if (tkn.user_data) {
+        in.hist_orig = in.hist_data[0..@min(1024, tkn.raw.items.len)];
+        @memcpy(in.hist_orig, tkn.raw.items);
+    }
 
     switch (k) {
         .Up => {
@@ -331,11 +336,7 @@ fn history(in: *Input, tkn: *Tokenizer, k: Keys.Key) Event {
                 }
             }
             tkn.resetRaw();
-            if (in.line_hist) |hz| {
-                _ = hist.readAtFiltered(&tkn.raw, hz);
-            } else {
-                _ = hist.readAt(&tkn.raw);
-            }
+            _ = hist.readAtFiltered(&tkn.raw, in.hist_orig);
             tkn.c_idx = tkn.raw.items.len;
             return .Redraw;
         },
@@ -346,15 +347,12 @@ fn history(in: *Input, tkn: *Tokenizer, k: Keys.Key) Event {
             } else {
                 hist.cnt -|= 1;
                 tkn.resetRaw();
-                if (in.line_hist) |_| tkn.user_data = true;
+                tkn.consumes(in.hist_orig) catch unreachable;
+                in.hist_orig = in.hist_data[0..0];
                 return .Redraw;
             }
             tkn.resetRaw();
-            if (in.line_hist) |hz| {
-                _ = hist.readAtFiltered(&tkn.raw, hz);
-            } else {
-                _ = hist.readAt(&tkn.raw);
-            }
+            _ = hist.readAtFiltered(&tkn.raw, in.hist_orig);
             tkn.c_idx = tkn.raw.items.len;
             return .Redraw;
         },
