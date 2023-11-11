@@ -322,9 +322,12 @@ pub const Tokenizer = struct {
         try self.raw.insert(self.c_idx, @bitCast(c));
         self.c_idx += 1;
         self.user_data = true;
-        if (self.c_idx == self.raw.items.len and c == '\n') {
+        if (c == '\n' and self.c_idx == self.raw.items.len) {
             if (self.raw.items.len > 1 and self.raw.items[self.raw.items.len - 2] != '\\')
                 return Error.Exec;
+        } else if (c == '\n') {
+            // I'd like to give this some more thought, but I'm tired of this bug *now*
+            return error.Exec;
         }
     }
 
