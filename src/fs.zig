@@ -86,6 +86,7 @@ pub fn init(a: mem.Allocator, env: std.process.EnvMap) !fs {
     var self = fs{
         .alloc = a,
         .rc = findCoreFile(a, &env, .rc),
+        .history = findCoreFile(a, &env, .history),
         .dirs = .{
             .cwd = try std.fs.cwd().openIterableDir(".", .{}),
         },
