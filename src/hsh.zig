@@ -120,7 +120,7 @@ fn readFromRC(hsh: *HSH) E!void {
     }
 }
 
-fn initHSH(h: *HSH) !void {
+fn initShell(h: *HSH) !void {
     Variables.init(h.alloc);
 
     // builtins that wish to save data depend on this being available
@@ -132,7 +132,7 @@ fn initHSH(h: *HSH) !void {
     Variables.load(h.env) catch return E.Memory;
 }
 
-fn razeHSH(h: *HSH) void {
+fn razeShell(h: *HSH) void {
     Context.raze();
 
     bi.raze(h.alloc);
@@ -214,7 +214,7 @@ pub const HSH = struct {
             .hfs = hfs,
         };
 
-        try initHSH(&hsh);
+        try initShell(&hsh);
         return hsh;
     }
 
@@ -232,7 +232,7 @@ pub const HSH = struct {
             writeState(hsh, savestates.items) catch {};
         }
 
-        razeHSH(hsh);
+        razeShell(hsh);
         hsh.env.deinit();
         jobs.raze(hsh.alloc);
         hsh.hfs.raze(hsh.alloc);
