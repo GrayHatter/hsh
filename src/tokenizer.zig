@@ -355,6 +355,11 @@ pub const Tokenizer = struct {
         self.editor_mktmp = null;
     }
 
+    pub fn lineReplaceHistory(self: *Tokenizer) *ArrayList(u8) {
+        self.resetRaw();
+        return &self.raw;
+    }
+
     pub fn saveLine(self: *Tokenizer) void {
         self.raw = ArrayList(u8).init(self.alloc);
         self.c_idx = 0;
@@ -369,15 +374,20 @@ pub const Tokenizer = struct {
 
     pub fn reset(self: *Tokenizer) void {
         self.resetRaw();
+        self.resetPrevExec();
     }
 
-    pub fn resetRaw(self: *Tokenizer) void {
+    fn resetRaw(self: *Tokenizer) void {
         self.raw.clearRetainingCapacity();
         self.c_idx = 0;
         self.err_idx = 0;
         self.c_tkn = 0;
         self.user_data = false;
         self.maybeClear();
+    }
+
+    fn resetPrevExec(self: *Tokenizer) void {
+        if (self.prev_exec) |*pr| pr.clearAndFree();
     }
 
     /// Doesn't exec, called to save previous "local" command

@@ -339,25 +339,23 @@ fn history(in: *Input, tkn: *Tokenizer, k: Keys.Key) Event {
                     return .Redraw;
                 }
             }
-            tkn.resetRaw();
-            _ = hist.readAtFiltered(&tkn.raw, in.hist_orig);
-            tkn.c_idx = tkn.raw.items.len;
+            _ = hist.readAtFiltered(tkn.lineReplaceHistory(), in.hist_orig);
+            tkn.cPos(.end);
             return .Redraw;
         },
         .Down => {
             if (hist.cnt > 1) {
                 hist.cnt -= 1;
-                tkn.resetRaw();
+                tkn.reset();
             } else {
                 hist.cnt -|= 1;
-                tkn.resetRaw();
+                tkn.reset();
                 tkn.consumes(in.hist_orig) catch unreachable;
                 in.hist_orig = in.hist_data[0..0];
                 return .Redraw;
             }
-            tkn.resetRaw();
-            _ = hist.readAtFiltered(&tkn.raw, in.hist_orig);
-            tkn.c_idx = tkn.raw.items.len;
+            _ = hist.readAtFiltered(tkn.lineReplaceHistory(), in.hist_orig);
+            tkn.cPos(.end);
             return .Redraw;
         },
         else => unreachable,

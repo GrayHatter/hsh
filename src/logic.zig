@@ -49,7 +49,7 @@ fn execBody(a: Allocator, h: *HSH, body: []const u8) !void {
         tzr.consumec(b) catch |err| {
             if (err == tokenizer.Error.Exec) {
                 try exec_.exec(h, tzr.raw.items);
-                tzr.resetRaw();
+                tzr.reset();
             }
         };
     }

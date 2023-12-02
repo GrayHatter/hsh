@@ -120,12 +120,8 @@ pub fn inotifyInstall(self: *fs, target: []const u8, cb: ?INotify.Callback) !voi
 pub fn inotifyInstallRc(self: *fs, cb: ?INotify.Callback) !void {
     if (self.rc) |_| {
         if (self.names.home) |home| {
-            // I know... I'm sorry you had to read this too
-            const cfile = "/.config/hsh/hshrc";
-            const path = try self.alloc.alloc(u8, home.len + cfile.len);
-            defer self.alloc.free(path);
-            @memcpy(path[0..home.len], home);
-            @memcpy(path[home.len..], cfile);
+            var buf: [2048]u8 = undefined;
+            var path = try std.fmt.bufPrint(&buf, "{s}/.config/hsh/hshrc", .{home});
             try self.inotifyInstall(path, cb);
         }
     }
@@ -289,7 +285,7 @@ pub fn globAt(a: Allocator, dir: std.fs.IterableDir, search: []const u8) ![][]u8
 
 /// Caller owns returned file
 /// TODO remove allocator
-pub fn findPath(
+fn findPath(
     a: Allocator,
     env: *const std.process.EnvMap,
     name: []const u8,
