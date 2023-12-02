@@ -51,7 +51,7 @@ interact: bool,
 pub fn init(hsh: *const HSH, interact: bool) Input {
     var in = Input{
         //.do = if (interact) interactive else nonInteractive,
-        .hist = if (fs.findCoreFile(hsh.alloc, &hsh.env, .history)) |hst| History.init(hst, hsh.alloc) else null,
+        .hist = if (hsh.hfs.history) |hst| History.init(hst, hsh.alloc) else null,
         .interact = interact,
     };
     in.hist_orig = in.hist_data[0..0];
