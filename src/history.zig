@@ -1,6 +1,5 @@
 const std = @import("std");
 const fs = @import("fs.zig");
-const BufArray = std.ArrayList(u8);
 
 pub const History = @This();
 
@@ -48,11 +47,11 @@ pub fn atTop(self: *History) bool {
 
 /// Returns true when there's is assumed to be more history
 /// Final file pos is undefined
-fn readLine(self: *History, buffer: ?*BufArray) !bool {
-    if (buffer == null) return try self.file.getPos() != 0;
+fn readLine(self: *History, buffer: ?*std.ArrayList(u8)) !bool {
+    var b = buffer orelse return try self.file.getPos() != 0;
     var hist = self.file;
     const pos = try hist.getPos();
-    try hist.reader().readUntilDelimiterArrayList(buffer.?, '\n', 1 << 16);
+    try hist.reader().readUntilDelimiterArrayList(b, '\n', 1 << 16);
     return pos != 0;
 }
 
@@ -61,7 +60,7 @@ fn readLine(self: *History, buffer: ?*BufArray) !bool {
 /// start of the line it would have read. If buffer is valid, the cursor
 /// position will have increased some amount. (Repeated calls with a valid
 /// buffer will likely return the same line)
-fn readLinePrev(self: *History, buffer: ?*BufArray) !bool {
+fn readLinePrev(self: *History, buffer: ?*std.ArrayList(u8)) !bool {
     var hist = self.file;
     var cursor = try hist.getPos();
     var buf: [1]u8 = undefined;
@@ -76,7 +75,7 @@ fn readLinePrev(self: *History, buffer: ?*BufArray) !bool {
     return self.readLine(buffer);
 }
 
-pub fn readAt(self: *History, buffer: *BufArray) bool {
+pub fn readAt(self: *History, buffer: *std.ArrayList(u8)) bool {
     var hist = self.file;
     var row = self.cnt;
     hist.seekFromEnd(0) catch return false;
@@ -87,7 +86,7 @@ pub fn readAt(self: *History, buffer: *BufArray) bool {
     return readLinePrev(self, buffer) catch false;
 }
 
-pub fn readAtFiltered(self: *History, buffer: *BufArray, search: []const u8) bool {
+pub fn readAtFiltered(self: *History, buffer: *std.ArrayList(u8), search: []const u8) bool {
     var hist = self.file;
     var row = self.cnt;
     hist.seekFromEnd(-1) catch return false;
