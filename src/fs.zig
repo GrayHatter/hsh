@@ -1,7 +1,9 @@
-usingnamespace std.fs;
 const std = @import("std");
-const mem = @import("mem.zig");
+
+pub usingnamespace std.fs;
 const Allocator = mem.Allocator;
+
+const mem = @import("mem.zig");
 const log = @import("log");
 const INotify = @import("inotify.zig");
 const HSH = @import("hsh.zig").HSH;

@@ -1,6 +1,8 @@
 const std = @import("std");
-usingnamespace std.mem;
-pub const Allocator = std.mem.Allocator;
+
+const Allocator = std.mem.Allocator;
+
+pub usingnamespace std.mem;
 
 pub fn dupePadded(a: Allocator, str: []const u8, w: usize) ![]u8 {
     const width = @max(str.len, w);
