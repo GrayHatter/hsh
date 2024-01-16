@@ -18,6 +18,8 @@ all[^ephem].
 ## Goals
   - Support *modern* pttys
   - Composable vs decomposable mode
+  - Less than 1h to migrate from any $SHELL (still considering reverts as well)
+  - cd should not exec any payloads
 
 ## [De]composable mode
  A default, unconfigured install of hsh should enable all features and
