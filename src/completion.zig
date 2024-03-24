@@ -529,12 +529,12 @@ fn completePath(cs: *CompSet, _: *HSH, target: []const u8) !void {
     var dir: std.fs.Dir = undefined;
     if (target[0] == '/') {
         if (path.len == 0) {
-            dir = std.fs.openDirAbsolute("/", .{}) catch return;
+            dir = std.fs.openDirAbsolute("/", .{ .iterate = true }) catch return;
         } else {
-            dir = std.fs.openDirAbsolute(path, .{}) catch return;
+            dir = std.fs.openDirAbsolute(path, .{ .iterate = true }) catch return;
         }
     } else {
-        dir = std.fs.cwd().openDir(path, .{}) catch return;
+        dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch return;
     }
     defer dir.close();
 
@@ -638,7 +638,7 @@ pub fn complete(cs: *CompSet, hsh: *HSH, tks: *Tokenizer) !void {
         else => {
             switch (pair.t.kind) {
                 .ws => {
-                    var dir = try std.fs.cwd().openDir(".", .{});
+                    var dir = try std.fs.cwd().openDir(".", .{ .iterate = true });
                     defer dir.close();
                     try completeDir(cs, dir);
                 },
