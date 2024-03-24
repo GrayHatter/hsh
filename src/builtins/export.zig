@@ -84,9 +84,12 @@ pub fn exports(h: *HSH, pitr: *ParsedIterator) Err!u8 {
         var keyitr = std.mem.split(u8, name.?.cannon(), "=");
         const key = keyitr.first();
         const value = keyitr.rest();
-        // TODO push into variables
+        Variables.put(key, value) catch {
+            log.err("Unable to save variable", .{});
+            return 1;
+        };
         add(key, value) catch {
-            log.err("", .{});
+            log.err("unable to save export", .{});
             return 1;
         };
         return 0;
@@ -103,7 +106,7 @@ pub fn exports(h: *HSH, pitr: *ParsedIterator) Err!u8 {
         };
         return 0;
     }
-    unreachable; // there's a logic error here so crash if we hit it.
+    comptime unreachable;
 }
 
 /// TODO method to remove an export

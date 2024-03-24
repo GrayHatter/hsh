@@ -81,7 +81,15 @@ pub fn get(k: []const u8) ?[]const u8 {
 }
 
 pub fn put(k: []const u8, v: []const u8) !void {
-    return variables.put(k, v);
+    environ_dirty = true;
+    const key = try environ_alloc.dupe(u8, k);
+    const value = try environ_alloc.dupe(u8, v);
+    const kv = try variables.getOrPut(key);
+    if (kv.found_existing) {
+        environ_alloc.free(key);
+        environ_alloc.free(kv.value_ptr.*);
+    }
+    kv.value_ptr.* = value;
 }
 
 // del(k, v) where v can be an optional, delete only of v matches current value
@@ -94,11 +102,11 @@ pub fn del(k: []const u8) !void {
 //}
 
 pub fn raze() void {
-    //var itr = variables.iterator();
-    //while (itr.next()) |*ent| {
-    //    a.free(ent.key_ptr.*);
-    //    a.free(ent.value_ptr.value);
-    //}
+    var itr = variables.iterator();
+    while (itr.next()) |*ent| {
+        environ_alloc.free(ent.key_ptr.*);
+        environ_alloc.free(ent.value_ptr.*);
+    }
     variables.clearAndFree();
     environ_alloc.free(environ);
 }
