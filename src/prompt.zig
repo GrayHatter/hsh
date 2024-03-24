@@ -80,7 +80,7 @@ fn prompt(d: *Draw.Drawable, u: ?[]const u8, cwd: []const u8) !void {
 }
 
 pub fn draw(hsh: *HSH, tkn: *Tokenizer) !void {
-    var bgjobs = Jobs.getBgSlice(hsh.alloc) catch unreachable;
+    const bgjobs = Jobs.getBgSlice(hsh.alloc) catch unreachable;
     defer hsh.alloc.free(bgjobs);
     try jobsContext(hsh, bgjobs);
     //try ctxContext(hsh, try Context.fetch(hsh, .git));

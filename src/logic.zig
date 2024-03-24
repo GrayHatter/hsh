@@ -99,7 +99,7 @@ const If = struct {
 
     fn mkElif(a: Allocator, str: []const u8) Error!?*Elif {
         if (str.len == 0) return null;
-        var elfi = try Token.any(str);
+        const elfi = try Token.any(str);
         if (elfi.kind == .resr) {
             switch (elfi.kind.resr) {
                 .Fi => return null,
@@ -110,17 +110,17 @@ const If = struct {
                         offset = off + 4;
                     } else return Error.InvalidLogic;
                     // find fi;
-                    var fi = try Token.any(str[str.len - 2 ..]);
+                    const fi = try Token.any(str[str.len - 2 ..]);
                     if (fi.kind != .resr or fi.kind.resr != .Fi) {
                         return Error.InvalidLogic;
                     }
 
-                    var elif = try a.create(Elif);
+                    const elif = try a.create(Elif);
                     elif.* = .{ .elses = str[offset .. str.len - 2] };
                     return elif;
                 },
                 .Elif => {
-                    var elif = try a.create(Elif);
+                    const elif = try a.create(Elif);
                     elif.* = .{ .elifs = try mkIf(a, str) };
                     return elif;
                 },
@@ -174,7 +174,7 @@ const If = struct {
     fn execClause(self: *If) Error!bool {
         const clause = self.clause orelse return Error.InvalidLogic;
         log.debug("testing logic clasue \n    {s}\n", .{clause});
-        var child = exec_.childParsed(self.alloc, clause) catch |err| {
+        const child = exec_.childParsed(self.alloc, clause) catch |err| {
             log.err("Unexpected error ({}) when attempting to run logic\n", .{err});
             return Error.ExecFailure;
         };
@@ -348,7 +348,7 @@ pub const Logicizer = struct {
 };
 
 test "if" {
-    var a = std.testing.allocator;
+    const a = std.testing.allocator;
     const if_str =
         \\if true
         \\then

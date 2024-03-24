@@ -10,7 +10,7 @@ cnt: usize = 0,
 
 fn seenAdd(self: *History, seen: []const u8) void {
     if (self.seen_list) |*sl| {
-        var dupe = self.alloc.?.dupe(u8, seen) catch unreachable;
+        const dupe = self.alloc.?.dupe(u8, seen) catch unreachable;
         sl.append(dupe) catch unreachable;
     }
 }
@@ -48,7 +48,7 @@ pub fn atTop(self: *History) bool {
 /// Returns true when there's is assumed to be more history
 /// Final file pos is undefined
 fn readLine(self: *History, buffer: ?*std.ArrayList(u8)) !bool {
-    var b = buffer orelse return try self.file.getPos() != 0;
+    const b = buffer orelse return try self.file.getPos() != 0;
     var hist = self.file;
     const pos = try hist.getPos();
     try hist.reader().readUntilDelimiterArrayList(b, '\n', 1 << 16);
@@ -62,7 +62,7 @@ fn readLine(self: *History, buffer: ?*std.ArrayList(u8)) !bool {
 /// buffer will likely return the same line)
 fn readLinePrev(self: *History, buffer: ?*std.ArrayList(u8)) !bool {
     var hist = self.file;
-    var cursor = try hist.getPos();
+    const cursor = try hist.getPos();
     var buf: [1]u8 = undefined;
     while (cursor > 0) {
         hist.seekBy(-2) catch {
@@ -153,7 +153,7 @@ test "samesame" {
     ;
     const line = "this is line 4";
 
-    var fbs = std.io.FixedBufferStream(@TypeOf(src)){
+    const fbs = std.io.FixedBufferStream(@TypeOf(src)){
         .buffer = src,
         .pos = src.len,
     };

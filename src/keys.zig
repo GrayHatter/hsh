@@ -201,7 +201,7 @@ fn csi_xterm(buffer: []const u8) Error!Event {
 }
 
 fn csi_vt(in: []const u8) Error!Key {
-    var y: u16 = std.fmt.parseInt(u16, in, 10) catch 0;
+    const y: u16 = std.fmt.parseInt(u16, in, 10) catch 0;
     switch (y) {
         1 => return .Home,
         2 => return .Insert,

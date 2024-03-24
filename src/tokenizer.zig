@@ -487,7 +487,7 @@ test "quotes tokened" {
 }
 
 test "alloc" {
-    var t = Tokenizer.init(std.testing.allocator);
+    const t = Tokenizer.init(std.testing.allocator);
     try expect(std.mem.eql(u8, t.raw.items, ""));
 }
 
@@ -499,7 +499,7 @@ test "tokens" {
         try t.consumec(c);
     }
     var titr = t.iterator();
-    var tokens = try titr.toSlice(a);
+    const tokens = try titr.toSlice(a);
     defer a.free(tokens);
     try expect(std.mem.eql(u8, t.raw.items, "token"));
 }
@@ -585,7 +585,7 @@ test "breaking" {
 
     try t.consumes("alias la='ls -la'");
     var titr = t.iterator();
-    var tokens = try titr.toSlice(a);
+    const tokens = try titr.toSlice(a);
     try expectEql(tokens.len, 4);
     a.free(tokens);
 }
@@ -816,7 +816,7 @@ test "token > execSlice" {
 
     ti.restart();
     try std.testing.expect(ti.peek() != null);
-    var slice = try ti.toSliceExec(std.testing.allocator);
+    const slice = try ti.toSliceExec(std.testing.allocator);
     try std.testing.expect(ti.peek() == null);
     try std.testing.expect(ti.peek() == null);
     try std.testing.expect(ti.peek() == null);
@@ -994,7 +994,7 @@ test "all execs" {
 }
 
 test "pop" {
-    var a = std.testing.allocator;
+    const a = std.testing.allocator;
     var t = Tokenizer.init(a);
     const str = "this is a string";
     for (str) |c| {
@@ -1157,7 +1157,7 @@ test "make safe" {
 
     try std.testing.expect(null == try tk.makeSafe("string"));
 
-    var str = try tk.makeSafe("str ing");
+    const str = try tk.makeSafe("str ing");
     defer a.free(str.?);
     try std.testing.expectEqualStrings("str\\ ing", str.?);
 }
@@ -1262,7 +1262,7 @@ test "invalid logic" {
         \\done
     ;
 
-    var ifs = Token.logic(if_str);
+    const ifs = Token.logic(if_str);
     try std.testing.expectError(TokenError.OpenLogic, ifs);
 
     const case_str =
@@ -1273,7 +1273,7 @@ test "invalid logic" {
         \\fi
     ;
 
-    var cases = Token.logic(case_str);
+    const cases = Token.logic(case_str);
     try std.testing.expectError(TokenError.OpenLogic, cases);
 
     const for_str =
@@ -1283,7 +1283,7 @@ test "invalid logic" {
         \\until
     ;
 
-    var fors = Token.logic(for_str);
+    const fors = Token.logic(for_str);
     try std.testing.expectError(TokenError.OpenLogic, fors);
 
     const while_str =
@@ -1293,7 +1293,7 @@ test "invalid logic" {
         \\true
     ;
 
-    var whiles = Token.logic(while_str);
+    const whiles = Token.logic(while_str);
     try std.testing.expectError(TokenError.OpenLogic, whiles);
 }
 
@@ -1369,7 +1369,7 @@ test "naughty strings" {
 }
 
 test "escape newline" {
-    var a = std.testing.allocator;
+    const a = std.testing.allocator;
 
     var tzr = Tokenizer.init(a);
     defer tzr.raze();
@@ -1389,7 +1389,7 @@ test "escape newline" {
 }
 
 test "build functions" {
-    var a = std.testing.allocator;
+    const a = std.testing.allocator;
     var tzr = Tokenizer.init(a);
     defer tzr.raze();
 

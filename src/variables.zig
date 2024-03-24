@@ -108,7 +108,7 @@ fn environBuild() ![:null]?[*:0]u8 {
         environ[index] = str[0 .. str.len - 1 :0];
         index += 1;
     }
-    var last = @as(*?[*:0]u8, &environ[index]);
+    const last = @as(*?[*:0]u8, &environ[index]);
     last.* = null;
     environ_dirty = false;
     return environ;
@@ -120,7 +120,7 @@ pub fn henviron() [:null]?[*:0]u8 {
 }
 
 pub fn getKind(k: []const u8, comptime G: Kind) ?std.meta.FieldType(Var, G) {
-    var vs = variables[@intFromEnum(G)].get(k) orelse return null;
+    const vs = variables[@intFromEnum(G)].get(k) orelse return null;
     return switch (G) {
         .nos => vs.nos,
         .sysenv => vs.sysenv,
@@ -142,7 +142,7 @@ pub fn getStr(k: []const u8) ?[]const u8 {
 
 pub fn putKind(k: []const u8, v: []const u8, comptime G: Kind) !void {
     var vs = &variables[@intFromEnum(G)];
-    var ret = switch (G) {
+    const ret = switch (G) {
         .nos => vs.put(k, Var{ .nos = v }),
         .sysenv => vs.put(k, Var{ .sysenv = .{ .value = v } }),
         .internal => vs.put(k, Var{ .internal = .{ .str = v } }),
@@ -194,14 +194,14 @@ pub fn raze() void {
 }
 
 test "variables standard usage" {
-    var a = std.testing.allocator;
+    const a = std.testing.allocator;
 
     init(a);
     defer raze();
 
     try put("key", "value");
 
-    var str = getStr("key").?;
+    const str = getStr("key").?;
     try std.testing.expectEqualStrings("value", str);
 
     var x = get("key").?;
@@ -216,17 +216,17 @@ test "variables standard usage" {
 }
 
 test "variables ephemeral" {
-    var a = std.testing.allocator;
+    const a = std.testing.allocator;
 
     init(a);
     defer raze();
 
     try putKind("key", "value", .ephemeral);
 
-    var str = getKind("key", .ephemeral).?;
+    const str = getKind("key", .ephemeral).?;
     try std.testing.expectEqualStrings("value", str);
     razeEphemeral();
 
-    var n = getKind("key", .ephemeral);
+    const n = getKind("key", .ephemeral);
     try std.testing.expect(n == null);
 }

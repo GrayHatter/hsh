@@ -57,7 +57,7 @@ fn countLexems(lexs: []const Lexeme) u32 {
 fn maxWidth(items: []const []const u8) u32 {
     var max: u32 = 0;
     for (items) |item| {
-        var len: u32 = countPrintable(item);
+        const len: u32 = countPrintable(item);
         max = @max(max, len);
     }
     return max + 1;
@@ -66,7 +66,7 @@ fn maxWidth(items: []const []const u8) u32 {
 fn maxWidthLexem(lexs: []const Lexeme) u32 {
     var max: u32 = 0;
     for (lexs) |lex| {
-        var len: u32 = countPrintable(lex.char);
+        const len: u32 = countPrintable(lex.char);
         max = @max(max, len);
     }
     return max + 1;
@@ -183,7 +183,7 @@ fn tableLexeme(a: Allocator, items: []Lexeme, wh: Cord) Error![]LexTree {
 /// LexTree.siblings.Lexem[..].char must all be free'd
 /// items are not reordered
 fn tableChar(a: Allocator, items: []const []const u8, wh: Cord) Error![]LexTree {
-    var lexes = a.alloc(Lexeme, items.len) catch return Error.Memory;
+    const lexes = a.alloc(Lexeme, items.len) catch return Error.Memory;
     errdefer a.free(lexes);
 
     for (items, lexes) |i, *l| {

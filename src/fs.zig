@@ -54,11 +54,11 @@ const Names = struct {
 };
 
 const Dirs = struct {
-    cwd: std.fs.IterableDir,
-    conf: ?std.fs.IterableDir = null,
+    cwd: std.fs.Dir,
+    conf: ?std.fs.Dir = null,
 
     fn update(self: *Dirs) !void {
-        self.cwd = try std.fs.cwd().openIterableDir(".", .{});
+        self.cwd = try std.fs.cwd().openDir(".", .{ .iterate = true });
     }
 
     fn raze(self: *Dirs) void {
@@ -88,7 +88,7 @@ pub fn init(a: mem.Allocator, env: std.process.EnvMap) !fs {
         .rc = findCoreFile(a, &env, .rc),
         .history = findCoreFile(a, &env, .history),
         .dirs = .{
-            .cwd = try std.fs.cwd().openIterableDir(".", .{}),
+            .cwd = try std.fs.cwd().openDir(".", .{ .iterate = true }),
         },
         .names = .{
             .cwd = try a.dupe(u8, "???"),
@@ -122,7 +122,7 @@ pub fn inotifyInstallRc(self: *fs, cb: ?INotify.Callback) !void {
     if (self.rc) |_| {
         if (self.names.home) |home| {
             var buf: [2048]u8 = undefined;
-            var path = try std.fmt.bufPrint(&buf, "{s}/.config/hsh/hshrc", .{home});
+            const path = try std.fmt.bufPrint(&buf, "{s}/.config/hsh/hshrc", .{home});
             try self.inotifyInstall(path, cb);
         }
     }
@@ -141,7 +141,7 @@ pub fn checkINotify(self: *fs, h: *HSH) bool {
                 );
                 return true;
             }
-            var event: *const std.os.linux.inotify_event = @ptrCast(&buf);
+            const event: *const std.os.linux.inotify_event = @ptrCast(&buf);
             // TODO optimize
             for (&self.watches) |*watch| {
                 if (watch.*) |*wd| {
@@ -171,9 +171,9 @@ pub fn raze(self: *fs, a: mem.Allocator) void {
 pub fn cd(self: *fs, trgt: []const u8) !void {
     // std.debug.print("cd path {s} default {s}\n", .{ &path, hsh.fs.home_name });
     const dir = if (trgt.len == 0 and self.names.home != null)
-        try self.dirs.cwd.dir.openDir(self.names.home.?, .{})
+        try self.dirs.cwd.openDir(self.names.home.?, .{})
     else
-        try self.dirs.cwd.dir.openDir(trgt, .{});
+        try self.dirs.cwd.openDir(trgt, .{});
 
     dir.setAsCwd() catch |e| {
         log.err("cwd failed! {}", .{e});
@@ -251,12 +251,12 @@ pub fn reCreate(name: []const u8) ?std.fs.File {
 }
 
 pub fn globCwd(a: Allocator, search: []const u8) ![][]u8 {
-    var dir = try std.fs.cwd().openIterableDir(".", .{});
+    var dir = try std.fs.cwd().openDir(".", .{ .iterate = true });
     defer dir.close();
     return globAt(a, dir, search);
 }
 
-pub fn globAt(a: Allocator, dir: std.fs.IterableDir, search: []const u8) ![][]u8 {
+pub fn globAt(a: Allocator, dir: std.fs.Dir, search: []const u8) ![][]u8 {
     // TODO multi space glob
     std.debug.assert(std.mem.count(u8, search, "*") == 1);
     var split = std.mem.splitScalar(u8, search, '*');
@@ -302,7 +302,7 @@ fn findPath(
             log.debug("unable to open {s}\n", .{out});
         }
     } else if (env.get("HOME")) |home| {
-        var main = try a.dupe(u8, home);
+        const main = try a.dupe(u8, home);
         defer a.free(main);
         if (std.fs.openDirAbsolute(home, .{})) |h| {
             if (h.openDir(".config", .{})) |hc| {

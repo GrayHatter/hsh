@@ -24,7 +24,7 @@ test "main" {
 }
 
 fn core(hsh: *HSH) !bool {
-    var tkn = &hsh.tkn;
+    const tkn = &hsh.tkn;
     defer hsh.draw.reset();
     //try Context.update(hsh, &[_]Context.Contexts{.git});
     var comp = try complete.init(hsh);
@@ -75,7 +75,7 @@ fn usage() void {
 /// return   2 == alloc error
 fn execTacC(args: *std.process.ArgIterator) u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var a = gpa.allocator();
+    const a = gpa.allocator();
     var hsh = HSH.init(a) catch return 255;
     defer hsh.raze();
     hsh.tkn = Tokenizer.init(a);
@@ -86,7 +86,7 @@ fn execTacC(args: *std.process.ArgIterator) u8 {
     while (args.next()) |arg| {
         hsh.tkn.consumes(arg) catch return 2;
     }
-    var str = hsh.alloc.dupe(u8, hsh.tkn.raw.items) catch return 2;
+    const str = hsh.alloc.dupe(u8, hsh.tkn.raw.items) catch return 2;
     defer hsh.alloc.free(str);
 
     Exec.exec(&hsh, str) catch |err| {
@@ -142,7 +142,7 @@ pub fn main() !void {
             std.time.sleep(6 * 1000 * 1000 * 1000);
         }
     }
-    var a = gpa.allocator();
+    const a = gpa.allocator();
 
     var hsh = try HSH.init(a);
     defer hsh.raze();
@@ -170,7 +170,7 @@ pub fn main() !void {
                 if (hsh.tkn.raw.items.len == 0) continue;
                 // debugging data
 
-                var str = try hsh.alloc.dupe(u8, hsh.tkn.raw.items);
+                const str = try hsh.alloc.dupe(u8, hsh.tkn.raw.items);
                 defer hsh.alloc.free(str);
 
                 //var itr = hsh.tkn.iterator();
@@ -180,7 +180,7 @@ pub fn main() !void {
                         error.ExeNotFound => {
                             const first = Exec.execFromInput(&hsh, str) catch @panic("memory");
                             defer hsh.alloc.free(first);
-                            var tree = Draw.LexTree{ .siblings = @constCast(&[_]Draw.Lexeme{
+                            const tree = Draw.LexTree{ .siblings = @constCast(&[_]Draw.Lexeme{
                                 Draw.Lexeme{
                                     .char = "[ Unable to find ",
                                     .style = .{ .attr = .bold, .fg = .red },

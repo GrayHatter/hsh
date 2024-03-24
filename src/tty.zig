@@ -41,13 +41,13 @@ pub fn init(a: Allocator) !TTY {
     const is_tty = std.io.getStdOut().isTty() and std.io.getStdIn().isTty();
 
     const tty = if (is_tty)
-        os.open("/dev/tty", os.linux.O.RDWR, 0) catch std.io.getStdOut().handle
+        os.open("/dev/tty", .{ .ACCMODE = .RDWR }, 0) catch std.io.getStdOut().handle
     else
         std.io.getStdOut().handle;
 
     std.debug.assert(current_tty == null);
 
-    var self = TTY{
+    const self = TTY{
         .alloc = a,
         .dev = tty,
         .is_tty = is_tty,
@@ -70,22 +70,26 @@ pub fn getAttr(self: *TTY) ?os.termios {
 
 fn makeRaw(orig: ?os.termios) os.termios {
     var next = orig orelse os.termios{
-        .oflag = os.linux.OPOST | os.linux.ONLCR,
-        .cflag = os.linux.CS8 | os.linux.CREAD | os.linux.CLOCAL,
-        .lflag = os.linux.ISIG | os.linux.ICANON | os.linux.ECHO | os.linux.IEXTEN | os.linux.ECHOE,
-        .iflag = os.linux.BRKINT | os.linux.ICRNL | os.linux.IMAXBEL,
+        .oflag = .{ .OPOST = true, .ONLCR = true },
+        .cflag = .{ .CSIZE = .CS8, .CREAD = true, .CLOCAL = true },
+        .lflag = .{ .ISIG = true, .ICANON = true, .ECHO = true, .IEXTEN = true, .ECHOE = true },
+        .iflag = .{ .BRKINT = true, .ICRNL = true, .IMAXBEL = true },
         .line = 0,
-        .cc = .{},
-        .ispeed = 9600,
-        .ospeed = 9600,
+        .cc = [_]u8{0} ** std.os.linux.NCCS,
+        .ispeed = .B9600,
+        .ospeed = .B9600,
     };
-    next.iflag &= ~(os.linux.IXON |
-        os.linux.BRKINT | os.linux.INPCK | os.linux.ISTRIP);
-    next.iflag |= os.linux.ICRNL;
+    next.iflag.IXON = false;
+    next.iflag.BRKINT = false;
+    next.iflag.INPCK = false;
+    next.iflag.ISTRIP = false;
     //next.lflag &= ~(os.linux.ECHO | os.linux.ICANON | os.linux.ISIG | os.linux.IEXTEN);
-    next.lflag &= ~(os.linux.ECHO | os.linux.ECHONL | os.linux.ICANON | os.linux.IEXTEN);
-    next.cc[os.system.V.TIME] = 1; // 0.1 sec resolution
-    next.cc[os.system.V.MIN] = 0;
+    next.lflag.ECHO = false;
+    next.lflag.ECHONL = false;
+    next.lflag.ICANON = false;
+    next.lflag.IEXTEN = false;
+    next.cc[@intFromEnum(os.system.V.TIME)] = 1; // 0.1 sec resolution
+    next.cc[@intFromEnum(os.system.V.MIN)] = 0;
     return next;
 }
 
@@ -230,7 +234,7 @@ const expect = std.testing.expect;
 test "split" {
     var s = "\x1B[86;1R";
     var splits = std.mem.split(u8, s[2..], ";");
-    var x: usize = std.fmt.parseInt(usize, splits.next().?, 10) catch 0;
+    const x: usize = std.fmt.parseInt(usize, splits.next().?, 10) catch 0;
     var y: usize = 0;
     if (splits.next()) |thing| {
         y = std.fmt.parseInt(usize, thing[0 .. thing.len - 1], 10) catch unreachable;

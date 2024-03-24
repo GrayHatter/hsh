@@ -85,7 +85,7 @@ var paths: []const []const u8 = undefined;
 
 pub fn execFromInput(h: *HSH, str: []const u8) ![]u8 {
     var itr = TokenIterator{ .raw = str };
-    var tokens = try itr.toSlice(h.alloc);
+    const tokens = try itr.toSlice(h.alloc);
     defer h.alloc.free(tokens);
     var ps = try Parser.parse(h.tkn.alloc, tokens);
     defer ps.raze();
@@ -102,7 +102,7 @@ pub fn executableType(h: *HSH, str: []const u8) ?ExeKind {
     if (Funcs.exists(str)) return .function;
     if (bi.exists(str)) return .builtin;
     paths = h.hfs.names.paths.items;
-    var plsfree = makeAbsExecutable(h.alloc, str) catch {
+    const plsfree = makeAbsExecutable(h.alloc, str) catch {
         if (bi.existsOptional(str)) {
             return .builtin;
         }
@@ -197,7 +197,7 @@ fn mkBinary(a: Allocator, itr: *ParsedIterator) Error!Binary {
     var argv = ArrayList(?ARG).init(a);
     defer itr.raze();
 
-    var exeZ: ?ARG = makeExeZ(a, itr.first().cannon()) catch |e| {
+    const exeZ: ?ARG = makeExeZ(a, itr.first().cannon()) catch |e| {
         log.warn("path missing {s}\n", .{itr.first().cannon()});
         return e;
     };
@@ -245,20 +245,20 @@ fn mkCallableStack(a: Allocator, itr: *TokenIterator) Error![]CallableStack {
             return try stack.toOwnedSlice();
         }
 
-        var eslice = itr.toSliceExec(a) catch unreachable;
+        const eslice = itr.toSliceExec(a) catch unreachable;
         errdefer a.free(eslice);
         var parsed = Parser.parse(a, eslice) catch |err| {
             if (err == error.Empty) continue;
             return Error.Parse;
         };
         var io: StdIo = StdIo{ .in = prev_stdout orelse STDIN_FILENO };
-        var condition: ?Conditional = conditional_rule;
+        const condition: ?Conditional = conditional_rule;
 
         // peek is now the exec operator because of how the iterator works :<
         if (peek.kind == .oper) {
             switch (peek.kind.oper) {
                 .Pipe => {
-                    const pipe = std.os.pipe2(0) catch return Error.OSErr;
+                    const pipe = std.os.pipe2(.{}) catch return Error.OSErr;
                     io.pipe = true;
                     io.out = pipe[1];
                     prev_stdout = pipe[0];
@@ -382,7 +382,7 @@ fn free(a: Allocator, s: *CallableStack) void {
             // TODO validate this clears all pointers correctly
             for (e.argv) |*marg| {
                 if (marg.*) |argz| {
-                    var arg = std.mem.span(argz);
+                    const arg = std.mem.span(argz);
                     a.free(arg);
                 }
             }
@@ -453,7 +453,7 @@ pub fn exec(h_: *HSH, input: []const u8) Error!void {
         defer free(a, s);
         if (s.conditional) |cond| {
             if (fpid == 0) unreachable;
-            var waited_job = jobs.waitFor(fpid) catch @panic("job doesn't exist");
+            const waited_job = jobs.waitFor(fpid) catch @panic("job doesn't exist");
             switch (cond) {
                 .After => {},
                 .Failure => {
@@ -538,7 +538,7 @@ pub const ChildResult = struct {
 pub fn childParsed(a: Allocator, argv: []const u8) Error!ChildResult {
     var itr = TokenIterator{ .raw = argv };
 
-    var slice = try itr.toSliceExec(a);
+    const slice = try itr.toSliceExec(a);
     defer a.free(slice);
 
     var parsed = Parser.parse(a, slice) catch return Error.Parse;
@@ -548,7 +548,7 @@ pub fn childParsed(a: Allocator, argv: []const u8) Error!ChildResult {
         try list.append(p.cannon());
         log.debug("Exec.childParse {} {s}\n", .{ list.items.len, p.cannon() });
     } // Precomptue
-    var strs = try list.toOwnedSlice();
+    const strs = try list.toOwnedSlice();
     defer a.free(strs);
 
     return child(a, strs);
@@ -564,7 +564,7 @@ pub fn child(a: Allocator, argv: []const []const u8) !ChildResult {
     for (argv) |arg| {
         try list.append((try a.dupeZ(u8, arg)).ptr);
     }
-    var argvZ: [:null]?[*:0]u8 = try list.toOwnedSliceSentinel(null);
+    const argvZ: [:null]?[*:0]u8 = try list.toOwnedSliceSentinel(null);
 
     defer {
         for (argvZ) |*argm| {
@@ -580,7 +580,7 @@ pub fn child(a: Allocator, argv: []const []const u8) !ChildResult {
 /// Preformatted version of child. Accepts the null, and 0 terminated versions
 /// to pass directly to exec. Caller maintains ownership of argv
 pub fn childZ(a: Allocator, argv: [:null]const ?[*:0]const u8) Error!ChildResult {
-    var pipe = std.os.pipe2(0) catch unreachable;
+    const pipe = std.os.pipe2(.{}) catch unreachable;
     const pid = std.os.fork() catch unreachable;
     if (pid == 0) {
         // we kid nao
@@ -606,7 +606,7 @@ pub fn childZ(a: Allocator, argv: [:null]const ?[*:0]const u8) Error!ChildResult
     var r = f.reader();
     var list = std.ArrayList([]u8).init(a);
 
-    var job = jobs.waitFor(pid) catch return Error.Unknown;
+    const job = jobs.waitFor(pid) catch return Error.Unknown;
 
     while (r.readUntilDelimiterOrEofAlloc(a, '\n', 2048) catch unreachable) |line| {
         try list.append(line);
@@ -638,7 +638,7 @@ test "mkstack" {
 
     var a = std.testing.allocator;
     ti.restart();
-    var stk = try mkCallableStack(a, &ti);
+    const stk = try mkCallableStack(a, &ti);
     try std.testing.expect(stk.len == 2);
     for (stk) |*s| {
         free(a, s);

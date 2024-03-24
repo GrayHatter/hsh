@@ -14,7 +14,7 @@ pub fn build(b: *std.Build) void {
     );
 
     const log = b.createModule(.{
-        .source_file = .{ .path = "src/log.zig" },
+        .root_source_file = .{ .path = "src/log.zig" },
     });
 
     const exe = b.addExecutable(.{
@@ -24,8 +24,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    exe.addModule("log", log);
-    exe.addOptions("hsh_build", opts);
+    exe.root_module.addOptions("hsh_build", opts);
+    exe.root_module.addImport("log", log);
 
     b.installArtifact(exe);
 
@@ -48,8 +48,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    unit_tests.addOptions("hsh_build", opts);
-    unit_tests.addModule("log", log);
+    unit_tests.root_module.addOptions("hsh_build", opts);
+    unit_tests.root_module.addImport("log", log);
     const run_tests = b.addRunArtifact(unit_tests);
 
     const test_step = b.step("test", "Run unit tests");
@@ -63,7 +63,7 @@ fn version(b: *std.Build) []const u8 {
     }
 
     var code: u8 = undefined;
-    var git_wide = b.execAllowFail(&[_][]const u8{
+    const git_wide = b.runAllowFail(&[_][]const u8{
         "git",
         "describe",
         "--dirty",

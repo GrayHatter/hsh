@@ -65,7 +65,7 @@ pub fn alias_core(a: std.mem.Allocator, titr: *ParsedIterator) Err!u8 {
 
     var name: ?[]const u8 = null;
     var value: ?[]const u8 = null;
-    var mode: ?[]const u8 = null;
+    const mode: ?[]const u8 = null;
     while (titr.next()) |t| {
         if (name) |_| {
             value = t.cannon();
@@ -136,7 +136,7 @@ fn replace(a: std.mem.Allocator, key: []const u8, val: []const u8) !bool {
 fn del(src: []const u8) Err!void {
     for (aliases.items, 0..) |a, i| {
         if (std.mem.eql(u8, src, a.name)) {
-            var d = aliases.swapRemove(i);
+            const d = aliases.swapRemove(i);
             aliases.allocator.free(d.name);
             aliases.allocator.free(d.value);
             return;
@@ -145,7 +145,7 @@ fn del(src: []const u8) Err!void {
 }
 
 test "alias" {
-    var a = std.testing.allocator;
+    const a = std.testing.allocator;
     init(a);
     defer raze(a);
 
@@ -159,7 +159,7 @@ test "save" {
     const str = "alias haxzor='ssh 127.0.0.1 \"echo hsh was here | sudo tee /root/.lmao.txt\"'";
 
     var itr = tokenizer.TokenIterator{ .raw = str };
-    var slice = try itr.toSliceExec(a);
+    const slice = try itr.toSliceExec(a);
     defer a.free(slice);
     var pitr = try Parse.Parser.parse(a, slice);
 

@@ -82,8 +82,8 @@ pub fn exports(h: *HSH, pitr: *ParsedIterator) Err!u8 {
 
     if (std.mem.indexOf(u8, name.?.cannon(), "=")) |_| {
         var keyitr = std.mem.split(u8, name.?.cannon(), "=");
-        var key = keyitr.first();
-        var value = keyitr.rest();
+        const key = keyitr.first();
+        const value = keyitr.rest();
         // TODO push into variables
         add(key, value) catch {
             log.err("", .{});
@@ -92,8 +92,8 @@ pub fn exports(h: *HSH, pitr: *ParsedIterator) Err!u8 {
         return 0;
     } else {
         // no = in the string, so it needs to already exist within variables.
-        var key = h.alloc.dupe(u8, name.?.cannon()) catch return Err.Memory;
-        var value = Variables.getStr(key) orelse {
+        const key = h.alloc.dupe(u8, name.?.cannon()) catch return Err.Memory;
+        const value = Variables.getStr(key) orelse {
             log.err("Attempted to export an non-existant name\n", .{});
             return 1;
         };

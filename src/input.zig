@@ -112,7 +112,7 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Mode {
     }
 
     if (comp.countFiltered() > 1) {
-        var target = comp.next();
+        const target = comp.next();
         try tkn.maybeReplace(target);
         comp.drawAll(&hsh.draw, hsh.draw.term_size) catch |err| {
             if (err == Draw.Layout.Error.ItemCount) return .COMPLETING else return err;
@@ -273,7 +273,7 @@ fn ctrlCode(in: *Input, hsh: *HSH, tkn: *Tokenizer, b: u8, comp: *complete.CompS
                 return .Prompt;
             }
 
-            var nl_exec = tkn.consumec(nl);
+            const nl_exec = tkn.consumec(nl);
             if (nl_exec == error.Exec) {
                 if (tkn.validate()) {} else |e| {
                     log.err("validate", .{});
@@ -429,7 +429,7 @@ pub fn nonInteractive(in: *Input, hsh: *HSH, comp: *complete.CompSet) !Event {
         in.mode = .TYPING;
         return .Signaled;
     }
-    var nbyte: usize = try read(hsh.input, &buffer);
+    const nbyte: usize = try read(hsh.input, &buffer);
     if (nbyte == 0) return .ExitHSH;
 
     // No... I don't like this, but I've spent too long staring at it

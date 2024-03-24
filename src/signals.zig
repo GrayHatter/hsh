@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const os = std.os;
-const Queue = std.atomic.Queue;
+const Queue = std.TailQueue;
 const HSH = @import("hsh.zig").HSH;
 const log = @import("log");
 const jobs = @import("jobs.zig");
@@ -37,7 +37,7 @@ var root_alloc: Allocator = undefined;
 var alloc: Allocator = undefined;
 var fba: std.heap.FixedBufferAllocator = undefined;
 var fbuffer: []u8 = undefined;
-var queue: Queue(Signal) = Queue(Signal).init();
+var queue: Queue(Signal) = Queue(Signal){};
 
 export fn sig_cb(sig: c_int, info: *const os.siginfo_t, _: ?*const anyopaque) callconv(.C) void {
     log.trace(
@@ -63,15 +63,17 @@ export fn sig_cb(sig: c_int, info: *const os.siginfo_t, _: ?*const anyopaque) ca
             sigp.* = Queue(Signal).Node{
                 .data = Signal{ .signal = sig, .info = info.* },
             };
-            queue.put(sigp);
+            queue.append(sigp);
         },
     }
 }
 
 pub fn get() ?Queue(Signal).Node {
-    var node = queue.get() orelse return null;
-    defer alloc.destroy(node);
-    return node.*;
+    if (queue.pop()) |node| {
+        defer alloc.destroy(node);
+        return node.*;
+    }
+    return null;
 }
 
 /// TODO change init to accept a GP allocator, and wrap *that* with arena

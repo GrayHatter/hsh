@@ -54,7 +54,7 @@ comptime {
 
 /// caller owns memory
 fn readLine(a: *Allocator, r: std.fs.File.Reader) ![]u8 {
-    var buf = a.alloc(u8, 1024) catch return Error.Memory;
+    const buf = a.alloc(u8, 1024) catch return Error.Memory;
     errdefer a.free(buf);
     if (r.readUntilDelimiterOrEof(buf, '\n')) |line| {
         if (line) |l| {
@@ -80,7 +80,7 @@ pub fn readRCINotify(h: *HSH, e: INEvent) void {
 
 fn readFromRC(hsh: *HSH) E!void {
     if (hsh.hfs.rc) |rc_| {
-        var r = rc_.reader();
+        const r = rc_.reader();
         var a = hsh.alloc;
 
         var tokenizer = Tokenizer.init(a);
@@ -97,7 +97,7 @@ fn readFromRC(hsh: *HSH) E!void {
             defer tokenizer.reset();
             tokenizer.consumes(line) catch return E.Memory;
             var titr = tokenizer.iterator();
-            var tokens = titr.toSlice(a) catch return E.Memory;
+            const tokens = titr.toSlice(a) catch return E.Memory;
             defer a.free(tokens);
             var pitr = Parser.parse(a, tokens) catch continue;
 
@@ -198,7 +198,7 @@ pub const HSH = struct {
         // example I found. It's probably sub optimal, but ¯\_(ツ)_/¯. We may
         // decide we care enough to fix this, or not. The internet seems to think
         // it's a mistake to alter the env for a running process.
-        var env = std.process.getEnvMap(a) catch return E.Unknown; // TODO err handling
+        const env = std.process.getEnvMap(a) catch return E.Unknown; // TODO err handling
 
         var hfs = fs.init(a, env) catch return E.Memory;
         hfs.inotifyInstallRc(readRCINotify) catch {

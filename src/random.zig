@@ -5,7 +5,7 @@ var prng = std.rand.DefaultPrng.init(0);
 var rand: std.rand.Random = prng.random();
 
 pub fn init() void {
-    var time = std.time.microTimestamp();
+    const time = std.time.microTimestamp();
     prng.seed(@bitCast(time));
     rand = prng.random();
 }

@@ -142,7 +142,7 @@ fn option(_: std.mem.Allocator, opt: []const u8, titr: *ParsedIterator) Err!u8 {
 fn dump() Err!u8 {
     inline for (@typeInfo(PosixOpts).Enum.fields) |o| {
         const name = o.name;
-        var truthy = if (Vars.getKind(name, .internal)) |str|
+        const truthy = if (Vars.getKind(name, .internal)) |str|
             std.mem.eql(u8, "true", str.str)
         else
             false;
@@ -188,7 +188,7 @@ pub fn set(h: *HSH, titr: *ParsedIterator) Err!u8 {
 
 test "set" {
     const Parse = @import("../parse.zig");
-    var a = std.testing.allocator;
+    const a = std.testing.allocator;
     Vars.init(a);
     defer Vars.raze();
 

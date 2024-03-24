@@ -3,7 +3,7 @@ const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const HSH = @import("hsh.zig").HSH;
 const fs = @import("fs.zig");
-const IterableDir = std.fs.IterableDir;
+const Dir = std.fs.Dir;
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const Token = @import("token.zig");
 const Parser = @import("parse.zig").Parser;
@@ -44,7 +44,7 @@ pub const FSKind = enum {
         };
     }
 
-    pub fn fromFsKind(k: std.fs.IterableDir.Entry.Kind) FSKind {
+    pub fn fromFsKind(k: std.fs.Dir.Entry.Kind) FSKind {
         return switch (k) {
             .file => .file,
             .directory => .dir,
@@ -336,8 +336,8 @@ pub const CompSet = struct {
     pub fn drawGroup(self: *CompSet, f: Flavors, d: *Draw.Drawable, wh: Cord) !void {
         //defer list.clearAndFree();
         const g_int = @intFromEnum(f);
-        var group = &self.groups[g_int];
-        var current_group = g_int == self.group_index;
+        const group = &self.groups[g_int];
+        const current_group = g_int == self.group_index;
 
         if (group.items.len == 0) return;
 
@@ -373,14 +373,14 @@ pub const CompSet = struct {
 
     pub fn drawGroupBuild(self: *CompSet, f: Flavors, d: *Draw.Drawable, wh: Cord) !void {
         const g_int = @intFromEnum(f);
-        var group = &self.groups[g_int];
+        const group = &self.groups[g_int];
 
         var list = ArrayList(Draw.Lexeme).init(self.alloc);
         for (group.items) |itm| {
             const lex = itm.lexeme(false);
             list.append(lex) catch break;
         }
-        var items = try list.toOwnedSlice();
+        const items = try list.toOwnedSlice();
         if (Draw.Layout.table(self.alloc, items, wh)) |trees| {
             self.draw_cache[g_int] = trees;
         } else |err| {
@@ -492,7 +492,7 @@ pub const CompSet = struct {
     }
 };
 
-fn completeDir(cs: *CompSet, cwdi: IterableDir) !void {
+fn completeDir(cs: *CompSet, cwdi: Dir) !void {
     var itr = cwdi.iterate();
     cs.original = CompOption{ .str = try cs.alloc.dupe(u8, ""), .kind = null };
     while (try itr.next()) |each| {
@@ -505,7 +505,7 @@ fn completeDir(cs: *CompSet, cwdi: IterableDir) !void {
     }
 }
 
-fn completeDirBase(cs: *CompSet, cwdi: IterableDir, base: []const u8) !void {
+fn completeDirBase(cs: *CompSet, cwdi: Dir, base: []const u8) !void {
     var itr = cwdi.iterate();
     cs.original = CompOption{ .str = try cs.alloc.dupe(u8, base), .kind = null };
     while (try itr.next()) |each| {
@@ -523,18 +523,18 @@ fn completePath(cs: *CompSet, _: *HSH, target: []const u8) !void {
     if (target.len < 1) return;
 
     var whole = std.mem.splitBackwards(u8, target, "/");
-    var base = whole.first();
-    var path = whole.rest();
+    const base = whole.first();
+    const path = whole.rest();
 
-    var dir: std.fs.IterableDir = undefined;
+    var dir: std.fs.Dir = undefined;
     if (target[0] == '/') {
         if (path.len == 0) {
-            dir = std.fs.openIterableDirAbsolute("/", .{}) catch return;
+            dir = std.fs.openDirAbsolute("/", .{}) catch return;
         } else {
-            dir = std.fs.openIterableDirAbsolute(path, .{}) catch return;
+            dir = std.fs.openDirAbsolute(path, .{}) catch return;
         }
     } else {
-        dir = std.fs.cwd().openIterableDir(path, .{}) catch return;
+        dir = std.fs.cwd().openDir(path, .{}) catch return;
     }
     defer dir.close();
 
@@ -561,14 +561,14 @@ fn completeSysPath(cs: *CompSet, h: *HSH, target: []const u8) !void {
     cs.original = CompOption{ .str = try cs.alloc.dupe(u8, target), .kind = null };
 
     for (h.hfs.names.paths.items) |path| {
-        var dir = std.fs.openIterableDirAbsolute(path, .{}) catch return;
+        var dir = std.fs.openDirAbsolute(path, .{ .iterate = true }) catch return;
         defer dir.close();
         var itr = dir.iterate();
         while (try itr.next()) |each| {
             if (!std.mem.startsWith(u8, each.name, target)) continue;
             if (each.name[0] == '.' and (target.len == 0 or target[0] != '.')) continue;
             if (each.kind != .file) continue; // TODO probably a bug
-            const file = fs.openFileAt(dir.dir, each.name, false) orelse continue;
+            const file = fs.openFileAt(dir, each.name, false) orelse continue;
             defer file.close();
             if (file.metadata()) |md| {
                 if (!md.permissions().inner.unixHas(
@@ -638,7 +638,7 @@ pub fn complete(cs: *CompSet, hsh: *HSH, tks: *Tokenizer) !void {
         else => {
             switch (pair.t.kind) {
                 .ws => {
-                    var dir = try std.fs.cwd().openIterableDir(".", .{});
+                    var dir = try std.fs.cwd().openDir(".", .{});
                     defer dir.close();
                     try completeDir(cs, dir);
                 },
@@ -647,7 +647,7 @@ pub fn complete(cs: *CompSet, hsh: *HSH, tks: *Tokenizer) !void {
                     if (std.mem.indexOfScalar(u8, t.cannon(), '/')) |_| {
                         try completePath(cs, hsh, t.cannon());
                     } else {
-                        var dir = try std.fs.cwd().openIterableDir(".", .{});
+                        var dir = try std.fs.cwd().openDir(".", .{ .iterate = true });
                         defer dir.close();
                         try completeDirBase(cs, dir, t.cannon());
                     }

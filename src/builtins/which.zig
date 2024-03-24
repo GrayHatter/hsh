@@ -10,7 +10,7 @@ var path: [2048]u8 = undefined;
 
 fn executable(str: []const u8) ?[]const u8 {
     var fba = std.heap.FixedBufferAllocator.init(&path);
-    var a = fba.allocator();
+    const a = fba.allocator();
     return Exec.makeAbsExecutable(a, str) catch return null;
 }
 

@@ -66,7 +66,7 @@ pub const Parsed = struct {
             self.capacity = target;
             return;
         }
-        var new = try self.alloc.realloc(self.str, target);
+        const new = try self.alloc.realloc(self.str, target);
         self.str = new;
         self.str.len = oldlen;
         self.capacity = target;
@@ -173,7 +173,7 @@ pub const ParsedIterator = struct {
 
         self.aliasedAdd(token.cannon());
         var a_itr = TokenIterator{ .raw = Parser.alias(token) catch token.str };
-        var aliases = try self.resolveAlias(a_itr.first().*);
+        const aliases = try self.resolveAlias(a_itr.first().*);
         defer self.alloc.free(aliases);
         for (aliases) |stkn| {
             try tokens.append(stkn);
@@ -204,16 +204,16 @@ pub const ParsedIterator = struct {
         }
 
         if (std.mem.indexOf(u8, local.cannon(), "$") != null or local.kind == .vari) {
-            var owned = try self.resolveDollar(local);
+            const owned = try self.resolveDollar(local);
             try tokens.append(Token{ .str = "", .resolved = owned });
         } else if (std.mem.indexOf(u8, local.cannon(), "*")) |_| {
-            var real = try Parser.single(self.alloc, local);
+            const real = try Parser.single(self.alloc, local);
             defer if (real.resolved) |r| self.alloc.free(r);
-            var globs = try self.resolveGlob(real);
+            const globs = try self.resolveGlob(real);
             defer self.alloc.free(globs);
             for (globs) |glob| try tokens.append(glob);
         } else {
-            var real = try Parser.single(self.alloc, local);
+            const real = try Parser.single(self.alloc, local);
             try tokens.append(real);
         }
         return try tokens.toOwnedSlice();
@@ -262,8 +262,8 @@ pub const ParsedIterator = struct {
         var tokens = ArrayList(Token).init(self.alloc);
         if (std.mem.indexOf(u8, token.cannon(), "/")) |_| {
             var bitr = std.mem.splitBackwards(u8, token.cannon(), "/");
-            var glob = bitr.first();
-            var dir = bitr.rest();
+            const glob = bitr.first();
+            const dir = bitr.rest();
             if (Parser.globAt(self.alloc, dir, glob)) |names| {
                 for (names) |name| {
                     defer self.alloc.free(name);
@@ -272,7 +272,7 @@ pub const ParsedIterator = struct {
                     {
                         continue;
                     }
-                    var path = try std.mem.join(self.alloc, "/", &[2][]const u8{ dir, name });
+                    const path = try std.mem.join(self.alloc, "/", &[2][]const u8{ dir, name });
                     try tokens.append(Token{ .str = "", .resolved = path });
                 }
                 self.alloc.free(names);
@@ -427,9 +427,9 @@ pub const Parser = struct {
     /// Caller owns memory for both list of names, and each name
     fn globAt(a: Allocator, d: []const u8, str: []const u8) Error![][]u8 {
         var dir = if (d[0] == '/')
-            std.fs.openIterableDirAbsolute(d, .{}) catch return Error.Unknown
+            std.fs.openDirAbsolute(d, .{ .iterate = true }) catch return Error.Unknown
         else
-            std.fs.cwd().openIterableDir(d, .{}) catch return Error.Unknown;
+            std.fs.cwd().openDir(d, .{ .iterate = true }) catch return Error.Unknown;
         defer dir.close();
         return fs.globAt(a, dir, str) catch @panic("this error not implemented");
     }
@@ -472,22 +472,22 @@ pub const Parser = struct {
 
     fn subcmd(a: Allocator, tkn: Token) Error!Token {
         var local = tkn;
-        var cmd = tkn.str[2 .. tkn.str.len - 1];
+        const cmd = tkn.str[2 .. tkn.str.len - 1];
         std.debug.assert(tkn.str[0] == '$');
         std.debug.assert(tkn.str[1] == '(');
 
         var itr = TokenIterator{ .raw = cmd };
-        var argv_t = itr.toSlice(a) catch return Error.Memory;
+        const argv_t = itr.toSlice(a) catch return Error.Memory;
         defer a.free(argv_t);
         var list = ArrayList([]const u8).init(a);
         for (argv_t) |t| {
             list.append(t.cannon()) catch return Error.Memory;
         }
-        var argv = list.toOwnedSlice() catch return Error.Memory;
+        const argv = list.toOwnedSlice() catch return Error.Memory;
         defer a.free(argv);
         local.parsed = true;
 
-        var out = exec.child(a, argv) catch {
+        const out = exec.child(a, argv) catch {
             local.resolved = a.dupe(u8, local.str) catch return Error.Memory;
             return local;
         };
@@ -512,7 +512,7 @@ test "iterator nows" {
 
     try t.consumes("\"this is some text\" more text");
     var itr = t.iterator();
-    var ts = try itr.toSlice(a);
+    const ts = try itr.toSlice(a);
     defer a.free(ts);
     var ptr = try Parser.parse(a, ts);
     defer ptr.raze();
@@ -530,7 +530,7 @@ test "breaking" {
 
     try t.consumes("alias la='ls -la'");
     var titr = t.iterator();
-    var tokens = try titr.toSlice(a);
+    const tokens = try titr.toSlice(a);
     try expectEql(tokens.len, 4);
 
     titr.restart();
@@ -556,7 +556,7 @@ test "breaking" {
 }
 
 test "iterator alias is builtin" {
-    var a = std.testing.allocator;
+    const a = std.testing.allocator;
 
     var ts = [_]Token{
         Token{ .kind = .word, .str = "alias" },
@@ -661,7 +661,7 @@ test "iterator aliased recurse" {
         i += 1;
     }
     try expectEql(i, 4);
-    var first = itr.first().cannon();
+    const first = itr.first().cannon();
     try expect(eql(u8, first, "ls"));
     try expect(eql(u8, itr.next().?.cannon(), "--color=auto"));
     try expect(eql(u8, itr.next().?.cannon(), "-la"));
@@ -670,7 +670,7 @@ test "iterator aliased recurse" {
 }
 
 test "parse vars" {
-    var a = std.testing.allocator;
+    const a = std.testing.allocator;
 
     comptime var ts = [5]Token{
         try Token.any("echo"),
@@ -688,7 +688,7 @@ test "parse vars" {
         i += 1;
     }
     try expectEql(i, 3);
-    var first = itr.first().cannon();
+    const first = itr.first().cannon();
     try eqlStr("echo", first);
     try eqlStr("", itr.next().?.cannon());
     try eqlStr("blerg", itr.next().?.cannon());
@@ -696,7 +696,7 @@ test "parse vars" {
 }
 
 test "parse vars existing" {
-    var a = std.testing.allocator;
+    const a = std.testing.allocator;
 
     comptime var ts = [3]Token{
         try Token.any("echo"),
@@ -719,13 +719,13 @@ test "parse vars existing" {
         i += 1;
     }
     try expectEql(i, 1);
-    var first = itr.first().cannon();
+    const first = itr.first().cannon();
     try eqlStr("echocorrectblerg", first);
     try expect(itr.next() == null);
 }
 
 test "parse vars existing with white space" {
-    var a = std.testing.allocator;
+    const a = std.testing.allocator;
 
     comptime var ts = [5]Token{
         try Token.any("echo"),
@@ -750,7 +750,7 @@ test "parse vars existing with white space" {
         i += 1;
     }
     try expectEql(i, 3);
-    var first = itr.first().cannon();
+    const first = itr.first().cannon();
     try eqlStr("echo", first);
     var tst = itr.next().?;
     try eqlStr("correct", tst.cannon());
@@ -782,7 +782,7 @@ test "parse vars existing braces" {
         i += 1;
     }
     try expectEql(i, 3);
-    var first = itr.first().cannon();
+    const first = itr.first().cannon();
     try eqlStr("echo", first);
 
     try eqlStr("valueextra", itr.next().?.cannon());
@@ -813,7 +813,7 @@ test "parse vars existing braces inline" {
         i += 1;
     }
     try expectEql(i, 3);
-    var first = itr.first().cannon();
+    const first = itr.first().cannon();
     try eqlStr("echo", first);
 
     try eqlStr("extravalue", itr.next().?.cannon());
@@ -844,7 +844,7 @@ test "parse vars existing braces inline both" {
         i += 1;
     }
     try expectEql(i, 3);
-    var first = itr.first().cannon();
+    const first = itr.first().cannon();
     try eqlStr("echo", first);
 
     try eqlStr("extravaluethingy", itr.next().?.cannon());
@@ -853,7 +853,7 @@ test "parse vars existing braces inline both" {
 }
 
 test "parse dollar dollar bills y'all" {
-    var a = std.testing.allocator;
+    const a = std.testing.allocator;
 
     var tkns = [_]Token{
         Token.make("echo", .word),
@@ -920,7 +920,7 @@ test "parse path" {
         i += 1;
     }
     try expectEql(i, 2);
-    var first = itr.first().cannon();
+    const first = itr.first().cannon();
     try eqlStr("ls", first);
 
     try eqlStr("~", itr.next().?.cannon());
@@ -949,7 +949,7 @@ test "parse path ~" {
         i += 1;
     }
     try expectEql(i, 2);
-    var first = itr.first().cannon();
+    const first = itr.first().cannon();
     try eqlStr("ls", first);
 
     var thing = itr.next();
@@ -980,7 +980,7 @@ test "parse path ~/" {
         i += 1;
     }
     try expectEql(i, 2);
-    var first = itr.first().cannon();
+    const first = itr.first().cannon();
     try eqlStr("ls", first);
 
     var thing = itr.next();
@@ -1011,7 +1011,7 @@ test "parse path ~/place" {
         i += 1;
     }
     try expectEql(i, 2);
-    var first = itr.first().cannon();
+    const first = itr.first().cannon();
     try eqlStr("ls", first);
 
     var tst = itr.next();
@@ -1042,7 +1042,7 @@ test "parse path /~/otherplace" {
         i += 1;
     }
     try expectEql(i, 2);
-    var first = itr.first().cannon();
+    const first = itr.first().cannon();
     try eqlStr("ls", first);
 
     var tst = itr.next();
@@ -1055,23 +1055,23 @@ test "glob" {
     var a = std.testing.allocator;
 
     var oldcwd = std.fs.cwd();
-    var basecwd = try oldcwd.realpathAlloc(a, ".");
+    const basecwd = try oldcwd.realpathAlloc(a, ".");
     defer {
         var dir = std.fs.openDirAbsolute(basecwd, .{}) catch unreachable;
         dir.setAsCwd() catch {};
         a.free(basecwd);
     }
 
-    var tmpCwd = std.testing.tmpIterableDir(.{});
+    var tmpCwd = std.testing.tmpDir(.{ .iterate = true });
     defer tmpCwd.cleanup();
-    try tmpCwd.iterable_dir.dir.setAsCwd();
-    _ = try tmpCwd.iterable_dir.dir.createFile("blerg", .{});
-    _ = try tmpCwd.iterable_dir.dir.createFile(".blerg", .{});
-    _ = try tmpCwd.iterable_dir.dir.createFile("blerg2", .{});
-    _ = try tmpCwd.iterable_dir.dir.createFile("w00t", .{});
-    _ = try tmpCwd.iterable_dir.dir.createFile("no_wai", .{});
-    _ = try tmpCwd.iterable_dir.dir.createFile("ya-wai", .{});
-    var di = tmpCwd.iterable_dir.iterate();
+    try tmpCwd.dir.setAsCwd();
+    _ = try tmpCwd.dir.createFile("blerg", .{});
+    _ = try tmpCwd.dir.createFile(".blerg", .{});
+    _ = try tmpCwd.dir.createFile("blerg2", .{});
+    _ = try tmpCwd.dir.createFile("w00t", .{});
+    _ = try tmpCwd.dir.createFile("no_wai", .{});
+    _ = try tmpCwd.dir.createFile("ya-wai", .{});
+    var di = tmpCwd.dir.iterate();
 
     var names = std.ArrayList([]u8).init(a);
 
@@ -1116,21 +1116,21 @@ test "glob ." {
     var a = std.testing.allocator;
 
     var oldcwd = std.fs.cwd();
-    var basecwd = try oldcwd.realpathAlloc(a, ".");
+    const basecwd = try oldcwd.realpathAlloc(a, ".");
     defer {
         var dir = std.fs.openDirAbsolute(basecwd, .{}) catch unreachable;
         dir.setAsCwd() catch {};
         a.free(basecwd);
     }
 
-    var tmpCwd = std.testing.tmpIterableDir(.{});
+    var tmpCwd = std.testing.tmpDir(.{ .iterate = true });
     defer tmpCwd.cleanup();
-    try tmpCwd.iterable_dir.dir.setAsCwd();
-    _ = try tmpCwd.iterable_dir.dir.createFile("blerg", .{});
-    _ = try tmpCwd.iterable_dir.dir.createFile(".blerg", .{});
-    _ = try tmpCwd.iterable_dir.dir.createFile("no_wai", .{});
-    _ = try tmpCwd.iterable_dir.dir.createFile("ya-wai", .{});
-    var di = tmpCwd.iterable_dir.iterate();
+    try tmpCwd.dir.setAsCwd();
+    _ = try tmpCwd.dir.createFile("blerg", .{});
+    _ = try tmpCwd.dir.createFile(".blerg", .{});
+    _ = try tmpCwd.dir.createFile("no_wai", .{});
+    _ = try tmpCwd.dir.createFile("ya-wai", .{});
+    var di = tmpCwd.dir.iterate();
 
     var names = std.ArrayList([]u8).init(a);
 
@@ -1176,16 +1176,16 @@ test "glob ~/*" {
     Variables.init(a);
     defer Variables.raze();
 
-    var tmpCwd = std.testing.tmpIterableDir(.{});
+    var tmpCwd = std.testing.tmpDir(.{ .iterate = true });
     defer tmpCwd.cleanup();
-    var baseCwd = try tmpCwd.iterable_dir.dir.realpathAlloc(a, ".");
+    const baseCwd = try tmpCwd.dir.realpathAlloc(a, ".");
     defer a.free(baseCwd);
 
-    _ = try tmpCwd.iterable_dir.dir.createFile("blerg", .{});
+    _ = try tmpCwd.dir.createFile("blerg", .{});
 
     try Variables.put("HOME", baseCwd);
 
-    var di = tmpCwd.iterable_dir.iterate();
+    var di = tmpCwd.dir.iterate();
     var names = std.ArrayList([]u8).init(a);
 
     while (try di.next()) |each| {
@@ -1279,7 +1279,7 @@ test "naughty strings parsed" {
 
     var itr = TokenIterator{ .raw = while_str };
 
-    var slice = try itr.toSlice(a);
+    const slice = try itr.toSlice(a);
     defer a.free(slice);
 
     var pitr = try Parser.parse(a, slice);

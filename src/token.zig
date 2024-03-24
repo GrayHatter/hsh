@@ -129,7 +129,7 @@ fn ioredir(src: []const u8) Error!Token {
         else => return Error.InvalidSrc,
     }
     while (src[i] == ' ' or src[i] == '\t') : (i += 1) {}
-    var target = (try word(src[i..])).str;
+    const target = (try word(src[i..])).str;
     t.substr = target;
     t.str = src[0 .. i + target.len];
     return t;
@@ -262,7 +262,7 @@ pub fn word(src: []const u8) Error!Token {
 }
 
 pub fn wordExpanded(src: []const u8) Error!Token {
-    var tkn = try word(src);
+    const tkn = try word(src);
 
     // I know, and I'm sorry
     if (tkn.str.len <= 5) {
@@ -276,7 +276,7 @@ pub fn wordExpanded(src: []const u8) Error!Token {
         // TODO accept other whitespace?
         while (offset < src.len and src[offset] == ' ') offset += 1;
 
-        var f = func(src[offset..]) catch return tkn;
+        const f = func(src[offset..]) catch return tkn;
         return Token.make(src[0 .. offset + f.str.len], .nos);
     }
 
@@ -290,7 +290,7 @@ pub fn logic(src: []const u8) Error!Token {
         }
         return Error.InvalidSrc;
     };
-    var r = Reserved.fromStr(src[0..end]) orelse unreachable;
+    const r = Reserved.fromStr(src[0..end]) orelse unreachable;
 
     const marker: Reserved = switch (r) {
         .If => .Fi,
@@ -536,7 +536,7 @@ pub const Iterator = struct {
 
     pub fn toSliceExecStr(self: *Self, a: Allocator) ![]const []const u8 {
         const tokens = try self.toSliceExec(a);
-        var strs = try a.alloc([]u8, tokens.len);
+        const strs = try a.alloc([]u8, tokens.len);
         for (tokens, strs) |t, *s| {
             s.* = @constCast(t.str);
         }

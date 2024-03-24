@@ -30,31 +30,31 @@ pub fn concat(a: Allocator, base: []u8, ends: []const []const u8) ![]u8 {
 }
 
 pub fn concatPath(a: Allocator, base: []u8, end: []const u8) ![]u8 {
-    var sep = if (base[base.len - 1] == '/') "" else "/";
-    var end_clean = if (end[0] == '/') end[1..] else end;
+    const sep = if (base[base.len - 1] == '/') "" else "/";
+    const end_clean = if (end[0] == '/') end[1..] else end;
     return concat(a, base, &[2][]const u8{ sep, end_clean });
 }
 
 test "concat" {
     var a = std.testing.allocator;
-    var thing = try a.dupe(u8, "thing");
-    var out = try concat(a, thing, &[_][]const u8{ " blerg", " null" });
+    const thing = try a.dupe(u8, "thing");
+    const out = try concat(a, thing, &[_][]const u8{ " blerg", " null" });
     try std.testing.expect(std.mem.eql(u8, out, "thing blerg null"));
     defer a.free(out);
 }
 
 test "concatPath" {
     var a = std.testing.allocator;
-    var thing = try a.dupe(u8, "thing");
-    var out = try concatPath(a, thing, "null");
+    const thing = try a.dupe(u8, "thing");
+    const out = try concatPath(a, thing, "null");
     try std.testing.expect(std.mem.eql(u8, out, "thing/null"));
     defer a.free(out);
 }
 
 test "concatPath 2" {
     var a = std.testing.allocator;
-    var thing = try a.dupe(u8, "thing/");
-    var out = try concatPath(a, thing, "null");
+    const thing = try a.dupe(u8, "thing/");
+    const out = try concatPath(a, thing, "null");
     try std.testing.expect(std.mem.eql(u8, out, "thing/null"));
     defer a.free(out);
 }
