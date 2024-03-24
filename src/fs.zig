@@ -330,8 +330,8 @@ pub fn openFileStdout(name: []const u8, append: bool) !std.fs.File {
     }
 
     // TODO don't use string here
-    if (vars.getKind("noclobber", .internal)) |noclobber| {
-        if (std.mem.eql(u8, noclobber.str, "true")) {
+    if (vars.get("noclobber")) |noclobber| {
+        if (std.mem.eql(u8, noclobber, "true")) {
             if (std.fs.cwd().openFile(name, .{ .mode = .read_only })) |file| {
                 file.close();
                 return Error.NoClobber;

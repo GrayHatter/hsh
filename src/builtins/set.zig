@@ -91,7 +91,7 @@ fn enable(o: Opts) !void {
     switch (o) {
         .Export => return nop(),
         .BgJob => return nop(),
-        .NoClobber => try Vars.putKind("noclobber", "true", .internal),
+        .NoClobber => try Vars.put("noclobber", "true"),
         .ErrExit => return nop(),
         .PathExpan => return nop(),
         .HashAll => return nop(),
@@ -106,7 +106,7 @@ fn disable(o: Opts) !void {
     switch (o) {
         .Export => return nop(),
         .BgJob => return nop(),
-        .NoClobber => try Vars.putKind("noclobber", "false", .internal),
+        .NoClobber => try Vars.put("noclobber", "false"),
         .ErrExit => return nop(),
         .PathExpan => return nop(),
         .HashAll => return nop(),
@@ -142,8 +142,8 @@ fn option(_: std.mem.Allocator, opt: []const u8, titr: *ParsedIterator) Err!u8 {
 fn dump() Err!u8 {
     inline for (@typeInfo(PosixOpts).Enum.fields) |o| {
         const name = o.name;
-        const truthy = if (Vars.getKind(name, .internal)) |str|
-            std.mem.eql(u8, "true", str.str)
+        const truthy = if (Vars.get(name)) |str|
+            std.mem.eql(u8, "true", str)
         else
             false;
 
@@ -203,8 +203,8 @@ test "set" {
 
     _ = try setCore(a, &p);
 
-    const nc = Vars.getKind("noclobber", .internal);
-    try std.testing.expectEqualStrings("true", nc.?.str);
+    const nc = Vars.get("noclobber");
+    try std.testing.expectEqualStrings("true", nc.?);
 
     ts = [_]Token{
         Token{ .kind = .word, .str = "set" },
@@ -217,6 +217,6 @@ test "set" {
 
     _ = try setCore(a, &p);
 
-    const ync = Vars.getKind("noclobber", .internal);
-    try std.testing.expectEqualStrings("false", ync.?.str);
+    const ync = Vars.get("noclobber");
+    try std.testing.expectEqualStrings("false", ync.?);
 }

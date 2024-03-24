@@ -93,7 +93,7 @@ pub fn exports(h: *HSH, pitr: *ParsedIterator) Err!u8 {
     } else {
         // no = in the string, so it needs to already exist within variables.
         const key = h.alloc.dupe(u8, name.?.cannon()) catch return Err.Memory;
-        const value = Variables.getStr(key) orelse {
+        const value = Variables.get(key) orelse {
             log.err("Attempted to export an non-existant name\n", .{});
             return 1;
         };
@@ -107,7 +107,9 @@ pub fn exports(h: *HSH, pitr: *ParsedIterator) Err!u8 {
 }
 
 /// TODO method to remove an export
-pub fn unexport(_: *HSH, _: *ParsedIterator) Err!u8 {}
+pub fn unexport(_: *HSH, _: *ParsedIterator) Err!u8 {
+    unreachable;
+}
 
 fn add(k: []const u8, v: []const u8) !void {
     return try export_list.append(try Export.new(alloc, k, v));

@@ -441,7 +441,7 @@ pub const Parser = struct {
 
     fn variable(a: Allocator, tkn: Token) Error!Token {
         var local = tkn;
-        if (Variables.getStr(tkn.cannon())) |v| {
+        if (Variables.get(tkn.cannon())) |v| {
             local.resolved = try a.dupe(u8, v);
         } else {
             // TODO this probably should emit an error of some kind?
@@ -454,7 +454,7 @@ pub const Parser = struct {
         var local = t;
         local.kind = .path;
         if (local.cannon()[0] == '~') {
-            if (Variables.getStr("HOME")) |v| {
+            if (Variables.get("HOME")) |v| {
                 var list: ArrayList(u8) = undefined;
                 if (local.resolved) |r| {
                     list = ArrayList(u8).fromOwnedSlice(a, r);
@@ -709,7 +709,7 @@ test "parse vars existing" {
 
     try Variables.put("string", "correct");
 
-    try eqlStr("correct", Variables.getStr("string").?);
+    try eqlStr("correct", Variables.get("string").?);
 
     var itr = try Parser.parse(a, &ts);
     defer itr.raze();
@@ -740,7 +740,7 @@ test "parse vars existing with white space" {
 
     try Variables.put("string", "correct");
 
-    try eqlStr("correct", Variables.getStr("string").?);
+    try eqlStr("correct", Variables.get("string").?);
 
     var itr = try Parser.parse(a, &ts);
     defer itr.raze();
@@ -770,7 +770,7 @@ test "parse vars existing braces" {
 
     try Variables.put("string", "value");
 
-    try eqlStr("value", Variables.getStr("string").?);
+    try eqlStr("value", Variables.get("string").?);
 
     const slice = try ti.toSlice(a);
     defer a.free(slice);
@@ -801,7 +801,7 @@ test "parse vars existing braces inline" {
     defer Variables.raze();
     try Variables.put("string", "value");
 
-    try eqlStr("value", Variables.getStr("string").?);
+    try eqlStr("value", Variables.get("string").?);
 
     const slice = try ti.toSlice(a);
     defer a.free(slice);
@@ -832,7 +832,7 @@ test "parse vars existing braces inline both" {
     defer Variables.raze();
     try Variables.put("string", "value");
 
-    try eqlStr("value", Variables.getStr("string").?);
+    try eqlStr("value", Variables.get("string").?);
 
     const slice = try ti.toSlice(a);
     defer a.free(slice);

@@ -3,40 +3,7 @@ const span = std.mem.span;
 
 const Variables = @This();
 
-const Kind = enum(u4) {
-    nos,
-    internal,
-    sysenv,
-    ephemeral, // VAR=thing exec_command
-
-    const len = @typeInfo(@This()).Enum.fields.len;
-};
-
-pub const SysEnv = struct {
-    value: []const u8,
-    exported: bool = false,
-    manual: bool = false,
-};
-
-const Var = union(Kind) {
-    nos: []const u8,
-    internal: union(enum) {
-        int: usize,
-        str: []const u8,
-    },
-    sysenv: SysEnv,
-    ephemeral: []const u8,
-
-    pub fn getType(comptime G: Kind) type {
-        inline for (@typeInfo(Var).Union.fields) |each| {
-            if (std.mem.eql(u8, @tagName(G), each.name))
-                return each.type;
-        }
-        unreachable;
-    }
-};
-
-var variables: [Kind.len]std.StringHashMap(Var) = undefined;
+var variables: std.StringHashMap([]const u8) = undefined;
 
 var environ: [:null]?[*:0]u8 = undefined;
 var environ_alloc: std.mem.Allocator = undefined;
@@ -57,9 +24,7 @@ pub fn init(a: std.mem.Allocator) void {
     var env = a.alloc(?[*:0]u8, 1) catch unreachable;
     env[env.len - 1] = null;
     environ = env[0 .. env.len - 1 :null];
-    for (&variables) |*vari| {
-        vari.* = std.StringHashMap(Var).init(a);
-    }
+    variables = std.StringHashMap([]const u8).init(a);
     initSpecials();
     initHsh();
 }
@@ -67,7 +32,7 @@ pub fn init(a: std.mem.Allocator) void {
 pub fn load(sys: std.process.EnvMap) !void {
     var i = sys.iterator();
     while (i.next()) |each| {
-        try putKind(each.key_ptr.*, each.value_ptr.*, .sysenv);
+        try put(each.key_ptr.*, each.value_ptr.*);
     }
     // TODO super hacky :/
     initHsh();
@@ -81,25 +46,17 @@ fn environRaze() void {
 }
 
 fn environBuild() ![:null]?[*:0]u8 {
-    const count = variables[@intFromEnum(Kind.sysenv)].count() + 1;
+    const count = variables.count() + 1;
     if (!environ_alloc.resize(environ, count)) {
         var env = try environ_alloc.realloc(environ, count);
         env[env.len - 1] = null;
         environ = env[0 .. env.len - 1 :null];
     }
     var index: usize = 0;
-    var itr = variables[@intFromEnum(Kind.sysenv)].iterator();
+    var itr = variables.iterator();
     while (itr.next()) |ent| {
         const k = ent.key_ptr.*;
-        const v = switch (ent.value_ptr.*) {
-            .nos => |n| n,
-            .sysenv => |s| s.value,
-            .internal => |i| switch (i) {
-                .int => continue,
-                .str => |s| s,
-            },
-            .ephemeral => |e| e,
-        };
+        const v = ent.value_ptr.*;
         var str = try environ_alloc.alloc(u8, k.len + v.len + 2);
         @memcpy(str[0..k.len], k);
         str[k.len] = '=';
@@ -119,67 +76,22 @@ pub fn henviron() [:null]?[*:0]u8 {
     return environBuild() catch @panic("unable to build environ");
 }
 
-pub fn getKind(k: []const u8, comptime G: Kind) ?std.meta.FieldType(Var, G) {
-    const vs = variables[@intFromEnum(G)].get(k) orelse return null;
-    return switch (G) {
-        .nos => vs.nos,
-        .sysenv => vs.sysenv,
-        .internal => vs.internal,
-        .ephemeral => vs.ephemeral,
-    };
-}
-
-pub fn get(k: []const u8) ?SysEnv {
-    return getKind(k, .sysenv);
-}
-
-pub fn getStr(k: []const u8) ?[]const u8 {
-    if (get(k)) |v| {
-        return v.value;
-    }
-    return null;
-}
-
-pub fn putKind(k: []const u8, v: []const u8, comptime G: Kind) !void {
-    var vs = &variables[@intFromEnum(G)];
-    const ret = switch (G) {
-        .nos => vs.put(k, Var{ .nos = v }),
-        .sysenv => vs.put(k, Var{ .sysenv = .{ .value = v } }),
-        .internal => vs.put(k, Var{ .internal = .{ .str = v } }),
-        .ephemeral => vs.put(k, Var{ .ephemeral = v }),
-    };
-    return ret;
+pub fn get(k: []const u8) ?[]const u8 {
+    return variables.get(k);
 }
 
 pub fn put(k: []const u8, v: []const u8) !void {
-    return putKind(k, v, .sysenv);
-}
-
-pub fn delKind(k: []const u8, comptime g: Kind) !void {
-    variables[@intFromEnum(g)].remove(k);
+    return variables.put(k, v);
 }
 
 // del(k, v) where v can be an optional, delete only of v matches current value
 pub fn del(k: []const u8) !void {
-    delKind(k, .nos);
+    variables.remove(k);
 }
 
-/// named exports because I don't want to fight the compiler over the keyword
-pub fn exports(k: []const u8) !void {
-    if (variables[@intFromEnum(Kind.sysenv)].getPtr(k)) |v| {
-        v.sysenv.exported = true;
-    }
-}
-
-pub fn unexport(k: []const u8) !void {
-    if (variables[@intFromEnum(Kind.sysenv)].getPtr(k)) |v| {
-        v.sysenv.exported = false;
-    }
-}
-
-pub fn razeEphemeral() void {
-    variables[@intFromEnum(Kind.ephemeral)].clearAndFree();
-}
+//pub fn razeEphemeral() void {
+//    variables[@intFromEnum(Kind.ephemeral)].clearAndFree();
+//}
 
 pub fn raze() void {
     //var itr = variables.iterator();
@@ -187,9 +99,7 @@ pub fn raze() void {
     //    a.free(ent.key_ptr.*);
     //    a.free(ent.value_ptr.value);
     //}
-    for (&variables) |*vari| {
-        vari.clearAndFree();
-    }
+    variables.clearAndFree();
     environ_alloc.free(environ);
 }
 
@@ -201,18 +111,8 @@ test "variables standard usage" {
 
     try put("key", "value");
 
-    const str = getStr("key").?;
+    const str = get("key").?;
     try std.testing.expectEqualStrings("value", str);
-
-    var x = get("key").?;
-    try std.testing.expectEqual(x.exported, false);
-    try std.testing.expectEqual(@TypeOf(get("str")), ?SysEnv);
-    try exports("key");
-    x = get("key").?;
-    try std.testing.expectEqual(x.exported, true);
-    try unexport("key");
-    x = get("key").?;
-    try std.testing.expectEqual(x.exported, false);
 }
 
 test "variables ephemeral" {
@@ -221,12 +121,12 @@ test "variables ephemeral" {
     init(a);
     defer raze();
 
-    try putKind("key", "value", .ephemeral);
+    try put("key", "value");
 
-    const str = getKind("key", .ephemeral).?;
+    const str = get("key").?;
     try std.testing.expectEqualStrings("value", str);
-    razeEphemeral();
+    //razeEphemeral();
 
-    const n = getKind("key", .ephemeral);
-    try std.testing.expect(n == null);
+    //const n = get("key");
+    //try std.testing.expect(n == null);
 }

@@ -402,7 +402,7 @@ pub fn exec(h_: *HSH, input: []const u8) Error!void {
     var tty = h_.tty;
 
     var titr = TokenIterator{ .raw = input };
-    defer Variables.razeEphemeral();
+    //defer Variables.razeEphemeral();
 
     const stack = mkCallableStack(a, &titr) catch |e| {
         log.debug("unable to make stack {}\n", .{e});
