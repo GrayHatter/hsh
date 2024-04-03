@@ -672,7 +672,7 @@ test "iterator aliased recurse" {
 test "parse vars" {
     const a = std.testing.allocator;
 
-    comptime var ts = [5]Token{
+    var ts = [5]Token{
         try Token.any("echo"),
         try Token.any(" "),
         try Token.any("$string"),
@@ -698,7 +698,7 @@ test "parse vars" {
 test "parse vars existing" {
     const a = std.testing.allocator;
 
-    comptime var ts = [3]Token{
+    var ts = [3]Token{
         try Token.any("echo"),
         try Token.any("$string"),
         try Token.any("blerg"),
@@ -727,7 +727,7 @@ test "parse vars existing" {
 test "parse vars existing with white space" {
     const a = std.testing.allocator;
 
-    comptime var ts = [5]Token{
+    var ts = [5]Token{
         try Token.any("echo"),
         try Token.any(" "),
         try Token.any("$string"),

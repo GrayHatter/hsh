@@ -63,24 +63,24 @@ pub fn do(in: *Input, hsh: *HSH, comp: *complete.CompSet) !Event {
     return if (in.interact) in.interactive(hsh, comp) else in.nonInteractive(hsh, comp);
 }
 
-fn read(fd: std.os.fd_t, buf: []u8) !usize {
-    const rc = std.os.linux.read(fd, buf.ptr, buf.len);
-    switch (std.os.linux.getErrno(rc)) {
-        .SUCCESS => return @intCast(rc),
-        .INTR => return error.Interupted,
-        .AGAIN => return error.WouldBlock,
-        .BADF => return error.NotOpenForReading, // Can be a race condition.
-        .IO => return error.InputOutput,
-        .ISDIR => return error.IsDir,
-        .NOBUFS => return error.SystemResources,
-        .NOMEM => return error.SystemResources,
-        .CONNRESET => return error.ConnectionResetByPeer,
-        .TIMEDOUT => return error.ConnectionTimedOut,
-        else => |err| {
-            std.debug.print("unexpected read err {}\n", .{err});
-            @panic("unknown read error\n");
-        },
-    }
+fn read(fd: std.posix.fd_t, buf: []u8) !usize {
+    return std.posix.read(fd, buf);
+    // switch (std.posix.errno(rc)) {
+    //     .SUCCESS => return @intCast(rc),
+    //     .INTR => return error.Interupted,
+    //     .AGAIN => return error.WouldBlock,
+    //     .BADF => return error.NotOpenForReading, // Can be a race condition.
+    //     .IO => return error.InputOutput,
+    //     .ISDIR => return error.IsDir,
+    //     .NOBUFS => return error.SystemResources,
+    //     .NOMEM => return error.SystemResources,
+    //     .CONNRESET => return error.ConnectionResetByPeer,
+    //     .TIMEDOUT => return error.ConnectionTimedOut,
+    //     else => |err| {
+    //         std.debug.print("unexpected read err {}\n", .{err});
+    //         @panic("unknown read error\n");
+    //     },
+    // }
 }
 
 fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *complete.CompSet) !Mode {

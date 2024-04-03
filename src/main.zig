@@ -210,7 +210,6 @@ pub fn main() !void {
             }
         } else |err| {
             switch (err) {
-                error.Interupted => log.err("intr\n", .{}),
                 error.InputOutput => {
                     hsh.tty.waitForFg();
                     //@breakpoint();

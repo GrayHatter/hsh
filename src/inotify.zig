@@ -27,7 +27,7 @@ callback: ?Callback,
 
 pub fn init(infd: i32, path: []const u8, cb: ?Callback) !INotify {
     return .{
-        .wdes = try std.os.inotify_add_watch(infd, path, std.os.linux.IN.ALL_EVENTS),
+        .wdes = try std.posix.inotify_add_watch(infd, path, std.os.linux.IN.ALL_EVENTS),
         .path = path,
         .callback = cb,
     };

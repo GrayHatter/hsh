@@ -1,6 +1,5 @@
 const std = @import("std");
 const log = @import("log");
-const os = std.os;
 
 pub const Error = error{
     UnknownEvent,
@@ -99,7 +98,7 @@ pub fn translate(c: u8, io: i32) Error!Event {
 
 pub fn esc(io: i32) Error!Event {
     var buffer: [1]u8 = .{0x1B};
-    _ = os.read(io, &buffer) catch return Error.IO;
+    _ = std.posix.read(io, &buffer) catch return Error.IO;
     switch (buffer[0]) {
         0x1B => return Event.key(.Esc),
         '[' => return csi(io),
@@ -120,7 +119,7 @@ pub fn esc(io: i32) Error!Event {
 /// Single Shift Three
 fn sst(io: i32) Error!Key {
     var buffer: [1]u8 = undefined;
-    if ((os.read(io, &buffer) catch return Error.IO) != 1) return Error.UnknownEvent;
+    if ((std.posix.read(io, &buffer) catch return Error.IO) != 1) return Error.UnknownEvent;
     switch (buffer[0]) {
         'P' => return .F1,
         'Q' => return .F2,
@@ -139,7 +138,7 @@ fn csi(io: i32) Error!Event {
     var i: usize = 0;
     // Iterate byte by byte to terminate as early as possible
     while (i < buffer.len) : (i += 1) {
-        const len = os.read(io, buffer[i .. i + 1]) catch return Error.IO;
+        const len = std.posix.read(io, buffer[i .. i + 1]) catch return Error.IO;
         if (len == 0) return Error.UnknownEvent;
         switch (buffer[i]) {
             '~', 'a'...'z', 'A'...'Z' => break,

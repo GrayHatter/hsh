@@ -97,7 +97,7 @@ pub fn init(a: mem.Allocator, env: std.process.EnvMap) !fs {
             .path = env.get("PATH"),
             .paths = paths,
         },
-        .inotify_fd = std.os.inotify_init1(std.os.linux.IN.CLOEXEC | std.os.linux.IN.NONBLOCK) catch null,
+        .inotify_fd = @intCast((std.os.linux.inotify_init1(std.os.linux.IN.CLOEXEC | std.os.linux.IN.NONBLOCK))),
         .watches = .{null},
     };
 
@@ -132,7 +132,7 @@ pub fn inotifyInstallRc(self: *fs, cb: ?INotify.Callback) !void {
 pub fn checkINotify(self: *fs, h: *HSH) bool {
     if (self.inotify_fd) |fd| {
         var buf: [4096]u8 align(@alignOf(std.os.linux.inotify_event)) = undefined;
-        const rcount = std.os.read(fd, &buf) catch return true;
+        const rcount = std.posix.read(fd, &buf) catch return true;
         if (rcount > 0) {
             if (rcount < @sizeOf(std.os.linux.inotify_event)) {
                 log.err(

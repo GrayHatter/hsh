@@ -1,6 +1,5 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const os = std.os;
 const Queue = std.TailQueue;
 const HSH = @import("hsh.zig").HSH;
 const log = @import("log");
@@ -16,7 +15,7 @@ const cust_siginfo = extern struct {
 
 pub const Signal = struct {
     signal: c_int,
-    info: os.siginfo_t,
+    info: std.posix.siginfo_t,
 };
 
 pub const SI_CODE = enum(u6) {
@@ -39,7 +38,7 @@ var fba: std.heap.FixedBufferAllocator = undefined;
 var fbuffer: []u8 = undefined;
 var queue: Queue(Signal) = Queue(Signal){};
 
-export fn sig_cb(sig: c_int, info: *const os.siginfo_t, _: ?*const anyopaque) callconv(.C) void {
+export fn sig_cb(sig: c_int, info: *const std.posix.siginfo_t, _: ?*const anyopaque) callconv(.C) void {
     log.trace(
         \\
         \\ ===================
@@ -50,8 +49,8 @@ export fn sig_cb(sig: c_int, info: *const os.siginfo_t, _: ?*const anyopaque) ca
     , .{sig});
 
     switch (sig) {
-        os.SIG.INT => flags.int +|= 1,
-        os.SIG.WINCH => flags.winch = true,
+        std.posix.SIG.INT => flags.int +|= 1,
+        std.posix.SIG.WINCH => flags.winch = true,
         else => {
             const sigp = alloc.create(Queue(Signal).Node) catch {
                 std.debug.print(
@@ -85,39 +84,39 @@ pub fn init(a: Allocator) !void {
     fba = std.heap.FixedBufferAllocator.init(fbuffer);
     alloc = fba.allocator();
 
-    const SA = std.os.linux.SA;
+    const SA = std.posix.SA;
     // zsh blocks and unblocks winch signals during most processing, collecting
     // them only when needed. It's likely something we should do as well
     const wanted = [_]u6{
-        os.SIG.HUP,
-        os.SIG.INT,
-        os.SIG.USR1,
-        os.SIG.QUIT,
-        os.SIG.TERM,
-        os.SIG.CHLD,
-        os.SIG.CONT,
-        os.SIG.TSTP,
-        os.SIG.TTIN,
-        os.SIG.TTOU,
-        os.SIG.WINCH,
+        std.posix.SIG.HUP,
+        std.posix.SIG.INT,
+        std.posix.SIG.USR1,
+        std.posix.SIG.QUIT,
+        std.posix.SIG.TERM,
+        std.posix.SIG.CHLD,
+        std.posix.SIG.CONT,
+        std.posix.SIG.TSTP,
+        std.posix.SIG.TTIN,
+        std.posix.SIG.TTOU,
+        std.posix.SIG.WINCH,
     };
 
     for (wanted) |sig| {
-        try os.sigaction(sig, &os.Sigaction{
+        try std.posix.sigaction(sig, &std.posix.Sigaction{
             .handler = .{ .sigaction = sig_cb },
-            .mask = os.empty_sigset,
+            .mask = std.posix.empty_sigset,
             .flags = SA.SIGINFO | SA.RESTART,
         }, null);
     }
 
     const ignored = [_]u6{
-        os.SIG.TTIN,
-        os.SIG.TTOU,
+        std.posix.SIG.TTIN,
+        std.posix.SIG.TTOU,
     };
     for (ignored) |sig| {
-        try os.sigaction(sig, &os.Sigaction{
-            .handler = .{ .handler = os.SIG.IGN },
-            .mask = os.empty_sigset,
+        try std.posix.sigaction(sig, &std.posix.Sigaction{
+            .handler = .{ .handler = std.posix.SIG.IGN },
+            .mask = std.posix.empty_sigset,
             .flags = SA.RESTART,
         }, null);
     }
@@ -143,9 +142,9 @@ pub fn do(hsh: *HSH) SigEvent {
         var sig = node.data;
         const pid = sig.info.fields.common.first.piduid.pid;
         switch (sig.signal) {
-            std.os.SIG.INT => unreachable,
-            std.os.SIG.WINCH => unreachable,
-            std.os.SIG.CHLD => {
+            std.posix.SIG.INT => unreachable,
+            std.posix.SIG.WINCH => unreachable,
+            std.posix.SIG.CHLD => {
                 const child = jobs.get(pid) catch {
                     log.warn("Unknown child on {} {}\n", .{ sig.info.code, pid });
                     continue;
@@ -173,7 +172,7 @@ pub fn do(hsh: *HSH) SigEvent {
                     },
                 }
             },
-            std.os.SIG.TSTP => {
+            std.posix.SIG.TSTP => {
                 if (pid != 0) {
                     const child = jobs.get(pid) catch {
                         log.warn("Unknown child on {} {}\n", .{ sig.info.code, pid });
@@ -183,19 +182,19 @@ pub fn do(hsh: *HSH) SigEvent {
                 }
                 log.err("SIGNAL TSTP {} => ({any})", .{ pid, sig.info });
             },
-            std.os.SIG.CONT => {
+            std.posix.SIG.CONT => {
                 log.warn("Unexpected cont from pid({})\n", .{pid});
                 hsh.waiting = false;
             },
-            std.os.SIG.USR1 => {
+            std.posix.SIG.USR1 => {
                 _ = jobs.haltActive() catch @panic("Signal unable to pause job");
                 hsh.tty.setRaw() catch unreachable;
                 log.err("Assuming control of TTY!\n", .{});
             },
-            std.os.SIG.TTOU => {
+            std.posix.SIG.TTOU => {
                 log.err("TTOU RIP us!\n", .{});
             },
-            std.os.SIG.TTIN => {
+            std.posix.SIG.TTIN => {
                 log.err("TTIN RIP us! ({} -> {})\n", .{ hsh.pid, pid });
                 hsh.waiting = true;
             },
@@ -217,15 +216,15 @@ pub fn do(hsh: *HSH) SigEvent {
 }
 
 pub fn block() void {
-    var sigset: std.os.linux.sigset_t = .{0} ** 32;
-    std.os.linux.sigaddset(&sigset, os.SIG.CHLD);
-    _ = std.os.linux.sigprocmask(os.SIG.BLOCK, &sigset, null);
+    var sigset: std.posix.sigset_t = .{0} ** 32;
+    std.os.linux.sigaddset(&sigset, std.posix.SIG.CHLD);
+    _ = std.os.linux.sigprocmask(std.posix.SIG.BLOCK, &sigset, null);
 }
 
 pub fn unblock() void {
-    var sigset: std.os.linux.sigset_t = .{0} ** 32;
-    std.os.linux.sigaddset(&sigset, os.SIG.CHLD);
-    _ = std.os.linux.sigprocmask(os.SIG.UNBLOCK, &sigset, null);
+    var sigset: std.posix.sigset_t = .{0} ** 32;
+    std.os.linux.sigaddset(&sigset, std.posix.SIG.CHLD);
+    _ = std.os.linux.sigprocmask(std.posix.SIG.UNBLOCK, &sigset, null);
 }
 
 pub fn raze() void {

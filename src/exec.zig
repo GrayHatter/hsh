@@ -14,7 +14,7 @@ const Parser = parse.Parser;
 const ParsedIterator = parse.ParsedIterator;
 const log = @import("log");
 const mem = std.mem;
-const fd_t = std.os.fd_t;
+const fd_t = std.posix.fd_t;
 const bi = @import("builtins.zig");
 const fs = @import("fs.zig");
 const signal = @import("signals.zig");
@@ -22,9 +22,9 @@ const logic_ = @import("logic.zig");
 const Variables = @import("variables.zig");
 const Funcs = @import("funcs.zig");
 
-const STDIN_FILENO = std.os.STDIN_FILENO;
-const STDOUT_FILENO = std.os.STDOUT_FILENO;
-const STDERR_FILENO = std.os.STDERR_FILENO;
+const STDIN_FILENO = std.posix.STDIN_FILENO;
+const STDOUT_FILENO = std.posix.STDOUT_FILENO;
+const STDERR_FILENO = std.posix.STDERR_FILENO;
 
 pub const Error = error{
     InvalidSrc,
@@ -258,7 +258,7 @@ fn mkCallableStack(a: Allocator, itr: *TokenIterator) Error![]CallableStack {
         if (peek.kind == .oper) {
             switch (peek.kind.oper) {
                 .Pipe => {
-                    const pipe = std.os.pipe2(.{}) catch return Error.OSErr;
+                    const pipe = std.posix.pipe2(.{}) catch return Error.OSErr;
                     io.pipe = true;
                     io.out = pipe[1];
                     prev_stdout = pipe[0];
@@ -291,7 +291,7 @@ fn mkCallableStack(a: Allocator, itr: *TokenIterator) Error![]CallableStack {
                     },
                     .In, .HDoc => {
                         if (prev_stdout) |out| {
-                            std.os.close(out);
+                            std.posix.close(out);
                             prev_stdout = null;
                         }
                         if (fs.openFile(maybeio.cannon(), true)) |file| {
@@ -351,7 +351,7 @@ fn execBin(e: Binary) Error!void {
     // TODO manage env
 
     const environ = Variables.henviron();
-    const res = std.os.execveZ(e.arg, e.argv, @ptrCast(environ));
+    const res = std.posix.execveZ(e.arg, e.argv, @ptrCast(environ));
     switch (res) {
         error.FileNotFound => {
             // we validate exes internally now this should be impossible
@@ -448,7 +448,7 @@ pub fn exec(h_: *HSH, input: []const u8) Error!void {
     // api in this commit
     //const environ = Variables.henviron();
 
-    var fpid: std.os.pid_t = 0;
+    var fpid: std.posix.pid_t = 0;
     for (stack) |*s| {
         defer free(a, s);
         if (s.conditional) |cond| {
@@ -474,24 +474,24 @@ pub fn exec(h_: *HSH, input: []const u8) Error!void {
             };
         }
 
-        fpid = std.os.fork() catch return Error.OSErr;
+        fpid = std.posix.fork() catch return Error.OSErr;
         if (fpid == 0) {
-            if (s.stdio.in != std.os.STDIN_FILENO) {
-                std.os.dup2(s.stdio.in, std.os.STDIN_FILENO) catch return Error.OSErr;
-                std.os.close(s.stdio.in);
+            if (s.stdio.in != std.posix.STDIN_FILENO) {
+                std.posix.dup2(s.stdio.in, std.posix.STDIN_FILENO) catch return Error.OSErr;
+                std.posix.close(s.stdio.in);
             }
-            if (s.stdio.out != std.os.STDOUT_FILENO) {
-                std.os.dup2(s.stdio.out, std.os.STDOUT_FILENO) catch return Error.OSErr;
-                std.os.close(s.stdio.out);
+            if (s.stdio.out != std.posix.STDOUT_FILENO) {
+                std.posix.dup2(s.stdio.out, std.posix.STDOUT_FILENO) catch return Error.OSErr;
+                std.posix.close(s.stdio.out);
             }
-            if (s.stdio.err != std.os.STDERR_FILENO) {
-                std.os.dup2(s.stdio.err, std.os.STDERR_FILENO) catch return Error.OSErr;
-                std.os.close(s.stdio.err);
+            if (s.stdio.err != std.posix.STDERR_FILENO) {
+                std.posix.dup2(s.stdio.err, std.posix.STDERR_FILENO) catch return Error.OSErr;
+                std.posix.close(s.stdio.err);
             }
 
             switch (s.callable) {
                 .builtin => |*b| {
-                    std.os.exit(try execBuiltin(h_, b));
+                    std.posix.exit(try execBuiltin(h_, b));
                 },
                 .exec => |e| {
                     try execBin(e);
@@ -517,9 +517,9 @@ pub fn exec(h_: *HSH, input: []const u8) Error!void {
             .pid = fpid,
             .name = try a.dupe(u8, name),
         });
-        if (s.stdio.in != std.os.STDIN_FILENO) std.os.close(s.stdio.in);
-        if (s.stdio.out != std.os.STDOUT_FILENO) std.os.close(s.stdio.out);
-        if (s.stdio.err != std.os.STDERR_FILENO) std.os.close(s.stdio.err);
+        if (s.stdio.in != std.posix.STDIN_FILENO) std.posix.close(s.stdio.in);
+        if (s.stdio.out != std.posix.STDOUT_FILENO) std.posix.close(s.stdio.out);
+        if (s.stdio.err != std.posix.STDERR_FILENO) std.posix.close(s.stdio.err);
     }
 
     _ = jobs.waitForFg();
@@ -580,21 +580,21 @@ pub fn child(a: Allocator, argv: []const []const u8) !ChildResult {
 /// Preformatted version of child. Accepts the null, and 0 terminated versions
 /// to pass directly to exec. Caller maintains ownership of argv
 pub fn childZ(a: Allocator, argv: [:null]const ?[*:0]const u8) Error!ChildResult {
-    const pipe = std.os.pipe2(.{}) catch unreachable;
-    const pid = std.os.fork() catch unreachable;
+    const pipe = std.posix.pipe2(.{}) catch unreachable;
+    const pid = std.posix.fork() catch unreachable;
     if (pid == 0) {
         // we kid nao
-        std.os.dup2(pipe[1], std.os.STDOUT_FILENO) catch unreachable;
-        std.os.close(pipe[0]);
-        std.os.close(pipe[1]);
-        std.os.execvpeZ(argv[0].?, argv.ptr, @ptrCast(std.os.environ)) catch {
+        std.posix.dup2(pipe[1], std.posix.STDOUT_FILENO) catch unreachable;
+        std.posix.close(pipe[0]);
+        std.posix.close(pipe[1]);
+        std.posix.execvpeZ(argv[0].?, argv.ptr, @ptrCast(std.os.environ)) catch {
             log.err("Unexpected error in childZ\n", .{});
             return Error.ChildExecFailed;
         };
         unreachable;
     }
-    std.os.close(pipe[1]);
-    defer std.os.close(pipe[0]);
+    std.posix.close(pipe[1]);
+    defer std.posix.close(pipe[0]);
     const name = std.mem.span(argv[0].?);
     try jobs.add(jobs.Job{
         .status = .child,

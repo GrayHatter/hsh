@@ -34,11 +34,11 @@ pub const Status = enum {
 
 pub const Job = struct {
     name: ?[]const u8 = null,
-    pid: std.os.pid_t = -1,
-    pgid: std.os.pid_t = -1,
+    pid: std.posix.pid_t = -1,
+    pgid: std.posix.pid_t = -1,
     exit_code: ?u8 = null,
     status: Status = .unknown,
-    termattr: ?std.os.termios = null,
+    termattr: ?std.posix.termios = null,
 
     pub fn alive(self: Job) bool {
         return self.status.alive();
@@ -57,7 +57,7 @@ pub const Job = struct {
         self.status = .waiting;
     }
 
-    pub fn background(self: *Job, tio: std.os.termios) void {
+    pub fn background(self: *Job, tio: std.posix.termios) void {
         self.status = .background;
         self.termattr = tio;
     }
@@ -69,7 +69,7 @@ pub const Job = struct {
             tty.setTTY(tio);
         }
         self.status = .running;
-        std.os.kill(self.pid, std.os.SIG.CONT) catch unreachable;
+        std.posix.kill(self.pid, std.posix.SIG.CONT) catch unreachable;
         return true;
     }
 
@@ -117,7 +117,7 @@ pub fn raze(a: Allocator) void {
     jobs.clearAndFree();
 }
 
-pub fn get(jid: std.os.pid_t) Error!*Job {
+pub fn get(jid: std.posix.pid_t) Error!*Job {
     for (jobs.items) |*j| {
         if (j.pid == jid) {
             return j;
@@ -203,15 +203,15 @@ const WaitError = if (@hasDecl(std.os, "WaitError")) std.os.WaitError else error
     CHILD,
 };
 
-fn hsh_waitpid(pid: std.os.pid_t, flags: u32) WaitError!std.os.WaitPidResult {
+fn hsh_waitpid(pid: std.posix.pid_t, flags: u32) WaitError!std.posix.WaitPidResult {
     const Status_t = if (builtin.link_libc) c_int else u32;
     var status: Status_t = undefined;
     const coerced_flags = if (builtin.link_libc) @as(c_int, @intCast(flags)) else flags;
     while (true) {
         const rc = std.os.linux.waitpid(pid, &status, coerced_flags);
-        switch (std.os.errno(rc)) {
+        switch (std.posix.errno(rc)) {
             .SUCCESS => return .{
-                .pid = @as(std.os.pid_t, @intCast(rc)),
+                .pid = @as(std.posix.pid_t, @intCast(rc)),
                 .status = @as(u32, @bitCast(status)),
             },
             .INTR => continue,
@@ -222,10 +222,10 @@ fn hsh_waitpid(pid: std.os.pid_t, flags: u32) WaitError!std.os.WaitPidResult {
     }
 }
 
-const waitpid = if (@TypeOf(std.os.waitpid) == fn (i32, u32) std.os.WaitPidResult)
+const waitpid = if (@TypeOf(std.posix.waitpid) == fn (i32, u32) std.posix.WaitPidResult)
     hsh_waitpid
 else
-    std.os.waitpid;
+    std.posix.waitpid;
 
 pub fn waitForFg() void {
     while (getFg()) |fg| {
@@ -241,7 +241,7 @@ pub fn waitForFg() void {
     }
 }
 
-pub fn waitFor(jid: std.os.pid_t) !*Job {
+pub fn waitFor(jid: std.posix.pid_t) !*Job {
     if (jid > 0) {
         var job = try get(jid);
         if (!job.status.alive()) {
@@ -249,11 +249,11 @@ pub fn waitFor(jid: std.os.pid_t) !*Job {
         }
     }
 
-    const s = try hsh_waitpid(jid, std.os.linux.W.UNTRACED);
+    const s = try hsh_waitpid(jid, std.posix.W.UNTRACED);
     log.debug("status {} {} \n", .{ s.pid, s.status });
     if (s.pid == jid) {
         if (get(s.pid)) |job| {
-            if (std.os.linux.W.IFSIGNALED(s.status)) {
+            if (std.posix.W.IFSIGNALED(s.status)) {
                 job.crash(0);
             } else if (std.os.linux.W.IFSTOPPED(s.status)) {
                 var tty = TTY.current_tty orelse unreachable;

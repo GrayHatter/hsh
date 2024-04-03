@@ -206,7 +206,7 @@ fn exit(hsh: *HSH, i: *ParsedIterator) Err!u8 {
     hsh.tty.raze();
     hsh.tkn.raze();
     hsh.raze();
-    std.os.exit(code);
+    std.posix.exit(code);
 }
 
 /// TODO implement job selection support

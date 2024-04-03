@@ -1,15 +1,13 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const os = std.os;
 const fs = std.fs;
 const File = fs.File;
-const io = std.io;
 const Reader = fs.File.Reader;
 const Writer = fs.File.Writer;
 const Cord = @import("draw.zig").Cord;
 const custom_syscalls = @import("syscalls.zig");
-const pid_t = std.os.linux.pid_t;
-const fd_t = std.os.fd_t;
+const pid_t = std.posix.pid_t;
+const fd_t = std.posix.fd_t;
 const log = @import("log");
 const TCSA = std.os.linux.TCSA;
 
@@ -31,9 +29,9 @@ dev: i32,
 is_tty: bool,
 in: Reader,
 out: Writer,
-orig_attr: ?os.termios,
-pid: std.os.pid_t = undefined,
-owner: ?std.os.pid_t = null,
+orig_attr: ?std.posix.termios,
+pid: std.posix.pid_t = undefined,
+owner: ?std.posix.pid_t = null,
 
 /// Calling init multiple times is UB
 pub fn init(a: Allocator) !TTY {
@@ -41,7 +39,7 @@ pub fn init(a: Allocator) !TTY {
     const is_tty = std.io.getStdOut().isTty() and std.io.getStdIn().isTty();
 
     const tty = if (is_tty)
-        os.open("/dev/tty", .{ .ACCMODE = .RDWR }, 0) catch std.io.getStdOut().handle
+        std.posix.open("/dev/tty", .{ .ACCMODE = .RDWR }, 0) catch std.io.getStdOut().handle
     else
         std.io.getStdOut().handle;
 
@@ -60,22 +58,22 @@ pub fn init(a: Allocator) !TTY {
     return self;
 }
 
-fn tcAttr(tty_fd: i32) ?os.termios {
-    return os.tcgetattr(tty_fd) catch null;
+fn tcAttr(tty_fd: i32) ?std.posix.termios {
+    return std.posix.tcgetattr(tty_fd) catch null;
 }
 
-pub fn getAttr(self: *TTY) ?os.termios {
+pub fn getAttr(self: *TTY) ?std.posix.termios {
     return tcAttr(self.dev);
 }
 
-fn makeRaw(orig: ?os.termios) os.termios {
-    var next = orig orelse os.termios{
+fn makeRaw(orig: ?std.posix.termios) std.posix.termios {
+    var next = orig orelse std.posix.termios{
         .oflag = .{ .OPOST = true, .ONLCR = true },
         .cflag = .{ .CSIZE = .CS8, .CREAD = true, .CLOCAL = true },
         .lflag = .{ .ISIG = true, .ICANON = true, .ECHO = true, .IEXTEN = true, .ECHOE = true },
         .iflag = .{ .BRKINT = true, .ICRNL = true, .IMAXBEL = true },
         .line = 0,
-        .cc = [_]u8{0} ** std.os.linux.NCCS,
+        .cc = [_]u8{0} ** std.posix.NCCS,
         .ispeed = .B9600,
         .ospeed = .B9600,
     };
@@ -83,21 +81,20 @@ fn makeRaw(orig: ?os.termios) os.termios {
     next.iflag.BRKINT = false;
     next.iflag.INPCK = false;
     next.iflag.ISTRIP = false;
-    //next.lflag &= ~(os.linux.ECHO | os.linux.ICANON | os.linux.ISIG | os.linux.IEXTEN);
     next.lflag.ECHO = false;
     next.lflag.ECHONL = false;
     next.lflag.ICANON = false;
     next.lflag.IEXTEN = false;
-    next.cc[@intFromEnum(os.system.V.TIME)] = 1; // 0.1 sec resolution
-    next.cc[@intFromEnum(os.system.V.MIN)] = 0;
+    next.cc[@intFromEnum(std.posix.system.V.TIME)] = 1; // 0.1 sec resolution
+    next.cc[@intFromEnum(std.posix.system.V.MIN)] = 0;
     return next;
 }
 
-fn setTTYWhen(self: *TTY, mtio: ?os.termios, when: TCSA) !void {
-    if (mtio) |tio| try os.tcsetattr(self.dev, when, tio);
+fn setTTYWhen(self: *TTY, mtio: ?std.posix.termios, when: TCSA) !void {
+    if (mtio) |tio| try std.posix.tcsetattr(self.dev, when, tio);
 }
 
-pub fn setTTY(self: *TTY, tio: ?os.termios) void {
+pub fn setTTY(self: *TTY, tio: ?std.posix.termios) void {
     self.setTTYWhen(tio, .DRAIN) catch |err| {
         log.err("TTY ERROR encountered, {} when popping.\n", .{err});
     };
@@ -121,10 +118,10 @@ pub fn setRaw(self: *TTY) !void {
     try self.command(.DECCKM, false);
 }
 
-pub fn setOwner(self: *TTY, mpgrp: ?std.os.pid_t) !void {
+pub fn setOwner(self: *TTY, mpgrp: ?std.posix.pid_t) !void {
     if (!self.is_tty or self.owner == null) return;
     const pgrp = mpgrp orelse self.pid;
-    _ = try std.os.tcsetpgrp(self.dev, pgrp);
+    _ = try std.posix.tcsetpgrp(self.dev, pgrp);
 }
 
 pub fn pwnTTY(self: *TTY) void {
@@ -133,10 +130,10 @@ pub fn pwnTTY(self: *TTY) void {
     log.debug("pwnTTY {} and {} \n", .{ self.pid, ssid });
     if (ssid != self.pid) _ = custom_syscalls.setpgid(self.pid, self.pid);
 
-    const res = std.os.tcsetpgrp(self.dev, self.pid) catch |err| {
+    const res = std.posix.tcsetpgrp(self.dev, self.pid) catch |err| {
         self.owner = self.pid;
         log.err("tcsetpgrp failed on pid {}, error was: {}\n", .{ self.pid, err });
-        const get = std.os.tcgetpgrp(self.dev) catch |err2| {
+        const get = std.posix.tcgetpgrp(self.dev) catch |err2| {
             log.err("tcgetpgrp err {}\n", .{err2});
             return;
         };
@@ -144,26 +141,26 @@ pub fn pwnTTY(self: *TTY) void {
         unreachable;
     };
     log.debug("tc pwnd {}\n", .{res});
-    const pgrp = std.os.tcgetpgrp(self.dev) catch unreachable;
+    const pgrp = std.posix.tcgetpgrp(self.dev) catch unreachable;
     log.debug("get new pgrp {}\n", .{pgrp});
 }
 
 pub fn waitForFg(self: *TTY) void {
     if (!self.is_tty) return;
     var pgid = custom_syscalls.getpgid(0);
-    var fg = std.os.tcgetpgrp(self.dev) catch |err| {
+    var fg = std.posix.tcgetpgrp(self.dev) catch |err| {
         log.err("died waiting for fg {}\n", .{err});
         @panic("panic carefully!");
     };
     while (pgid != fg) {
-        std.os.kill(-pgid, std.os.SIG.TTIN) catch {
+        std.posix.kill(-pgid, std.posix.SIG.TTIN) catch {
             @panic("unable to send TTIN");
         };
         pgid = custom_syscalls.getpgid(0);
-        std.os.tcsetpgrp(self.dev, pgid) catch {
+        std.posix.tcsetpgrp(self.dev, pgid) catch {
             @panic("died in loop");
         };
-        fg = std.os.tcgetpgrp(self.dev) catch {
+        fg = std.posix.tcgetpgrp(self.dev) catch {
             @panic("died in loop");
         };
     }
@@ -208,10 +205,10 @@ pub fn command(tty: TTY, comptime code: VTCmds, comptime enable: ?bool) !void {
 //}
 
 pub fn geom(self: *TTY) !Cord {
-    var size: os.linux.winsize = std.mem.zeroes(os.linux.winsize);
-    const err = os.system.ioctl(self.dev, os.linux.T.IOCGWINSZ, @intFromPtr(&size));
-    if (os.errno(err) != .SUCCESS) {
-        return os.unexpectedErrno(@enumFromInt(err));
+    var size: std.posix.winsize = std.mem.zeroes(std.posix.winsize);
+    const err = std.posix.system.ioctl(self.dev, std.posix.T.IOCGWINSZ, @intFromPtr(&size));
+    if (std.posix.errno(err) != .SUCCESS) {
+        return std.posix.unexpectedErrno(@enumFromInt(err));
     }
     return .{
         .x = size.ws_col,

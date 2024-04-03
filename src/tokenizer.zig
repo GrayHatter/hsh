@@ -349,7 +349,7 @@ pub const Tokenizer = struct {
             var file = fs.openFile(mkt, false) orelse return;
             defer file.close();
             file.reader().readAllArrayList(&self.raw, 4096) catch unreachable;
-            std.os.unlink(mkt) catch unreachable;
+            std.posix.unlink(mkt) catch unreachable;
             self.alloc.free(mkt);
         }
         self.editor_mktmp = null;
