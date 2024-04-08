@@ -5,7 +5,7 @@ pub const History = @This();
 
 alloc: ?std.mem.Allocator = null,
 seen_list: ?std.ArrayList([]const u8) = null,
-file: std.fs.File,
+file: ?std.fs.File,
 cnt: usize = 0,
 
 fn seenAdd(self: *History, seen: []const u8) void {
@@ -33,7 +33,7 @@ fn seenExists(self: *History, this: []const u8) bool {
     return false;
 }
 
-pub fn init(f: std.fs.File, a: ?std.mem.Allocator) History {
+pub fn init(f: ?std.fs.File, a: ?std.mem.Allocator) History {
     return .{
         .file = f,
         .alloc = a,
@@ -42,16 +42,16 @@ pub fn init(f: std.fs.File, a: ?std.mem.Allocator) History {
 }
 
 pub fn atTop(self: *History) bool {
-    return 0 == self.hist.getPos() catch 0;
+    return 0 == self.file.?.getPos() catch false;
 }
 
 /// Returns true when there's is assumed to be more history
 /// Final file pos is undefined
 fn readLine(self: *History, buffer: ?*std.ArrayList(u8)) !bool {
-    const b = buffer orelse return try self.file.getPos() != 0;
-    var hist = self.file;
-    const pos = try hist.getPos();
-    try hist.reader().readUntilDelimiterArrayList(b, '\n', 1 << 16);
+    var hfile = self.file orelse return false;
+    const b = buffer orelse return (hfile.getPos() catch 0) != 0;
+    const pos = try hfile.getPos();
+    try hfile.reader().readUntilDelimiterArrayList(b, '\n', 1 << 16);
     return pos != 0;
 }
 
@@ -61,24 +61,24 @@ fn readLine(self: *History, buffer: ?*std.ArrayList(u8)) !bool {
 /// position will have increased some amount. (Repeated calls with a valid
 /// buffer will likely return the same line)
 fn readLinePrev(self: *History, buffer: ?*std.ArrayList(u8)) !bool {
-    var hist = self.file;
-    const cursor = try hist.getPos();
+    var hfile = self.file orelse return false;
+    const cursor = try hfile.getPos();
     var buf: [1]u8 = undefined;
     while (cursor > 0) {
-        hist.seekBy(-2) catch {
-            hist.seekBy(-1) catch break;
+        hfile.seekBy(-2) catch {
+            hfile.seekBy(-1) catch break;
             break;
         };
-        _ = try hist.read(&buf);
+        _ = try hfile.read(&buf);
         if (buf[0] == '\n') break;
     }
     return self.readLine(buffer);
 }
 
 pub fn readAt(self: *History, buffer: *std.ArrayList(u8)) bool {
-    var hist = self.file;
+    var hfile = self.file orelse return false;
     var row = self.cnt;
-    hist.seekFromEnd(0) catch return false;
+    hfile.seekFromEnd(0) catch return false;
     while (row > 0) {
         if (!(readLinePrev(self, null) catch false)) break;
         row -= 1;
@@ -87,9 +87,9 @@ pub fn readAt(self: *History, buffer: *std.ArrayList(u8)) bool {
 }
 
 pub fn readAtFiltered(self: *History, buffer: *std.ArrayList(u8), search: []const u8) bool {
-    var hist = self.file;
+    var hfile = self.file orelse return false;
     var row = self.cnt;
-    hist.seekFromEnd(-1) catch return false;
+    hfile.seekFromEnd(-1) catch return false;
     defer self.seenReset();
     while (row > 0) {
         const mdata = readLinePrev(self, buffer) catch return false;

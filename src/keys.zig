@@ -8,10 +8,10 @@ pub const Error = error{
 
 // zig fmt: off
 pub const Key = enum(u8) {
-    Esc,
-    Up,   Down, Left,  Right,
-    Home, End,  Insert, Delete,
-    PgUp, PgDn,
+    esc,
+    up,   down, left,   right,
+    home, end,  insert, delete,
+    pgup, pgdn,
     F0,
     F1,  F2,  F3,  F4,
     F5,  F6,  F7,  F8,
@@ -59,9 +59,9 @@ pub const KeyMod = struct {
     };
 };
 
-const Mouse = enum {
-    In,
-    Out,
+pub const Mouse = enum {
+    in,
+    out,
 };
 
 pub const Event = union(enum) {
@@ -100,7 +100,7 @@ pub fn esc(io: i32) Error!Event {
     var buffer: [1]u8 = .{0x1B};
     _ = std.posix.read(io, &buffer) catch return Error.IO;
     switch (buffer[0]) {
-        0x1B => return Event.key(.Esc),
+        0x1B => return Event.key(.esc),
         '[' => return csi(io),
         'O' => return Event.key(try sst(io)),
         else => {
@@ -119,7 +119,7 @@ pub fn esc(io: i32) Error!Event {
 /// Single Shift Three
 fn sst(io: i32) Error!Key {
     var buffer: [1]u8 = undefined;
-    if ((std.posix.read(io, &buffer) catch return Error.IO) != 1) return Error.UnknownEvent;
+    if ((std.posix.read(io, &buffer) catch return Error.IO) != 1) unreachable;
     switch (buffer[0]) {
         'P' => return .F1,
         'Q' => return .F2,
@@ -156,14 +156,14 @@ fn csi(io: i32) Error!Event {
 
 fn csi_xterm(buffer: []const u8) Error!Event {
     switch (buffer[0]) {
-        'A' => return Event.key(.Up),
-        'B' => return Event.key(.Down),
-        'C' => return Event.key(.Right),
-        'D' => return Event.key(.Left),
-        'H' => return Event.key(.Home),
-        'F' => return Event.key(.End),
-        'I' => return .{ .mouse = .In },
-        'O' => return .{ .mouse = .Out },
+        'A' => return Event.key(.up),
+        'B' => return Event.key(.down),
+        'C' => return Event.key(.right),
+        'D' => return Event.key(.left),
+        'H' => return Event.key(.home),
+        'F' => return Event.key(.end),
+        'I' => return .{ .mouse = .in },
+        'O' => return .{ .mouse = .out },
         '0'...'9' => {
             const key = (try csi_xterm(buffer[buffer.len - 1 .. buffer.len])).keysm.evt.key;
             log.debug("\n\n{s} [{any}] key {}\n\n", .{ buffer, buffer, key });
@@ -202,14 +202,14 @@ fn csi_xterm(buffer: []const u8) Error!Event {
 fn csi_vt(in: []const u8) Error!Key {
     const y: u16 = std.fmt.parseInt(u16, in, 10) catch 0;
     switch (y) {
-        1 => return .Home,
-        2 => return .Insert,
-        3 => return .Delete,
-        4 => return .End,
-        5 => return .PgUp,
-        6 => return .PgDn,
-        7 => return .Home,
-        8 => return .End,
+        1 => return .home,
+        2 => return .insert,
+        3 => return .delete,
+        4 => return .end,
+        5 => return .pgup,
+        6 => return .pgdn,
+        7 => return .home,
+        8 => return .end,
         10 => return .F0,
         11 => return .F1,
         12 => return .F2,

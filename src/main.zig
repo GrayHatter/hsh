@@ -17,14 +17,13 @@ const Exec = @import("exec.zig");
 const Signals = @import("signals.zig");
 const History = @import("history.zig");
 const jobs = @import("jobs.zig");
-const Input = @import("input.zig");
+const Line = @import("line.zig");
 
 test "main" {
     std.testing.refAllDecls(@This());
 }
 
 fn core(hsh: *HSH) !bool {
-    const tkn = &hsh.tkn;
     defer hsh.draw.reset();
     //try Context.update(hsh, &[_]Context.Contexts{.git});
     var comp = try complete.init(hsh);
@@ -32,35 +31,21 @@ fn core(hsh: *HSH) !bool {
 
     var redraw = true;
     // TODO drop hsh
-    var input = Input.init(hsh, hsh.tty.is_tty);
+    var line = Line.init(hsh, &comp, .{ .interactive = hsh.tty.is_tty });
 
     while (true) {
         hsh.draw.clear();
         redraw = hsh.spin() or redraw;
         if (redraw) {
-            try prompt.draw(hsh, tkn);
+            try prompt.draw(hsh);
             try Draw.render(&hsh.draw);
             redraw = false;
         }
 
-        const event = try input.do(hsh, &comp);
-        switch (event) {
-            .None => continue,
-            .Redraw, .Prompt, .Update => {
-                hsh.draw.cursor = hsh.tkn.cadj();
-                Draw.clearCtx(&hsh.draw);
-                try Draw.render(&hsh.draw);
-
-                redraw = true;
-                continue;
-            },
-            .Exec => return true,
-            .ExitHSH => return false,
-            .ExpectedError => return true,
-            .HSHIntern => return true,
-            .Advice => {},
-            .EnvState => {},
-            .Signaled => redraw = true,
+        if (try line.do()) {
+            return true;
+        } else {
+            continue;
         }
     }
 }
@@ -210,7 +195,7 @@ pub fn main() !void {
             }
         } else |err| {
             switch (err) {
-                error.InputOutput => {
+                error.io => {
                     hsh.tty.waitForFg();
                     //@breakpoint();
                     log.err("{} crash in main\n", .{err});

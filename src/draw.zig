@@ -82,69 +82,73 @@ const Direction = enum {
     Absolute,
 };
 
-pub const Drawable = struct {
-    alloc: Allocator,
-    tty: *TTY,
-    hsh: *HSH,
-    cursor: u32 = 0,
-    cursor_reposition: bool = true,
-    before: DrawBuf = undefined,
-    b: DrawBuf = undefined,
-    right: DrawBuf = undefined,
-    after: DrawBuf = undefined,
-    term_size: Cord = .{},
-    lines: u16 = 0,
+pub const Drawable = @This();
 
-    pub fn init(hsh: *HSH) Err!Drawable {
-        colorize = hsh.enabled(Features.Colorize);
-        return .{
-            .alloc = hsh.alloc,
-            .tty = &hsh.tty,
-            .hsh = hsh,
-            .before = DrawBuf.init(hsh.alloc),
-            .b = DrawBuf.init(hsh.alloc),
-            .right = DrawBuf.init(hsh.alloc),
-            .after = DrawBuf.init(hsh.alloc),
-        };
-    }
+alloc: Allocator,
+tty: *TTY,
+hsh: *HSH,
+cursor: u32 = 0,
+cursor_reposition: bool = true,
+before: DrawBuf = undefined,
+b: DrawBuf = undefined,
+right: DrawBuf = undefined,
+after: DrawBuf = undefined,
+term_size: Cord = .{},
+lines: u16 = 0,
 
-    pub fn write(d: *Drawable, out: []const u8) Err!usize {
-        return d.tty.out.write(out) catch Err.WriterIO;
-    }
+pub fn init(hsh: *HSH) Err!Drawable {
+    colorize = hsh.enabled(Features.Colorize);
+    return .{
+        .alloc = hsh.alloc,
+        .tty = &hsh.tty,
+        .hsh = hsh,
+        .before = DrawBuf.init(hsh.alloc),
+        .b = DrawBuf.init(hsh.alloc),
+        .right = DrawBuf.init(hsh.alloc),
+        .after = DrawBuf.init(hsh.alloc),
+    };
+}
 
-    pub fn move(_: *Drawable, comptime dir: Direction, count: u16) []const u8 {
-        if (count == 0) return "";
-        const fmt = comptime switch (dir) {
-            .Up => "\x1B[{}A",
-            .Down => "\x1B[{}B",
-            .Left => "\x1B[{}D",
-            .Right => "\x1B[{}C",
-            .Absolute => "\x1B[{}G",
-        };
+pub fn key(d: *Drawable, c: u8) Err!void {
+    _ = d.tty.out.write(&[1]u8{c}) catch return Err.WriterIO;
+}
 
-        return std.fmt.bufPrint(&movebuf, fmt, .{count}) catch return &movebuf; // #YOLO
-    }
+pub fn write(d: *Drawable, out: []const u8) Err!usize {
+    return d.tty.out.write(out) catch Err.WriterIO;
+}
 
-    pub fn clear(d: *Drawable) void {
-        d.before.clearRetainingCapacity();
-        d.after.clearRetainingCapacity();
-        d.right.clearRetainingCapacity();
-        d.b.clearRetainingCapacity();
-    }
+pub fn move(_: *Drawable, comptime dir: Direction, count: u16) []const u8 {
+    if (count == 0) return "";
+    const fmt = comptime switch (dir) {
+        .Up => "\x1B[{}A",
+        .Down => "\x1B[{}B",
+        .Left => "\x1B[{}D",
+        .Right => "\x1B[{}C",
+        .Absolute => "\x1B[{}G",
+    };
 
-    pub fn reset(d: *Drawable) void {
-        d.clear();
-        d.lines = 0;
-        d.cursor = 0;
-    }
+    return std.fmt.bufPrint(&movebuf, fmt, .{count}) catch return &movebuf; // #YOLO
+}
 
-    pub fn raze(d: *Drawable) void {
-        d.before.clearAndFree();
-        d.after.clearAndFree();
-        d.right.clearAndFree();
-        d.b.clearAndFree();
-    }
-};
+pub fn clear(d: *Drawable) void {
+    d.before.clearRetainingCapacity();
+    d.after.clearRetainingCapacity();
+    d.right.clearRetainingCapacity();
+    d.b.clearRetainingCapacity();
+}
+
+pub fn reset(d: *Drawable) void {
+    d.clear();
+    d.lines = 0;
+    d.cursor = 0;
+}
+
+pub fn raze(d: *Drawable) void {
+    d.before.clearAndFree();
+    d.after.clearAndFree();
+    d.right.clearAndFree();
+    d.b.clearAndFree();
+}
 
 fn setAttr(buf: *DrawBuf, attr: ?Attr) Err!void {
     if (attr) |a| {

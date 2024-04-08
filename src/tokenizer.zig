@@ -272,9 +272,9 @@ pub const Tokenizer = struct {
         return count;
     }
 
-    pub fn pop(self: *Tokenizer) Error!void {
+    pub fn pop(self: *Tokenizer) void {
         self.user_data = true;
-        if (self.raw.items.len == 0 or self.c_idx == 0) return Error.Empty;
+        if (self.raw.items.len == 0 or self.c_idx == 0) return;
         if (self.c_idx < self.raw.items.len) {
             self.c_idx -|= 1;
             _ = self.raw.orderedRemove(self.c_idx);
@@ -284,10 +284,6 @@ pub const Tokenizer = struct {
         self.c_idx -|= 1;
         self.raw.items.len -|= 1;
         self.err_idx = @min(self.c_idx, self.err_idx);
-    }
-
-    pub fn bsc(self: *Tokenizer) void {
-        return self.pop() catch {};
     }
 
     pub fn delc(self: *Tokenizer) void {

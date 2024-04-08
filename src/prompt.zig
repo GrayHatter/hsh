@@ -79,14 +79,15 @@ fn prompt(d: *Draw.Drawable, u: ?[]const u8, cwd: []const u8) !void {
     });
 }
 
-pub fn draw(hsh: *HSH, tkn: *Tokenizer) !void {
+pub fn draw(hsh: *HSH) !void {
+    var tkn = hsh.tkn;
     const bgjobs = Jobs.getBgSlice(hsh.alloc) catch unreachable;
     defer hsh.alloc.free(bgjobs);
     try jobsContext(hsh, bgjobs);
     //try ctxContext(hsh, try Context.fetch(hsh, .git));
 
     try prompt(&hsh.draw, hsh.env.get("USER"), hsh.hfs.names.cwd_short);
-    try userText(hsh, tkn);
+    try userText(hsh, &tkn);
     // try drawRight(&hsh.draw, .{
     //     .siblings = @constCast(&[_]Lexeme{
     //         .{ .char = try std.fmt.bufPrint(&tokens, "({}) ({}) [{}]", .{
