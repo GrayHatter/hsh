@@ -266,7 +266,7 @@ pub const Tokenizer = struct {
             }
         }
         if (count == 0 and self.raw.items.len > 0 and self.c_idx != 0) {
-            try self.pop();
+            self.pop();
             return 1 + try self.dropWord();
         }
         return count;
@@ -998,9 +998,8 @@ test "pop" {
     }
 
     for (str) |_| {
-        try t.pop();
+        t.pop();
     }
-    try std.testing.expectError(Error.Empty, t.pop());
     t.raze();
 }
 
@@ -1019,7 +1018,7 @@ test "dropWhitespace" {
     try std.testing.expect(t.raw.items.len == 8);
     try std.testing.expect(try t.dropWhitespace() == 0);
     try std.testing.expect(t.raw.items.len == 8);
-    try t.pop();
+    t.pop();
     try std.testing.expect(try t.dropWhitespace() == 6);
     try std.testing.expect(t.raw.items.len == 1);
 }
