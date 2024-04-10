@@ -15,6 +15,7 @@ pub const Action = enum {
 
 pub const Control = enum {
     none,
+    esc,
 
     up,
     down,
@@ -29,17 +30,18 @@ pub const Control = enum {
 
     backspace,
     delete,
+    newline,
     tab,
     // Shell Control
-    newline,
+    bell,
     delete_word,
     end_of_text,
     external_editor,
-    bell,
     reset_term,
 
     pub fn fromKey(k: Keys.Key) Control {
         return switch (k) {
+            .esc => .esc,
             .up => .up,
             .down => .down,
             .left => .left,
@@ -151,6 +153,7 @@ fn event(km: Keys.KeyMod) Event {
             },
         },
         .key => |k| switch (k) {
+            .esc,
             .up,
             .down,
             .left,

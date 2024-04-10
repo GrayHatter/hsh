@@ -67,14 +67,13 @@ pub fn do(line: *Line) !bool {
             switch (err) {
                 error.io => return err,
                 error.signaled => {
-                    //line.hsh.draw.cursor = line.hsh.tkn.cadj();
                     Draw.clearCtx(&line.hsh.draw);
                     try Draw.render(&line.hsh.draw);
                     return false;
                 },
                 error.end_of_text => return true,
             }
-            continue;
+            comptime unreachable;
         };
         ////hsh.draw.cursor = 0;
         //if (tkn.raw.items.len == 0) {
@@ -108,6 +107,7 @@ pub fn do(line: *Line) !bool {
             },
             .control => |ctrl| {
                 switch (ctrl) {
+                    .esc => continue,
                     .up => line.findHistory(.up),
                     .down => line.findHistory(.down),
                     .backspace => line.hsh.tkn.pop(),
