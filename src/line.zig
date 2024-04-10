@@ -47,9 +47,14 @@ pub fn init(hsh: *HSH, comp: *Complete.CompSet, options: Options) Line {
         .completion = comp,
         .options = options,
         .history = History.init(hsh.hfs.history, hsh.alloc),
-        .input = Input.init(hsh.input),
+        .input = .{ .stdin = hsh.input, .spin = spin, .hsh = hsh },
         .mode = if (options.interactive) .{ .interactive = {} } else .{ .scripted = {} },
     };
+}
+
+fn spin(hsh: ?*HSH) bool {
+    if (hsh) |h| return h.spin();
+    return false;
 }
 
 pub fn do(line: *Line) !bool {

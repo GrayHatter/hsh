@@ -67,7 +67,8 @@ pub const Event = union(enum) {
 };
 
 stdin: std.posix.fd_t,
-hsh: ?*const fn () bool = null,
+spin: ?*const fn (?*HSH) bool = null,
+hsh: ?*HSH = null,
 next: ?Event = null,
 
 pub fn init(stdin: std.posix.fd_t) Input {
@@ -219,7 +220,7 @@ pub fn interactive(input: Input) errors!Event {
         return error.io;
     };
     while (nbyte == 0) {
-        if (input.hsh) |spin| if (spin()) return error.signaled;
+        if (input.spin) |spin| if (spin(input.hsh)) return error.signaled;
         nbyte = input.read(&buffer) catch |err| {
             log.err("unable to read {}", .{err});
             return error.io;
