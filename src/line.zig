@@ -113,6 +113,7 @@ pub fn do(line: *Line) !bool {
                     .backspace => line.hsh.tkn.pop(),
                     .newline => return true,
                     .end_of_text => return true,
+                    .delete_word => _ = try line.hsh.tkn.dropWord(),
                     else => log.warn("unknown {}\n", .{ctrl}),
                 }
                 line.hsh.draw.clear();
