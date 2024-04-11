@@ -1,6 +1,7 @@
 const std = @import("std");
 const log = @import("log");
 
+const fs = @import("fs.zig");
 const HSH = @import("hsh.zig").HSH;
 const Complete = @import("completion.zig");
 const History = @import("history.zig");
@@ -127,6 +128,28 @@ pub fn do(line: *Line) !bool {
             },
         }
     }
+}
+
+pub fn lineEditor(line: *Line) void {
+    const filename = fs.mktemp(line.alloc, line.raw.items) catch {
+        log.err("Unable to write prompt to tmp file\n", .{});
+        return;
+    };
+    line.saveLine();
+    line.consumes("$EDITOR ") catch unreachable;
+    line.consumes(filename) catch unreachable;
+    line.editor_mktmp = filename;
+}
+
+pub fn lineEditorRead(line: *Tokenizer) void {
+    if (line.editor_mktmp) |mkt| {
+        var file = fs.openFile(mkt, false) orelse return;
+        defer file.close();
+        file.reader().readAllArrayList(&line.raw, 4096) catch unreachable;
+        std.posix.unlink(mkt) catch unreachable;
+        line.alloc.free(mkt);
+    }
+    line.editor_mktmp = null;
 }
 
 fn saveLine(_: *Line, _: []const u8) void {
