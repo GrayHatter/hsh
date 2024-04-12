@@ -31,10 +31,11 @@ options: Options,
 mode: union(enum) {
     interactive: void,
     scripted: void,
-    external_editor: bool,
+    external_editor: []u8,
 },
 history: History = undefined,
 completion: ?Complete.CompSet = null,
+text: []u8,
 
 usr_line: [1024]u8 = undefined,
 
@@ -42,7 +43,7 @@ pub const Options = struct {
     interactive: bool = true,
 };
 
-pub fn init(hsh: *HSH, options: Options) Line {
+pub fn init(hsh: *HSH, options: Options) !Line {
     return .{
         .hsh = hsh,
         .completion = try Complete.init(hsh),
@@ -50,6 +51,7 @@ pub fn init(hsh: *HSH, options: Options) Line {
         .history = History.init(hsh.hfs.history, hsh.alloc),
         .input = .{ .stdin = hsh.input, .spin = spin, .hsh = hsh },
         .mode = if (options.interactive) .{ .interactive = {} } else .{ .scripted = {} },
+        .text = try hsh.alloc.alloc(u8, 0),
     };
 }
 
@@ -62,21 +64,24 @@ fn spin(hsh: ?*HSH) bool {
     return false;
 }
 
-pub fn do(line: *Line) !bool {
+pub fn do(line: *Line) ![]u8 {
     while (true) {
         const input = switch (line.mode) {
             .interactive => line.input.interactive(),
             .scripted => line.input.nonInteractive(),
-            .external_editor => return false,
+            .external_editor => return line.externEditorRead(),
         } catch |err| {
             switch (err) {
                 error.io => return err,
                 error.signaled => {
                     Draw.clearCtx(&line.hsh.draw);
                     try Draw.render(&line.hsh.draw);
-                    return false;
+                    return line.hsh.alloc.dupe(u8, "");
                 },
-                error.end_of_text => return true,
+                error.end_of_text => {
+                    defer line.hsh.tkn.exec();
+                    return try line.hsh.alloc.dupe(u8, line.hsh.tkn.raw.items);
+                },
             }
             comptime unreachable;
         };
@@ -116,8 +121,8 @@ pub fn do(line: *Line) !bool {
                     .up => line.findHistory(.up),
                     .down => line.findHistory(.down),
                     .backspace => line.hsh.tkn.pop(),
-                    .newline => return true,
-                    .end_of_text => return true,
+                    .newline => return line.dupeText(),
+                    .end_of_text => return line.dupeText(),
                     .delete_word => _ = try line.hsh.tkn.dropWord(),
                     else => log.warn("unknown {}\n", .{ctrl}),
                 }
@@ -128,32 +133,34 @@ pub fn do(line: *Line) !bool {
 
             else => |el| {
                 log.err("uncaptured {}\n", .{el});
-                return true;
+                return line.dupeText();
             },
         }
     }
 }
 
-pub fn externEditor(line: *Line) void {
-    const filename = fs.mktemp(line.alloc, line.raw.items) catch {
-        log.err("Unable to write prompt to tmp file\n", .{});
-        return;
-    };
-    line.saveLine();
-    line.consumes("$EDITOR ") catch unreachable;
-    line.consumes(filename) catch unreachable;
-    line.editor_mktmp = filename;
+fn dupeText(line: Line) ![]u8 {
+    return line.hsh.alloc.dupe(u8, line.text);
 }
 
-pub fn externEditorRead(line: *Tokenizer) void {
-    if (line.editor_mktmp) |mkt| {
-        var file = fs.openFile(mkt, false) orelse return;
-        defer file.close();
-        file.reader().readAllArrayList(&line.raw, 4096) catch unreachable;
-        std.posix.unlink(mkt) catch unreachable;
-        line.alloc.free(mkt);
-    }
-    line.editor_mktmp = null;
+pub fn externEditor(line: *Line) ![]u8 {
+    line.mode = .{ .external_editor = fs.mktemp(line.alloc, line.text) catch |err| {
+        log.err("Unable to write prompt to tmp file {}\n", .{err});
+        return err;
+    } };
+    return try std.fmt.allocPrint("$EDITOR {}", .{line.mode.external_editor});
+}
+
+pub fn externEditorRead(line: *Line) ![]u8 {
+    const tmp = line.mode.external_editor;
+    defer line.mode = .{ .interactive = {} };
+    defer line.hsh.alloc.free(tmp);
+    defer std.posix.unlink(tmp) catch unreachable;
+
+    var file = fs.openFile(tmp, false) orelse return error.io;
+    defer file.close();
+    line.text = file.reader().readAllAlloc(line.hsh.alloc, 4096) catch unreachable;
+    return line.text;
 }
 
 fn saveLine(_: *Line, _: []const u8) void {

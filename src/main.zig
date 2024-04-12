@@ -20,13 +20,13 @@ test "main" {
     std.testing.refAllDecls(@This());
 }
 
-fn core(hsh: *HSH) !bool {
+fn core(hsh: *HSH) ![]u8 {
     defer hsh.draw.reset();
     //try Context.update(hsh, &[_]Context.Contexts{.git});
 
     var redraw = true;
     // TODO drop hsh
-    var line = Line.init(hsh, .{ .interactive = hsh.tty.is_tty });
+    var line = hsh.line;
 
     while (true) {
         hsh.draw.clear();
@@ -37,11 +37,7 @@ fn core(hsh: *HSH) !bool {
             redraw = false;
         }
 
-        if (try line.do()) {
-            return true;
-        } else {
-            continue;
-        }
+        return line.do();
     }
 }
 
@@ -134,53 +130,51 @@ pub fn main() !void {
     // Look at me, I'm the captain now!
     hsh.tty.pwnTTY();
 
+    var line = try Line.init(&hsh, .{ .interactive = hsh.tty.is_tty });
+    hsh.line = &line;
+
     hsh.draw = Drawable.init(&hsh) catch unreachable;
     defer hsh.draw.raze();
     hsh.draw.term_size = hsh.tty.geom() catch unreachable;
 
     var inerr = false;
     while (true) {
-        if (core(&hsh)) |actionable| {
+        if (core(&hsh)) |str| {
             inerr = false;
-            if (actionable) {
-                std.debug.assert(hsh.tkn.raw.items.len != 0);
+            if (str.len == 0) break;
+            defer hsh.alloc.free(str);
+            std.debug.assert(str.len != 0);
 
-                const str = try hsh.alloc.dupe(u8, hsh.tkn.raw.items);
-                defer hsh.alloc.free(str);
-
-                //var itr = hsh.tkn.iterator();
-                try Draw.newLine(&hsh.draw);
-                Exec.exec(&hsh, str) catch |err| switch (err) {
-                    error.ExeNotFound => {
-                        const first = Exec.execFromInput(&hsh, str) catch @panic("memory");
-                        defer hsh.alloc.free(first);
-                        const tree = Draw.LexTree{ .siblings = @constCast(&[_]Draw.Lexeme{
-                            Draw.Lexeme{
-                                .char = "[ Unable to find ",
-                                .style = .{ .attr = .bold, .fg = .red },
-                            },
-                            Draw.Lexeme{
-                                .char = first,
-                                .style = .{ .attr = .bold, .fg = .red },
-                            },
-                            Draw.Lexeme{ .char = " ]", .style = .{ .attr = .bold, .fg = .red } },
-                        }) };
-                        try Draw.drawAfter(&hsh.draw, tree);
-                        try Draw.render(&hsh.draw);
-                    },
-                    error.StdIOError => {
-                        log.err("StdIoError\n", .{});
-                    },
-                    else => {
-                        log.err("Exec error {}\n", .{err});
-                        unreachable;
-                    },
-                };
-                hsh.tkn.exec();
-                continue;
-            } else {
-                break;
-            }
+            //var itr = hsh.tkn.iterator();
+            try Draw.newLine(&hsh.draw);
+            Exec.exec(&hsh, str) catch |err| switch (err) {
+                error.ExeNotFound => {
+                    const first = Exec.execFromInput(&hsh, str) catch @panic("memory");
+                    defer hsh.alloc.free(first);
+                    const tree = Draw.LexTree{ .siblings = @constCast(&[_]Draw.Lexeme{
+                        Draw.Lexeme{
+                            .char = "[ Unable to find ",
+                            .style = .{ .attr = .bold, .fg = .red },
+                        },
+                        Draw.Lexeme{
+                            .char = first,
+                            .style = .{ .attr = .bold, .fg = .red },
+                        },
+                        Draw.Lexeme{ .char = " ]", .style = .{ .attr = .bold, .fg = .red } },
+                    }) };
+                    try Draw.drawAfter(&hsh.draw, tree);
+                    try Draw.render(&hsh.draw);
+                },
+                error.StdIOError => {
+                    log.err("StdIoError\n", .{});
+                },
+                else => {
+                    log.err("Exec error {}\n", .{err});
+                    unreachable;
+                },
+            };
+            hsh.tkn.exec();
+            continue;
         } else |err| {
             switch (err) {
                 error.io => {
