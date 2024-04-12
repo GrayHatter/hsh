@@ -34,7 +34,7 @@ mode: union(enum) {
     external_editor: bool,
 },
 history: History = undefined,
-completion: *Complete.CompSet,
+completion: ?Complete.CompSet = null,
 
 usr_line: [1024]u8 = undefined,
 
@@ -42,15 +42,19 @@ pub const Options = struct {
     interactive: bool = true,
 };
 
-pub fn init(hsh: *HSH, comp: *Complete.CompSet, options: Options) Line {
+pub fn init(hsh: *HSH, options: Options) Line {
     return .{
         .hsh = hsh,
-        .completion = comp,
+        .completion = try Complete.init(hsh),
         .options = options,
         .history = History.init(hsh.hfs.history, hsh.alloc),
         .input = .{ .stdin = hsh.input, .spin = spin, .hsh = hsh },
         .mode = if (options.interactive) .{ .interactive = {} } else .{ .scripted = {} },
     };
+}
+
+pub fn raze(line: Line) void {
+    if (line.completion) |comp| comp.raze();
 }
 
 fn spin(hsh: ?*HSH) bool {

@@ -18,6 +18,7 @@ const fs = @import("fs.zig");
 const Variables = @import("variables.zig");
 const log = @import("log");
 const INEvent = @import("inotify.zig").Event;
+const Line = @import("line.zig");
 
 pub const Error = error{
     Unknown,
@@ -189,6 +190,7 @@ pub const HSH = struct {
     tty: TTY = undefined,
     draw: Drawable = undefined,
     tkn: Tokenizer = undefined,
+    line: *Line = undefined,
     input: i32 = 0,
     changes: []u8 = undefined,
     waiting: bool = false,
@@ -211,6 +213,7 @@ pub const HSH = struct {
             .env = env,
             .pid = std.os.linux.getpid(),
             .jobs = jobs.init(a),
+            .tkn = Tokenizer.init(a),
             .hfs = hfs,
         };
 
@@ -236,6 +239,7 @@ pub const HSH = struct {
         hsh.env.deinit();
         jobs.raze(hsh.alloc);
         hsh.hfs.raze(hsh.alloc);
+        hsh.tkn.raze();
     }
 
     fn sleep(_: *HSH) void {

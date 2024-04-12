@@ -3,8 +3,6 @@ const log = @import("log");
 const hsh_build = @import("hsh_build");
 const Allocator = std.mem.Allocator;
 const TTY = @import("tty.zig");
-const tokenizer = @import("tokenizer.zig");
-const Tokenizer = tokenizer.Tokenizer;
 const Draw = @import("draw.zig");
 const Drawable = Draw.Drawable;
 const prompt = @import("prompt.zig");
@@ -12,7 +10,6 @@ const jobsContext = @import("prompt.zig").jobsContext;
 const ctxContext = @import("prompt.zig").ctxContext;
 const Context = @import("context.zig");
 const HSH = @import("hsh.zig").HSH;
-const complete = @import("completion.zig");
 const Exec = @import("exec.zig");
 const Signals = @import("signals.zig");
 const History = @import("history.zig");
@@ -26,12 +23,10 @@ test "main" {
 fn core(hsh: *HSH) !bool {
     defer hsh.draw.reset();
     //try Context.update(hsh, &[_]Context.Contexts{.git});
-    var comp = try complete.init(hsh);
-    defer comp.raze();
 
     var redraw = true;
     // TODO drop hsh
-    var line = Line.init(hsh, &comp, .{ .interactive = hsh.tty.is_tty });
+    var line = Line.init(hsh, .{ .interactive = hsh.tty.is_tty });
 
     while (true) {
         hsh.draw.clear();
@@ -63,8 +58,6 @@ fn execTacC(args: *std.process.ArgIterator) u8 {
     const a = gpa.allocator();
     var hsh = HSH.init(a) catch return 255;
     defer hsh.raze();
-    hsh.tkn = Tokenizer.init(a);
-    defer hsh.tkn.raze();
     hsh.tty = TTY.init(a) catch return 255;
     defer hsh.tty.raze();
 
@@ -131,8 +124,6 @@ pub fn main() !void {
 
     var hsh = try HSH.init(a);
     defer hsh.raze();
-    hsh.tkn = Tokenizer.init(a);
-    defer hsh.tkn.raze();
 
     try Signals.init(a);
     defer Signals.raze();
@@ -152,8 +143,7 @@ pub fn main() !void {
         if (core(&hsh)) |actionable| {
             inerr = false;
             if (actionable) {
-                if (hsh.tkn.raw.items.len == 0) continue;
-                // debugging data
+                std.debug.assert(hsh.tkn.raw.items.len != 0);
 
                 const str = try hsh.alloc.dupe(u8, hsh.tkn.raw.items);
                 defer hsh.alloc.free(str);
