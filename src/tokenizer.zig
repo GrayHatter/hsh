@@ -3,7 +3,6 @@ const log = @import("log");
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const File = std.fs.File;
-const fs = @import("fs.zig");
 const io = std.io;
 const mem = std.mem;
 const CompOption = @import("completion.zig").CompOption;
@@ -328,28 +327,6 @@ pub const Tokenizer = struct {
     }
 
     // TODO rename verbNoun -> lineVerb
-
-    pub fn lineEditor(self: *Tokenizer) void {
-        const filename = fs.mktemp(self.alloc, self.raw.items) catch {
-            log.err("Unable to write prompt to tmp file\n", .{});
-            return;
-        };
-        self.saveLine();
-        self.consumes("$EDITOR ") catch unreachable;
-        self.consumes(filename) catch unreachable;
-        self.editor_mktmp = filename;
-    }
-
-    pub fn lineEditorRead(self: *Tokenizer) void {
-        if (self.editor_mktmp) |mkt| {
-            var file = fs.openFile(mkt, false) orelse return;
-            defer file.close();
-            file.reader().readAllArrayList(&self.raw, 4096) catch unreachable;
-            std.posix.unlink(mkt) catch unreachable;
-            self.alloc.free(mkt);
-        }
-        self.editor_mktmp = null;
-    }
 
     pub fn lineReplaceHistory(self: *Tokenizer) *ArrayList(u8) {
         self.resetRaw();
