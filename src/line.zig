@@ -188,12 +188,12 @@ fn findHistory(line: *Line, dr: enum { up, down }) void {
                     tkn.raw = pe;
                     // lol, super leaks
                     tkn.prev_exec = null;
-                    tkn.c_idx = tkn.raw.items.len;
+                    tkn.idx = tkn.raw.items.len;
                     return;
                 }
             }
             _ = history.readAtFiltered(tkn.lineReplaceHistory(), &line.usr_line);
-            tkn.cPos(.end);
+            line.hsh.tkn.move(.end);
             return;
         },
         .down => {
@@ -209,7 +209,7 @@ fn findHistory(line: *Line, dr: enum { up, down }) void {
                 return;
             }
             _ = history.readAtFiltered(tkn.lineReplaceHistory(), &line.usr_line);
-            tkn.cPos(.end);
+            tkn.move(.end);
             return;
         },
     }

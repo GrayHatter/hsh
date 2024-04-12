@@ -30,9 +30,9 @@ pub const CursorMotion = enum(u8) {
 pub const Tokenizer = struct {
     alloc: Allocator,
     raw: ArrayList(u8),
+    idx: usize = 0,
     raw_maybe: ?[]const u8 = null,
     prev_exec: ?ArrayList(u8) = null,
-    c_idx: usize = 0,
     c_tkn: usize = 0, // cursor is over this token
     err_idx: usize = 0,
     user_data: bool = false,
@@ -47,42 +47,42 @@ pub const Tokenizer = struct {
 
     fn cChar(self: *Tokenizer) ?u8 {
         if (self.raw.items.len == 0) return null;
-        if (self.c_idx == self.raw.items.len) return self.raw.items[self.c_idx - 1];
-        return self.raw.items[self.c_idx];
+        if (self.idx == self.raw.items.len) return self.raw.items[self.idx - 1];
+        return self.raw.items[self.idx];
     }
 
     fn cToBoundry(self: *Tokenizer, comptime forward: bool) void {
         std.debug.assert(self.raw.items.len > 0);
-        const move = if (forward) .inc else .dec;
-        self.cPos(move);
+        const cursor = if (forward) .inc else .dec;
+        self.move(cursor);
 
         while (std.ascii.isWhitespace(self.cChar().?) and
-            self.c_idx > 0 and
-            self.c_idx < self.raw.items.len)
+            self.idx > 0 and
+            self.idx < self.raw.items.len)
         {
-            self.cPos(move);
+            self.move(cursor);
         }
 
         while (!std.ascii.isWhitespace(self.cChar().?) and
-            self.c_idx != 0 and
-            self.c_idx < self.raw.items.len)
+            self.idx != 0 and
+            self.idx < self.raw.items.len)
         {
-            self.cPos(move);
+            self.move(cursor);
         }
-        if (!forward and self.c_idx != 0) self.cPos(.inc);
+        if (!forward and self.idx != 0) self.move(.inc);
     }
 
-    pub fn cPos(self: *Tokenizer, motion: CursorMotion) void {
+    pub fn move(self: *Tokenizer, motion: CursorMotion) void {
         if (self.raw.items.len == 0) return;
         switch (motion) {
-            .home => self.c_idx = 0,
-            .end => self.c_idx = self.raw.items.len,
+            .home => self.idx = 0,
+            .end => self.idx = self.raw.items.len,
             .back => self.cToBoundry(false),
             .word => self.cToBoundry(true),
-            .inc => self.c_idx +|= 1,
-            .dec => self.c_idx -|= 1,
+            .inc => self.idx +|= 1,
+            .dec => self.idx -|= 1,
         }
-        self.c_idx = @min(self.c_idx, self.raw.items.len);
+        self.idx = @min(self.idx, self.raw.items.len);
     }
 
     pub fn cursor_token(self: *Tokenizer) !Token {
@@ -93,15 +93,10 @@ pub const Tokenizer = struct {
             const t = Token.any(self.raw.items[i..]) catch break;
             if (t.str.len == 0) break;
             i += t.str.len;
-            if (i >= self.c_idx) return t;
+            if (i >= self.idx) return t;
             self.c_tkn += 1;
         }
         return Error.TokenizeFailed;
-    }
-
-    // Cursor adjustment to send to tty
-    pub fn cadj(self: Tokenizer) u32 {
-        return @truncate(self.raw.items.len - self.c_idx);
     }
 
     pub fn iterator(self: *Tokenizer) TokenIterator {
@@ -212,15 +207,15 @@ pub const Tokenizer = struct {
     }
 
     fn dropWhitespace(self: *Tokenizer) Error!usize {
-        if (self.c_idx == 0 or !std.ascii.isWhitespace(self.raw.items[self.c_idx - 1])) {
+        if (self.idx == 0 or !std.ascii.isWhitespace(self.raw.items[self.idx - 1])) {
             return 0;
         }
         var count: usize = 1;
-        self.c_idx -|= 1;
-        var c = self.raw.orderedRemove(@intCast(self.c_idx));
-        while (self.c_idx > 0 and std.ascii.isWhitespace(c)) {
-            self.c_idx -|= 1;
-            c = self.raw.orderedRemove(@intCast(self.c_idx));
+        self.idx -|= 1;
+        var c = self.raw.orderedRemove(@intCast(self.idx));
+        while (self.idx > 0 and std.ascii.isWhitespace(c)) {
+            self.idx -|= 1;
+            c = self.raw.orderedRemove(@intCast(self.idx));
             count +|= 1;
         }
         if (!std.ascii.isWhitespace(c)) {
@@ -231,15 +226,15 @@ pub const Tokenizer = struct {
     }
 
     fn dropAlphanum(self: *Tokenizer) Error!usize {
-        if (self.c_idx == 0 or !std.ascii.isAlphanumeric(self.raw.items[self.c_idx - 1])) {
+        if (self.idx == 0 or !std.ascii.isAlphanumeric(self.raw.items[self.idx - 1])) {
             return 0;
         }
         var count: usize = 1;
-        self.c_idx -|= 1;
-        var c = self.raw.orderedRemove(@intCast(self.c_idx));
-        while (self.c_idx > 0 and (c == '-' or std.ascii.isAlphanumeric(c))) {
-            self.c_idx -|= 1;
-            c = self.raw.orderedRemove(@intCast(self.c_idx));
+        self.idx -|= 1;
+        var c = self.raw.orderedRemove(@intCast(self.idx));
+        while (self.idx > 0 and (c == '-' or std.ascii.isAlphanumeric(c))) {
+            self.idx -|= 1;
+            c = self.raw.orderedRemove(@intCast(self.idx));
             count +|= 1;
         }
         if (!std.ascii.isAlphanumeric(c)) {
@@ -251,7 +246,7 @@ pub const Tokenizer = struct {
 
     // this clearly needs a bit more love
     pub fn dropWord(self: *Tokenizer) Error!usize {
-        if (self.raw.items.len == 0 or self.c_idx == 0) return 0;
+        if (self.raw.items.len == 0 or self.idx == 0) return 0;
 
         var count = try self.dropWhitespace();
         var wd = try self.dropAlphanum();
@@ -264,7 +259,7 @@ pub const Tokenizer = struct {
                 count -|= 1;
             }
         }
-        if (count == 0 and self.raw.items.len > 0 and self.c_idx != 0) {
+        if (count == 0 and self.raw.items.len > 0 and self.idx != 0) {
             self.pop();
             return 1 + try self.dropWord();
         }
@@ -273,33 +268,33 @@ pub const Tokenizer = struct {
 
     pub fn pop(self: *Tokenizer) void {
         self.user_data = true;
-        if (self.raw.items.len == 0 or self.c_idx == 0) return;
-        if (self.c_idx < self.raw.items.len) {
-            self.c_idx -|= 1;
-            _ = self.raw.orderedRemove(self.c_idx);
+        if (self.raw.items.len == 0 or self.idx == 0) return;
+        if (self.idx < self.raw.items.len) {
+            self.idx -|= 1;
+            _ = self.raw.orderedRemove(self.idx);
             return;
         }
 
-        self.c_idx -|= 1;
+        self.idx -|= 1;
         self.raw.items.len -|= 1;
-        self.err_idx = @min(self.c_idx, self.err_idx);
+        self.err_idx = @min(self.idx, self.err_idx);
     }
 
     pub fn delc(self: *Tokenizer) void {
-        if (self.raw.items.len == 0 or self.c_idx == self.raw.items.len) return;
+        if (self.raw.items.len == 0 or self.idx == self.raw.items.len) return;
         self.user_data = true;
-        _ = self.raw.orderedRemove(self.c_idx);
+        _ = self.raw.orderedRemove(self.idx);
     }
 
     pub fn popRange(self: *Tokenizer, count: usize) Error!void {
         if (count == 0) return;
-        if (self.raw.items.len == 0 or self.c_idx == 0) return;
+        if (self.raw.items.len == 0 or self.idx == 0) return;
         if (count > self.raw.items.len) return Error.Empty;
         self.user_data = true;
-        self.c_idx -|= count;
-        _ = self.raw.replaceRange(@as(usize, self.c_idx), count, "") catch unreachable;
+        self.idx -|= count;
+        _ = self.raw.replaceRange(@as(usize, self.idx), count, "") catch unreachable;
         // replaceRange is able to expand, but we don't here, thus unreachable
-        self.err_idx = @min(self.c_idx, self.err_idx);
+        self.err_idx = @min(self.idx, self.err_idx);
     }
 
     /// consumes(tring) will swallow exec, assuming strings shouldn't be able to
@@ -314,10 +309,10 @@ pub const Tokenizer = struct {
     }
 
     pub fn consumec(self: *Tokenizer, c: u8) Error!void {
-        try self.raw.insert(self.c_idx, @bitCast(c));
-        self.c_idx += 1;
+        try self.raw.insert(self.idx, @bitCast(c));
+        self.idx += 1;
         self.user_data = true;
-        if (c == '\n' and self.c_idx == self.raw.items.len) {
+        if (c == '\n' and self.idx == self.raw.items.len) {
             if (self.raw.items.len > 1 and self.raw.items[self.raw.items.len - 2] != '\\')
                 return Error.Exec;
         } else if (c == '\n') {
@@ -335,14 +330,14 @@ pub const Tokenizer = struct {
 
     pub fn saveLine(self: *Tokenizer) void {
         self.raw = ArrayList(u8).init(self.alloc);
-        self.c_idx = 0;
+        self.idx = 0;
         self.user_data = false;
     }
 
     pub fn restoreLine(self: *Tokenizer) void {
         self.resetRaw();
         self.user_data = true;
-        self.c_idx = self.raw.items.len;
+        self.idx = self.raw.items.len;
     }
 
     pub fn reset(self: *Tokenizer) void {
@@ -352,7 +347,7 @@ pub const Tokenizer = struct {
 
     fn resetRaw(self: *Tokenizer) void {
         self.raw.clearRetainingCapacity();
-        self.c_idx = 0;
+        self.idx = 0;
         self.err_idx = 0;
         self.c_tkn = 0;
         self.user_data = false;
@@ -514,7 +509,7 @@ test "replace token" {
     try expect(tokens.len == 5);
 
     try std.testing.expectEqualStrings(tokens[2].cannon(), "two");
-    t.c_idx = 7;
+    t.idx = 7;
     try t.maybeReplace(&CompOption{
         .str = "two",
         .kind = null,
