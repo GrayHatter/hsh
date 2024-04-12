@@ -150,33 +150,31 @@ pub fn main() !void {
 
                 //var itr = hsh.tkn.iterator();
                 try Draw.newLine(&hsh.draw);
-                Exec.exec(&hsh, str) catch |err| {
-                    switch (err) {
-                        error.ExeNotFound => {
-                            const first = Exec.execFromInput(&hsh, str) catch @panic("memory");
-                            defer hsh.alloc.free(first);
-                            const tree = Draw.LexTree{ .siblings = @constCast(&[_]Draw.Lexeme{
-                                Draw.Lexeme{
-                                    .char = "[ Unable to find ",
-                                    .style = .{ .attr = .bold, .fg = .red },
-                                },
-                                Draw.Lexeme{
-                                    .char = first,
-                                    .style = .{ .attr = .bold, .fg = .red },
-                                },
-                                Draw.Lexeme{ .char = " ]", .style = .{ .attr = .bold, .fg = .red } },
-                            }) };
-                            try Draw.drawAfter(&hsh.draw, tree);
-                            try Draw.render(&hsh.draw);
-                        },
-                        error.StdIOError => {
-                            log.err("StdIoError\n", .{});
-                        },
-                        else => {
-                            log.err("Exec error {}\n", .{err});
-                            unreachable;
-                        },
-                    }
+                Exec.exec(&hsh, str) catch |err| switch (err) {
+                    error.ExeNotFound => {
+                        const first = Exec.execFromInput(&hsh, str) catch @panic("memory");
+                        defer hsh.alloc.free(first);
+                        const tree = Draw.LexTree{ .siblings = @constCast(&[_]Draw.Lexeme{
+                            Draw.Lexeme{
+                                .char = "[ Unable to find ",
+                                .style = .{ .attr = .bold, .fg = .red },
+                            },
+                            Draw.Lexeme{
+                                .char = first,
+                                .style = .{ .attr = .bold, .fg = .red },
+                            },
+                            Draw.Lexeme{ .char = " ]", .style = .{ .attr = .bold, .fg = .red } },
+                        }) };
+                        try Draw.drawAfter(&hsh.draw, tree);
+                        try Draw.render(&hsh.draw);
+                    },
+                    error.StdIOError => {
+                        log.err("StdIoError\n", .{});
+                    },
+                    else => {
+                        log.err("Exec error {}\n", .{err});
+                        unreachable;
+                    },
                 };
                 hsh.tkn.exec();
                 continue;
