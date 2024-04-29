@@ -1,8 +1,7 @@
 # hsh
 ~~Don't use this, it's not ready!~~
 You probably don't want to use this yet, but it's my current default shell (what
-could go wrong) so it might work for you if you're brave enough. I suspect you
-need `zig version` `0.11.0` or better to compile.
+could go wrong) so it might work for you if you're brave enough.
 
 Current technological breakthrough => "counting"
 
@@ -26,14 +25,17 @@ all[^ephem].
  functionality. Running hsh non-interactive, or [other] should disable all
  helful, or context aware features unless explicitly enabled.
 
+## Requirements
+Compilation requires zig 0.12.0 or greater.
+
 ## Install
-install zig (you probably need zig master, or atleast > v0.10)<br>
-clone [hsh]<br>
-~~`zig build run`~~<br>
+`git clone https://github.com/GrayHatter/hsh`<br>
 `zig build`<br>
 `./zig-out/bin/hsh`
 
 or `zig build -p /usr/` if you're brave enough to install into /usr/bin/hsh
+
+Tests can be run with `zig build test`
 
 ## TODO
   - [x] basic parsing
