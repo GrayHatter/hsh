@@ -29,7 +29,7 @@ all[^ephem].
 Compilation requires zig 0.12.0 or greater.
 
 ## Install
-`git clone https://github.com/GrayHatter/hsh`<br>
+`git clone https://srctree.gr.ht/repo/hsh`<br>
 `zig build`<br>
 `./zig-out/bin/hsh`
 
