@@ -64,26 +64,31 @@ fn spin(hsh: ?*HSH) bool {
     return false;
 }
 
+fn char(line: *Line, c: u8) !void {
+    try line.hsh.tkn.consumec(c);
+    try line.hsh.draw.key(c);
+
+    // TODO FIXME
+    line.text = line.hsh.tkn.raw.items;
+}
+
 pub fn do(line: *Line) ![]u8 {
     while (true) {
         const input = switch (line.mode) {
             .interactive => line.input.interactive(),
             .scripted => line.input.nonInteractive(),
             .external_editor => return line.externEditorRead(),
-        } catch |err| {
-            switch (err) {
-                error.io => return err,
-                error.signaled => {
-                    Draw.clearCtx(&line.hsh.draw);
-                    try Draw.render(&line.hsh.draw);
-                    return line.hsh.alloc.dupe(u8, "");
-                },
-                error.end_of_text => {
-                    defer line.hsh.tkn.exec();
-                    return try line.hsh.alloc.dupe(u8, line.hsh.tkn.raw.items);
-                },
-            }
-            comptime unreachable;
+        } catch |err| switch (err) {
+            error.io => return err,
+            error.signaled => {
+                Draw.clearCtx(&line.hsh.draw);
+                try Draw.render(&line.hsh.draw);
+                return line.hsh.alloc.dupe(u8, "");
+            },
+            error.end_of_text => {
+                defer line.hsh.tkn.exec();
+                return try line.hsh.alloc.dupe(u8, line.hsh.tkn.raw.items);
+            },
         };
         ////hsh.draw.cursor = 0;
         //if (tkn.raw.items.len == 0) {
@@ -111,18 +116,15 @@ pub fn do(line: *Line) ![]u8 {
         //return .redraw;
         //return input;
         switch (input) {
-            .char => |c| {
-                try line.hsh.tkn.consumec(c);
-                try line.hsh.draw.key(c);
-            },
+            .char => |c| try line.char(c),
             .control => |ctrl| {
                 switch (ctrl) {
                     .esc => continue,
                     .up => line.findHistory(.up),
                     .down => line.findHistory(.down),
                     .backspace => line.hsh.tkn.pop(),
-                    .newline => return line.dupeText(),
-                    .end_of_text => return line.dupeText(),
+                    .newline => return try line.dupeText(),
+                    .end_of_text => return try line.dupeText(),
                     .delete_word => _ = try line.hsh.tkn.dropWord(),
                     else => log.warn("unknown {}\n", .{ctrl}),
                 }
@@ -140,7 +142,7 @@ pub fn do(line: *Line) ![]u8 {
 }
 
 fn dupeText(line: Line) ![]u8 {
-    return line.hsh.alloc.dupe(u8, line.text);
+    return try line.hsh.alloc.dupe(u8, line.text);
 }
 
 pub fn externEditor(line: *Line) ![]u8 {

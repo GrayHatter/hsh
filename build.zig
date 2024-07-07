@@ -4,7 +4,7 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const src = .{ .path = "src/main.zig" };
+    const src = b.path("src/main.zig");
 
     const opts = b.addOptions();
     opts.addOption(
@@ -14,7 +14,7 @@ pub fn build(b: *std.Build) void {
     );
 
     const log = b.createModule(.{
-        .root_source_file = .{ .path = "src/log.zig" },
+        .root_source_file = b.path("src/log.zig"),
     });
 
     const exe = b.addExecutable(.{

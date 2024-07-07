@@ -37,7 +37,7 @@ fn core(hsh: *HSH) ![]u8 {
             redraw = false;
         }
 
-        return line.do();
+        return try line.do();
     }
 }
 
@@ -141,7 +141,10 @@ pub fn main() !void {
     while (true) {
         if (core(&hsh)) |str| {
             inerr = false;
-            if (str.len == 0) break;
+            if (str.len == 0) {
+                std.debug.print("\n goodbye :) \n", .{});
+                break;
+            }
             defer hsh.alloc.free(str);
             std.debug.assert(str.len != 0);
 
