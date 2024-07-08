@@ -122,6 +122,8 @@ pub fn do(line: *Line) ![]u8 {
                     .esc => continue,
                     .up => line.findHistory(.up),
                     .down => line.findHistory(.down),
+                    .left => line.hsh.tkn.move(.dec),
+                    .right => line.hsh.tkn.move(.inc),
                     .backspace => line.hsh.tkn.pop(),
                     .newline => return try line.dupeText(),
                     .end_of_text => return try line.dupeText(),
