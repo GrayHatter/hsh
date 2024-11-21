@@ -87,7 +87,7 @@ pub fn execFromInput(h: *HSH, str: []const u8) ![]u8 {
     var itr = TokenIterator{ .raw = str };
     const tokens = try itr.toSlice(h.alloc);
     defer h.alloc.free(tokens);
-    var ps = try Parser.parse(h.tkn.alloc, tokens);
+    var ps = try Parser.parse(h.alloc, tokens);
     defer ps.raze();
     return h.alloc.dupe(u8, ps.first().cannon());
 }

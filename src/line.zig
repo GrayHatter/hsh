@@ -1,4 +1,5 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const log = @import("log");
 
 const fs = @import("fs.zig");
@@ -14,9 +15,7 @@ const Draw = @import("draw.zig");
 
 const Line = @This();
 
-// delete plx
-const tokenizer = @import("tokenizer.zig");
-const Tokenizer = tokenizer.Tokenizer;
+const Tokenizer = @import("tokenizer.zig");
 
 const Mode = enum {
     TYPING,
@@ -26,7 +25,9 @@ const Mode = enum {
 };
 
 hsh: *HSH,
+alloc: Allocator,
 input: Input,
+tkn: Tokenizer,
 options: Options,
 mode: union(enum) {
     interactive: void,
@@ -43,13 +44,15 @@ pub const Options = struct {
     interactive: bool = true,
 };
 
-pub fn init(hsh: *HSH, options: Options) !Line {
+pub fn init(hsh: *HSH, a: Allocator, options: Options) !Line {
     return .{
         .hsh = hsh,
+        .alloc = a,
+        .input = .{ .stdin = hsh.input, .spin = spin, .hsh = hsh },
+        .tkn = Tokenizer.init(a),
         .completion = try Complete.init(hsh),
         .options = options,
         .history = History.init(hsh.hfs.history, hsh.alloc),
-        .input = .{ .stdin = hsh.input, .spin = spin, .hsh = hsh },
         .mode = if (options.interactive) .{ .interactive = {} } else .{ .scripted = {} },
         .text = try hsh.alloc.alloc(u8, 0),
     };
@@ -65,11 +68,15 @@ fn spin(hsh: ?*HSH) bool {
 }
 
 fn char(line: *Line, c: u8) !void {
-    try line.hsh.tkn.consumec(c);
+    try line.tkn.consumec(c);
     try line.hsh.draw.key(c);
 
     // TODO FIXME
-    line.text = line.hsh.tkn.raw.items;
+    line.text = line.tkn.raw.items;
+}
+
+pub fn peek(line: Line) []const u8 {
+    return line.tkn.raw.items;
 }
 
 pub fn do(line: *Line) ![]u8 {
@@ -83,11 +90,10 @@ pub fn do(line: *Line) ![]u8 {
             error.signaled => {
                 Draw.clearCtx(&line.hsh.draw);
                 try Draw.render(&line.hsh.draw);
-                return line.hsh.alloc.dupe(u8, "");
+                return line.alloc.dupe(u8, "");
             },
             error.end_of_text => {
-                defer line.hsh.tkn.exec();
-                return try line.hsh.alloc.dupe(u8, line.hsh.tkn.raw.items);
+                return try line.alloc.dupe(u8, line.tkn.raw.items);
             },
         };
         ////hsh.draw.cursor = 0;
@@ -122,16 +128,17 @@ pub fn do(line: *Line) ![]u8 {
                     .esc => continue,
                     .up => line.findHistory(.up),
                     .down => line.findHistory(.down),
-                    .left => line.hsh.tkn.move(.dec),
-                    .right => line.hsh.tkn.move(.inc),
-                    .backspace => line.hsh.tkn.pop(),
+                    .left => line.tkn.move(.dec),
+                    .right => line.tkn.move(.inc),
+                    .backspace => line.tkn.pop(),
                     .newline => return try line.dupeText(),
                     .end_of_text => return try line.dupeText(),
-                    .delete_word => _ = try line.hsh.tkn.dropWord(),
-                    else => log.warn("unknown {}\n", .{ctrl}),
+                    .delete_word => _ = try line.tkn.dropWord(),
+                    .tab => {}, //try line.complete(),
+                    else => |els| log.warn("unknown {}\n", .{els}),
                 }
                 line.hsh.draw.clear();
-                try Prompt.draw(line.hsh);
+                try Prompt.draw(line.hsh, line.peek());
                 try line.hsh.draw.render();
             },
 
@@ -144,7 +151,7 @@ pub fn do(line: *Line) ![]u8 {
 }
 
 fn dupeText(line: Line) ![]u8 {
-    return try line.hsh.alloc.dupe(u8, line.text);
+    return try line.alloc.dupe(u8, line.text);
 }
 
 pub fn externEditor(line: *Line) ![]u8 {
@@ -158,12 +165,12 @@ pub fn externEditor(line: *Line) ![]u8 {
 pub fn externEditorRead(line: *Line) ![]u8 {
     const tmp = line.mode.external_editor;
     defer line.mode = .{ .interactive = {} };
-    defer line.hsh.alloc.free(tmp);
+    defer line.alloc.free(tmp);
     defer std.posix.unlink(tmp) catch unreachable;
 
     var file = fs.openFile(tmp, false) orelse return error.io;
     defer file.close();
-    line.text = file.reader().readAllAlloc(line.hsh.alloc, 4096) catch unreachable;
+    line.text = file.reader().readAllAlloc(line.alloc, 4096) catch unreachable;
     return line.text;
 }
 
@@ -176,7 +183,7 @@ fn saveLine(_: *Line, _: []const u8) void {
 
 fn findHistory(line: *Line, dr: enum { up, down }) void {
     var history = line.history;
-    var tkn = &line.hsh.tkn;
+    var tkn = &line.tkn;
     if (tkn.user_data) {
         line.saveLine(tkn.raw.items);
     }
@@ -197,7 +204,7 @@ fn findHistory(line: *Line, dr: enum { up, down }) void {
                 }
             }
             _ = history.readAtFiltered(tkn.lineReplaceHistory(), &line.usr_line);
-            line.hsh.tkn.move(.end);
+            line.tkn.move(.end);
             return;
         },
         .down => {

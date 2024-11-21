@@ -8,6 +8,8 @@ const mem = std.mem;
 const CompOption = @import("completion.zig").CompOption;
 const Token = @import("token.zig");
 
+pub const Tokenizer = @This();
+
 pub const TokenError = Token.Error;
 
 pub const Error = error{
@@ -15,8 +17,6 @@ pub const Error = error{
     Exec,
     OutOfMemory,
 };
-
-pub const TokenIterator = Token.Iterator;
 
 pub const CursorMotion = enum(u8) {
     home,
@@ -27,350 +27,348 @@ pub const CursorMotion = enum(u8) {
     dec,
 };
 
-pub const Tokenizer = struct {
-    alloc: Allocator,
-    raw: ArrayList(u8),
-    idx: usize = 0,
-    raw_maybe: ?[]const u8 = null,
-    prev_exec: ?ArrayList(u8) = null,
-    c_tkn: usize = 0, // cursor is over this token
-    err_idx: usize = 0,
-    user_data: bool = false,
-    editor_mktmp: ?[]u8 = null,
+alloc: Allocator,
+raw: ArrayList(u8),
+idx: usize = 0,
+raw_maybe: ?[]const u8 = null,
+prev_exec: ?ArrayList(u8) = null,
+c_tkn: usize = 0, // cursor is over this token
+err_idx: usize = 0,
+user_data: bool = false,
+editor_mktmp: ?[]u8 = null,
 
-    pub fn init(a: Allocator) Tokenizer {
-        return Tokenizer{
-            .alloc = a,
-            .raw = ArrayList(u8).init(a),
+pub fn init(a: Allocator) Tokenizer {
+    return Tokenizer{
+        .alloc = a,
+        .raw = ArrayList(u8).init(a),
+    };
+}
+
+fn cChar(self: *Tokenizer) ?u8 {
+    if (self.raw.items.len == 0) return null;
+    if (self.idx == self.raw.items.len) return self.raw.items[self.idx - 1];
+    return self.raw.items[self.idx];
+}
+
+fn cToBoundry(self: *Tokenizer, comptime forward: bool) void {
+    std.debug.assert(self.raw.items.len > 0);
+    const cursor = if (forward) .inc else .dec;
+    self.move(cursor);
+
+    while (std.ascii.isWhitespace(self.cChar().?) and
+        self.idx > 0 and
+        self.idx < self.raw.items.len)
+    {
+        self.move(cursor);
+    }
+
+    while (!std.ascii.isWhitespace(self.cChar().?) and
+        self.idx != 0 and
+        self.idx < self.raw.items.len)
+    {
+        self.move(cursor);
+    }
+    if (!forward and self.idx != 0) self.move(.inc);
+}
+
+pub fn move(self: *Tokenizer, motion: CursorMotion) void {
+    if (self.raw.items.len == 0) return;
+    switch (motion) {
+        .home => self.idx = 0,
+        .end => self.idx = self.raw.items.len,
+        .back => self.cToBoundry(false),
+        .word => self.cToBoundry(true),
+        .inc => self.idx +|= 1,
+        .dec => self.idx -|= 1,
+    }
+    self.idx = @min(self.idx, self.raw.items.len);
+}
+
+pub fn cursor_token(self: *Tokenizer) !Token {
+    var i: usize = 0;
+    self.c_tkn = 0;
+    if (self.raw.items.len == 0) return Error.Empty;
+    while (i < self.raw.items.len) {
+        const t = Token.any(self.raw.items[i..]) catch break;
+        if (t.str.len == 0) break;
+        i += t.str.len;
+        if (i >= self.idx) return t;
+        self.c_tkn += 1;
+    }
+    return Error.TokenizeFailed;
+}
+
+pub fn iterator(self: *Tokenizer) Token.Iterator {
+    return Token.Iterator{ .raw = self.raw.items };
+}
+
+/// Returns a Token error
+pub fn validate(self: *Tokenizer) TokenError!void {
+    var i: usize = 0;
+    while (i < self.raw.items.len) {
+        const t = try Token.any(self.raw.items[i..]);
+        i += t.str.len;
+    }
+}
+
+// completion commands
+
+/// remove the completion maybe from input
+pub fn maybeDrop(self: *Tokenizer) !void {
+    if (self.raw_maybe) |rm| {
+        self.popRange(rm.len) catch {
+            log.err("Unable to drop maybe {s} len = {}\n", .{ rm, rm.len });
+            log.err("Unable to drop maybe {s} len = {}\n", .{ rm, rm.len });
+            @panic("dropMaybe");
         };
     }
+    self.maybeClear();
+}
 
-    fn cChar(self: *Tokenizer) ?u8 {
-        if (self.raw.items.len == 0) return null;
-        if (self.idx == self.raw.items.len) return self.raw.items[self.idx - 1];
-        return self.raw.items[self.idx];
+pub fn maybeClear(self: *Tokenizer) void {
+    if (self.raw_maybe) |rm| {
+        self.alloc.free(rm);
     }
+    self.raw_maybe = null;
+}
 
-    fn cToBoundry(self: *Tokenizer, comptime forward: bool) void {
-        std.debug.assert(self.raw.items.len > 0);
-        const cursor = if (forward) .inc else .dec;
-        self.move(cursor);
+pub fn maybeDupe(self: *Tokenizer, str: []const u8) !void {
+    self.maybeClear();
+    self.raw_maybe = try self.alloc.dupe(u8, str);
+}
 
-        while (std.ascii.isWhitespace(self.cChar().?) and
-            self.idx > 0 and
-            self.idx < self.raw.items.len)
-        {
-            self.move(cursor);
-        }
+/// str must be safe to insert directly as is
+pub fn maybeAdd(self: *Tokenizer, str: []const u8) !void {
+    const safe = try self.makeSafe(str) orelse try self.alloc.dupe(u8, str);
+    defer self.alloc.free(safe);
+    try self.maybeDupe(safe);
+    try self.consumes(safe);
+}
 
-        while (!std.ascii.isWhitespace(self.cChar().?) and
-            self.idx != 0 and
-            self.idx < self.raw.items.len)
-        {
-            self.move(cursor);
-        }
-        if (!forward and self.idx != 0) self.move(.inc);
-    }
-
-    pub fn move(self: *Tokenizer, motion: CursorMotion) void {
-        if (self.raw.items.len == 0) return;
-        switch (motion) {
-            .home => self.idx = 0,
-            .end => self.idx = self.raw.items.len,
-            .back => self.cToBoundry(false),
-            .word => self.cToBoundry(true),
-            .inc => self.idx +|= 1,
-            .dec => self.idx -|= 1,
-        }
-        self.idx = @min(self.idx, self.raw.items.len);
-    }
-
-    pub fn cursor_token(self: *Tokenizer) !Token {
-        var i: usize = 0;
-        self.c_tkn = 0;
-        if (self.raw.items.len == 0) return Error.Empty;
-        while (i < self.raw.items.len) {
-            const t = Token.any(self.raw.items[i..]) catch break;
-            if (t.str.len == 0) break;
-            i += t.str.len;
-            if (i >= self.idx) return t;
-            self.c_tkn += 1;
-        }
-        return Error.TokenizeFailed;
-    }
-
-    pub fn iterator(self: *Tokenizer) TokenIterator {
-        return TokenIterator{ .raw = self.raw.items };
-    }
-
-    /// Returns a Token error
-    pub fn validate(self: *Tokenizer) TokenError!void {
-        var i: usize = 0;
-        while (i < self.raw.items.len) {
-            const t = try Token.any(self.raw.items[i..]);
-            i += t.str.len;
-        }
-    }
-
-    // completion commands
-
-    /// remove the completion maybe from input
-    pub fn maybeDrop(self: *Tokenizer) !void {
-        if (self.raw_maybe) |rm| {
-            self.popRange(rm.len) catch {
-                log.err("Unable to drop maybe {s} len = {}\n", .{ rm, rm.len });
-                log.err("Unable to drop maybe {s} len = {}\n", .{ rm, rm.len });
-                @panic("dropMaybe");
-            };
-        }
-        self.maybeClear();
-    }
-
-    pub fn maybeClear(self: *Tokenizer) void {
-        if (self.raw_maybe) |rm| {
-            self.alloc.free(rm);
-        }
-        self.raw_maybe = null;
-    }
-
-    pub fn maybeDupe(self: *Tokenizer, str: []const u8) !void {
-        self.maybeClear();
-        self.raw_maybe = try self.alloc.dupe(u8, str);
-    }
-
-    /// str must be safe to insert directly as is
-    pub fn maybeAdd(self: *Tokenizer, str: []const u8) !void {
-        const safe = try self.makeSafe(str) orelse try self.alloc.dupe(u8, str);
-        defer self.alloc.free(safe);
-        try self.maybeDupe(safe);
-        try self.consumes(safe);
-    }
-
-    /// This function edits user text, so extra care must be taken to ensure
-    /// it's something the user asked for!
-    pub fn maybeReplace(self: *Tokenizer, new: *const CompOption) !void {
-        const str = try self.makeSafe(new.str) orelse try self.alloc.dupe(u8, new.str);
-        defer self.alloc.free(str);
-        if (self.raw_maybe) |_| {
-            try self.maybeDrop();
-        } else if (new.kind == null) {
-            try self.maybeDupe(str);
-        }
-
-        if (new.kind == null) return;
+/// This function edits user text, so extra care must be taken to ensure
+/// it's something the user asked for!
+pub fn maybeReplace(self: *Tokenizer, new: *const CompOption) !void {
+    const str = try self.makeSafe(new.str) orelse try self.alloc.dupe(u8, new.str);
+    defer self.alloc.free(str);
+    if (self.raw_maybe) |_| {
+        try self.maybeDrop();
+    } else if (new.kind == null) {
         try self.maybeDupe(str);
-
-        try self.consumes(str);
     }
 
-    pub fn maybeCommit(self: *Tokenizer, new: ?*const CompOption) !void {
-        self.maybeClear();
-        if (new) |n| {
-            switch (n.kind.?) {
-                .file_system => |f_s| {
-                    switch (f_s) {
-                        .dir => try self.consumec('/'),
-                        .file, .link, .pipe => try self.consumec(' '),
-                        else => {},
-                    }
-                },
-                .path_exe => try self.consumec(' '),
-                else => {},
-            }
+    if (new.kind == null) return;
+    try self.maybeDupe(str);
+
+    try self.consumes(str);
+}
+
+pub fn maybeCommit(self: *Tokenizer, new: ?*const CompOption) !void {
+    self.maybeClear();
+    if (new) |n| {
+        switch (n.kind.?) {
+            .file_system => |f_s| {
+                switch (f_s) {
+                    .dir => try self.consumec('/'),
+                    .file, .link, .pipe => try self.consumec(' '),
+                    else => {},
+                }
+            },
+            .path_exe => try self.consumec(' '),
+            else => {},
         }
     }
+}
 
-    /// if returned value is null, string is already safe.
-    fn makeSafe(self: *Tokenizer, str: []const u8) !?[]u8 {
-        if (mem.indexOfAny(u8, str, Token.BREAKING_TOKENS)) |_| {} else {
-            return null;
-        }
-        var extra: usize = str.len;
-        var look = [1]u8{0};
-        for (Token.BREAKING_TOKENS) |t| {
-            look[0] = t;
-            extra += mem.count(u8, str, &look);
-        }
-        std.debug.assert(extra > str.len);
+/// if returned value is null, string is already safe.
+fn makeSafe(self: *Tokenizer, str: []const u8) !?[]u8 {
+    if (mem.indexOfAny(u8, str, Token.BREAKING_TOKENS)) |_| {} else {
+        return null;
+    }
+    var extra: usize = str.len;
+    var look = [1]u8{0};
+    for (Token.BREAKING_TOKENS) |t| {
+        look[0] = t;
+        extra += mem.count(u8, str, &look);
+    }
+    std.debug.assert(extra > str.len);
 
-        var safer = try self.alloc.alloc(u8, extra);
-        var i: usize = 0;
-        for (str) |c| {
-            if (mem.indexOfScalar(u8, Token.BREAKING_TOKENS, c)) |_| {
-                safer[i] = '\\';
-                i += 1;
-            }
-            safer[i] = c;
+    var safer = try self.alloc.alloc(u8, extra);
+    var i: usize = 0;
+    for (str) |c| {
+        if (mem.indexOfScalar(u8, Token.BREAKING_TOKENS, c)) |_| {
+            safer[i] = '\\';
             i += 1;
         }
-        return safer;
+        safer[i] = c;
+        i += 1;
     }
+    return safer;
+}
 
-    fn dropWhitespace(self: *Tokenizer) Error!usize {
-        if (self.idx == 0 or !std.ascii.isWhitespace(self.raw.items[self.idx - 1])) {
-            return 0;
-        }
-        var count: usize = 1;
+fn dropWhitespace(self: *Tokenizer) Error!usize {
+    if (self.idx == 0 or !std.ascii.isWhitespace(self.raw.items[self.idx - 1])) {
+        return 0;
+    }
+    var count: usize = 1;
+    self.idx -|= 1;
+    var c = self.raw.orderedRemove(@intCast(self.idx));
+    while (self.idx > 0 and std.ascii.isWhitespace(c)) {
         self.idx -|= 1;
-        var c = self.raw.orderedRemove(@intCast(self.idx));
-        while (self.idx > 0 and std.ascii.isWhitespace(c)) {
-            self.idx -|= 1;
-            c = self.raw.orderedRemove(@intCast(self.idx));
-            count +|= 1;
-        }
-        if (!std.ascii.isWhitespace(c)) {
-            try self.consumec(c);
-            count -|= 1;
-        }
-        return count;
+        c = self.raw.orderedRemove(@intCast(self.idx));
+        count +|= 1;
     }
+    if (!std.ascii.isWhitespace(c)) {
+        try self.consumec(c);
+        count -|= 1;
+    }
+    return count;
+}
 
-    fn dropAlphanum(self: *Tokenizer) Error!usize {
-        if (self.idx == 0 or !std.ascii.isAlphanumeric(self.raw.items[self.idx - 1])) {
-            return 0;
-        }
-        var count: usize = 1;
+fn dropAlphanum(self: *Tokenizer) Error!usize {
+    if (self.idx == 0 or !std.ascii.isAlphanumeric(self.raw.items[self.idx - 1])) {
+        return 0;
+    }
+    var count: usize = 1;
+    self.idx -|= 1;
+    var c = self.raw.orderedRemove(@intCast(self.idx));
+    while (self.idx > 0 and (c == '-' or std.ascii.isAlphanumeric(c))) {
         self.idx -|= 1;
-        var c = self.raw.orderedRemove(@intCast(self.idx));
-        while (self.idx > 0 and (c == '-' or std.ascii.isAlphanumeric(c))) {
-            self.idx -|= 1;
-            c = self.raw.orderedRemove(@intCast(self.idx));
-            count +|= 1;
-        }
-        if (!std.ascii.isAlphanumeric(c)) {
-            try self.consumec(c);
-            count -|= 1;
-        }
-        return count;
+        c = self.raw.orderedRemove(@intCast(self.idx));
+        count +|= 1;
     }
+    if (!std.ascii.isAlphanumeric(c)) {
+        try self.consumec(c);
+        count -|= 1;
+    }
+    return count;
+}
 
-    // this clearly needs a bit more love
-    pub fn dropWord(self: *Tokenizer) Error!usize {
-        if (self.raw.items.len == 0 or self.idx == 0) return 0;
+// this clearly needs a bit more love
+pub fn dropWord(self: *Tokenizer) Error!usize {
+    if (self.raw.items.len == 0 or self.idx == 0) return 0;
 
-        var count = try self.dropWhitespace();
-        var wd = try self.dropAlphanum();
+    var count = try self.dropWhitespace();
+    var wd = try self.dropAlphanum();
+    if (wd > 0) {
+        count += wd;
+        wd = try self.dropWhitespace();
+        count += wd;
         if (wd > 0) {
-            count += wd;
-            wd = try self.dropWhitespace();
-            count += wd;
-            if (wd > 0) {
-                try self.consumec(' ');
-                count -|= 1;
-            }
+            try self.consumec(' ');
+            count -|= 1;
         }
-        if (count == 0 and self.raw.items.len > 0 and self.idx != 0) {
-            self.pop();
-            return 1 + try self.dropWord();
-        }
-        return count;
     }
+    if (count == 0 and self.raw.items.len > 0 and self.idx != 0) {
+        self.pop();
+        return 1 + try self.dropWord();
+    }
+    return count;
+}
 
-    pub fn pop(self: *Tokenizer) void {
-        self.user_data = true;
-        if (self.raw.items.len == 0 or self.idx == 0) return;
-        if (self.idx < self.raw.items.len) {
-            self.idx -|= 1;
-            _ = self.raw.orderedRemove(self.idx);
-            return;
-        }
-
+pub fn pop(self: *Tokenizer) void {
+    self.user_data = true;
+    if (self.raw.items.len == 0 or self.idx == 0) return;
+    if (self.idx < self.raw.items.len) {
         self.idx -|= 1;
-        self.raw.items.len -|= 1;
-        self.err_idx = @min(self.idx, self.err_idx);
-    }
-
-    pub fn delc(self: *Tokenizer) void {
-        if (self.raw.items.len == 0 or self.idx == self.raw.items.len) return;
-        self.user_data = true;
         _ = self.raw.orderedRemove(self.idx);
+        return;
     }
 
-    pub fn popRange(self: *Tokenizer, count: usize) Error!void {
-        if (count == 0) return;
-        if (self.raw.items.len == 0 or self.idx == 0) return;
-        if (count > self.raw.items.len) return Error.Empty;
-        self.user_data = true;
-        self.idx -|= count;
-        _ = self.raw.replaceRange(@as(usize, self.idx), count, "") catch unreachable;
-        // replaceRange is able to expand, but we don't here, thus unreachable
-        self.err_idx = @min(self.idx, self.err_idx);
-    }
+    self.idx -|= 1;
+    self.raw.items.len -|= 1;
+    self.err_idx = @min(self.idx, self.err_idx);
+}
 
-    /// consumes(tring) will swallow exec, assuming strings shouldn't be able to
-    /// start execution
-    pub fn consumes(self: *Tokenizer, str: []const u8) Error!void {
-        for (str) |s| {
-            self.consumec(s) catch |e| {
-                if (e == Error.Exec) continue;
-                return e;
-            };
-        }
-    }
+pub fn delc(self: *Tokenizer) void {
+    if (self.raw.items.len == 0 or self.idx == self.raw.items.len) return;
+    self.user_data = true;
+    _ = self.raw.orderedRemove(self.idx);
+}
 
-    pub fn consumec(self: *Tokenizer, c: u8) Error!void {
-        try self.raw.insert(self.idx, @bitCast(c));
-        self.idx += 1;
-        self.user_data = true;
-        if (c == '\n' and self.idx == self.raw.items.len) {
-            if (self.raw.items.len > 1 and self.raw.items[self.raw.items.len - 2] != '\\')
-                return Error.Exec;
-        } else if (c == '\n') {
-            // I'd like to give this some more thought, but I'm tired of this bug *now*
-            return error.Exec;
-        }
-    }
+pub fn popRange(self: *Tokenizer, count: usize) Error!void {
+    if (count == 0) return;
+    if (self.raw.items.len == 0 or self.idx == 0) return;
+    if (count > self.raw.items.len) return Error.Empty;
+    self.user_data = true;
+    self.idx -|= count;
+    _ = self.raw.replaceRange(@as(usize, self.idx), count, "") catch unreachable;
+    // replaceRange is able to expand, but we don't here, thus unreachable
+    self.err_idx = @min(self.idx, self.err_idx);
+}
 
-    // TODO rename verbNoun -> lineVerb
-
-    pub fn lineReplaceHistory(self: *Tokenizer) *ArrayList(u8) {
-        self.resetRaw();
-        return &self.raw;
+/// consumes(tring) will swallow exec, assuming strings shouldn't be able to
+/// start execution
+pub fn consumes(self: *Tokenizer, str: []const u8) Error!void {
+    for (str) |s| {
+        self.consumec(s) catch |e| {
+            if (e == Error.Exec) continue;
+            return e;
+        };
     }
+}
 
-    pub fn saveLine(self: *Tokenizer) void {
-        self.raw = ArrayList(u8).init(self.alloc);
-        self.idx = 0;
-        self.user_data = false;
+pub fn consumec(self: *Tokenizer, c: u8) Error!void {
+    try self.raw.insert(self.idx, @bitCast(c));
+    self.idx += 1;
+    self.user_data = true;
+    if (c == '\n' and self.idx == self.raw.items.len) {
+        if (self.raw.items.len > 1 and self.raw.items[self.raw.items.len - 2] != '\\')
+            return Error.Exec;
+    } else if (c == '\n') {
+        // I'd like to give this some more thought, but I'm tired of this bug *now*
+        return error.Exec;
     }
+}
 
-    pub fn restoreLine(self: *Tokenizer) void {
-        self.resetRaw();
-        self.user_data = true;
-        self.idx = self.raw.items.len;
-    }
+// TODO rename verbNoun -> lineVerb
 
-    pub fn reset(self: *Tokenizer) void {
-        self.resetRaw();
-        self.resetPrevExec();
-    }
+pub fn lineReplaceHistory(self: *Tokenizer) *ArrayList(u8) {
+    self.resetRaw();
+    return &self.raw;
+}
 
-    fn resetRaw(self: *Tokenizer) void {
-        self.raw.clearRetainingCapacity();
-        self.idx = 0;
-        self.err_idx = 0;
-        self.c_tkn = 0;
-        self.user_data = false;
-        self.maybeClear();
-    }
+pub fn saveLine(self: *Tokenizer) void {
+    self.raw = ArrayList(u8).init(self.alloc);
+    self.idx = 0;
+    self.user_data = false;
+}
 
-    fn resetPrevExec(self: *Tokenizer) void {
-        if (self.prev_exec) |*pr| pr.clearAndFree();
-    }
+pub fn restoreLine(self: *Tokenizer) void {
+    self.resetRaw();
+    self.user_data = true;
+    self.idx = self.raw.items.len;
+}
 
-    /// Doesn't exec, called to save previous "local" command
-    pub fn exec(self: *Tokenizer) void {
-        if (self.prev_exec) |*pr| pr.clearAndFree();
-        self.prev_exec = self.raw;
-        self.raw = ArrayList(u8).init(self.alloc);
-        self.resetRaw();
-    }
+pub fn reset(self: *Tokenizer) void {
+    self.resetRaw();
+    self.resetPrevExec();
+}
 
-    pub fn raze(self: *Tokenizer) void {
-        self.reset();
-        self.raw.clearAndFree();
-    }
-};
+fn resetRaw(self: *Tokenizer) void {
+    self.raw.clearRetainingCapacity();
+    self.idx = 0;
+    self.err_idx = 0;
+    self.c_tkn = 0;
+    self.user_data = false;
+    self.maybeClear();
+}
+
+fn resetPrevExec(self: *Tokenizer) void {
+    if (self.prev_exec) |*pr| pr.clearAndFree();
+}
+
+/// Doesn't exec, called to save previous "local" command
+pub fn exec(self: *Tokenizer) void {
+    if (self.prev_exec) |*pr| pr.clearAndFree();
+    self.prev_exec = self.raw;
+    self.raw = ArrayList(u8).init(self.alloc);
+    self.resetRaw();
+}
+
+pub fn raze(self: *Tokenizer) void {
+    self.reset();
+    self.raw.clearAndFree();
+}
 
 const expect = std.testing.expect;
 const expectEql = std.testing.expectEqual;
@@ -559,7 +557,7 @@ test "breaking" {
 }
 
 test "tokeniterator 0" {
-    var ti = TokenIterator{
+    var ti = Token.Iterator{
         .raw = "one two three",
     };
 
@@ -572,7 +570,7 @@ test "tokeniterator 0" {
 }
 
 test "tokeniterator 1" {
-    var ti = TokenIterator{
+    var ti = Token.Iterator{
         .raw = "one two three",
     };
 
@@ -585,7 +583,7 @@ test "tokeniterator 1" {
 }
 
 test "tokeniterator 2" {
-    var ti = TokenIterator{
+    var ti = Token.Iterator{
         .raw = "one two three",
     };
 
@@ -596,7 +594,7 @@ test "tokeniterator 2" {
 }
 
 test "tokeniterator 3" {
-    var ti = TokenIterator{
+    var ti = Token.Iterator{
         .raw = "one two three",
     };
 
@@ -609,7 +607,7 @@ test "tokeniterator 3" {
 }
 
 test "token pipeline" {
-    var ti = TokenIterator{
+    var ti = Token.Iterator{
         .raw = "ls -la | cat | sort ; echo this works",
     };
 
@@ -646,7 +644,7 @@ test "token pipeline" {
 }
 
 test "token pipeline slice" {
-    var ti = TokenIterator{
+    var ti = Token.Iterator{
         .raw = "ls -la | cat | sort ; echo this works",
     };
 
@@ -686,7 +684,7 @@ test "token pipeline slice" {
 }
 
 test "token pipeline slice safe with next()" {
-    var ti = TokenIterator{
+    var ti = Token.Iterator{
         .raw = "ls -la | cat | sort ; echo this works",
     };
 
@@ -732,7 +730,7 @@ test "token pipeline slice safe with next()" {
 }
 
 test "token > file" {
-    var ti = TokenIterator{
+    var ti = Token.Iterator{
         .raw = "ls > file.txt",
     };
 
@@ -750,7 +748,7 @@ test "token > file" {
 }
 
 test "token > file extra ws" {
-    var ti = TokenIterator{
+    var ti = Token.Iterator{
         .raw = "ls >               file.txt",
     };
 
@@ -766,7 +764,7 @@ test "token > file extra ws" {
 }
 
 test "token > execSlice" {
-    var ti = TokenIterator{
+    var ti = Token.Iterator{
         .raw = "ls > file.txt",
     };
 
@@ -793,7 +791,7 @@ test "token > execSlice" {
 }
 
 test "token >> file" {
-    var ti = TokenIterator{
+    var ti = Token.Iterator{
         .raw = "ls >> file.txt",
     };
 
@@ -808,7 +806,7 @@ test "token >> file" {
     var iot = ti.next().?;
     try eqlStr("file.txt", iot.cannon());
     try std.testing.expect(iot.kind.io == .Append);
-    ti = TokenIterator{ .raw = "ls >>file.txt" };
+    ti = Token.Iterator{ .raw = "ls >>file.txt" };
     try eqlStr("ls", ti.first().cannon());
     ti.skip();
     iot = ti.next().?;
@@ -817,7 +815,7 @@ test "token >> file" {
 }
 
 test "token < file" {
-    var ti = TokenIterator{
+    var ti = Token.Iterator{
         .raw = "ls < file.txt",
     };
 
@@ -836,7 +834,7 @@ test "token < file" {
 }
 
 test "token < file extra ws" {
-    var ti = TokenIterator{
+    var ti = Token.Iterator{
         .raw = "ls <               file.txt",
     };
 
@@ -852,7 +850,7 @@ test "token < file extra ws" {
 }
 
 test "token &&" {
-    var ti = TokenIterator{
+    var ti = Token.Iterator{
         .raw = "ls && success",
     };
 
@@ -873,7 +871,7 @@ test "token &&" {
 }
 
 test "token ||" {
-    var ti = TokenIterator{
+    var ti = Token.Iterator{
         .raw = "ls || fail",
     };
 
@@ -938,7 +936,7 @@ test "token vari braces" {
     t = try Token.any("${STR_ING}extra");
     try eqlStr("STR_ING", t.cannon());
 
-    var itr = TokenIterator{ .raw = "${STR_ING}extra" };
+    var itr = Token.Iterator{ .raw = "${STR_ING}extra" };
     var count: usize = 0;
     while (itr.next()) |_| count += 1;
     try expectEql(count, 2);
@@ -951,7 +949,7 @@ test "dollar posix" {
 }
 
 test "all execs" {
-    var tt = TokenIterator{ .raw = "ls -with -some -params && files || thing | pipeline ; othercmd & screenshot && some/rel/exec" };
+    var tt = Token.Iterator{ .raw = "ls -with -some -params && files || thing | pipeline ; othercmd & screenshot && some/rel/exec" };
     var count: usize = 0;
     while (tt.next()) |_| {
         while (tt.nextExec()) |_| {}
@@ -1064,7 +1062,7 @@ test "inline quotes" {
     var t = try Token.any("--inline='quoted string'");
     try std.testing.expectEqualStrings("--inline=", t.cannon());
 
-    var itr = TokenIterator{ .raw = "--inline='quoted string'" };
+    var itr = Token.Iterator{ .raw = "--inline='quoted string'" };
     try eqlStr("--inline=", itr.next().?.cannon());
     try eqlStr("quoted string", itr.next().?.cannon());
 }
@@ -1136,7 +1134,7 @@ test "comment" {
     try std.testing.expectEqualStrings("# comment", tk.str);
     try std.testing.expectEqualStrings("", tk.cannon());
 
-    var itr = TokenIterator{ .raw = " echo #comment" };
+    var itr = Token.Iterator{ .raw = " echo #comment" };
 
     itr.skip();
     try std.testing.expectEqualStrings("echo", itr.next().?.cannon());
@@ -1144,7 +1142,7 @@ test "comment" {
     try std.testing.expectEqualStrings("", itr.next().?.cannon());
     try std.testing.expect(null == itr.next());
 
-    itr = TokenIterator{ .raw = " echo #comment\ncd home" };
+    itr = Token.Iterator{ .raw = " echo #comment\ncd home" };
 
     itr.skip();
     try std.testing.expectEqualStrings("echo", itr.next().?.cannon());
@@ -1157,7 +1155,7 @@ test "comment" {
 }
 
 test "backslash" {
-    var itr = TokenIterator{ .raw = "this\\ is some text" };
+    var itr = Token.Iterator{ .raw = "this\\ is some text" };
 
     var count: usize = 0;
     while (itr.next()) |_| {
@@ -1325,7 +1323,7 @@ test "nested logic" {
 test "naughty strings" {
     const while_str = "thingy (b.argv.next()) |_| {}";
 
-    var itr = TokenIterator{ .raw = while_str };
+    var itr = Token.Iterator{ .raw = while_str };
 
     var count: usize = 0;
     while (itr.next()) |t| {

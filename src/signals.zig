@@ -130,7 +130,8 @@ pub const SigEvent = enum {
 pub fn do(hsh: *HSH) SigEvent {
     while (flags.int > 0) {
         flags.int -|= 1;
-        hsh.tkn.reset();
+        // TODO do something
+        //hsh.tkn.reset();
         _ = hsh.draw.write("^C\n\r") catch {};
         //if (hsh.hist) |*hist| {
         //    hist.cnt = 0;

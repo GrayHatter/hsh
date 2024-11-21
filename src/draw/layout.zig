@@ -1,16 +1,14 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const draw = @import("../draw.zig");
-const Cord = draw.Cord;
-const LexTree = draw.LexTree;
-const Lexeme = draw.Lexeme;
+const Draw = @import("../draw.zig");
+const Cord = Draw.Cord;
+const Lexeme = Draw.Lexeme;
 const dupePadded = @import("../mem.zig").dupePadded;
 
-pub const Error = error{
+pub const Error = Draw.Error || error{
     ViewportFit,
     ItemCount,
     LayoutUnable,
-    Memory,
 };
 
 /// TODO unicode support when?
@@ -72,36 +70,40 @@ fn maxWidthLexem(lexs: []const Lexeme) u32 {
     return max + 1;
 }
 
-/// Caller owns memory, strings **are** duplicated
-/// *LexTree
-/// LexTree.siblings.Lexem,
-/// LexTree.siblings.Lexem[..].char must all be free'd
-pub fn grid(a: Allocator, items: []const []const u8, wh: Cord) Error![]LexTree {
+/// items aren't duplicated and must outlive Lexeme based grid
+pub fn grid(a: Allocator, items: []const []const u8, wh: Cord) Error![][]Lexeme {
     // errdefer
     const largest = maxWidth(items);
     if (largest > wh.x) return Error.ViewportFit;
 
-    const cols: u32 = @max(@as(u32, @intCast(wh.x)) / largest, 1);
-    const remainder: u32 = if (items.len % cols > 0) 1 else 0;
-    const rows: u32 = @as(u32, @truncate(items.len)) / cols + remainder;
+    const stride: usize = @max(@divFloor(wh.x, largest), 1);
+    const full_count: usize = items.len / stride;
+    const remainder: usize = items.len % stride;
+    const row_count: usize = full_count + @as(usize, if (remainder != 0) 1 else 0);
 
-    var trees = a.alloc(LexTree, rows) catch return Error.Memory;
-    var lexes = a.alloc(Lexeme, items.len) catch return Error.Memory;
+    const rows = try a.alloc([]Lexeme, row_count);
+
     // errdefer
 
-    for (0..rows) |row| {
-        trees[row] = LexTree{
-            .siblings = lexes[row * cols .. @min((row + 1) * cols, items.len)],
-        };
-        for (0..cols) |col| {
-            if (items.len <= cols * row + col) break;
-            trees[row].siblings[col] = Lexeme{
-                .char = dupePadded(a, items[row * cols + col], largest) catch return Error.Memory,
+    var i: usize = 0;
+    root: for (rows) |*row| {
+        row.* = if (i < stride * full_count)
+            try a.alloc(Lexeme, stride)
+        else
+            try a.alloc(Lexeme, remainder);
+
+        for (row.*) |*col| {
+            const char = items[i];
+            col.* = Lexeme{
+                .char = char,
+                .padding = .{ .right = @intCast(largest - countPrintable(char)) },
             };
+            i += 1;
+            if (i >= items.len) break :root;
         }
     }
 
-    return trees;
+    return rows;
 }
 
 fn sum(cs: []u16) u32 {
@@ -110,8 +112,8 @@ fn sum(cs: []u16) u32 {
     return total;
 }
 
-pub fn tableSize(a: Allocator, items: []Lexeme, wh: Cord) Error![]u16 {
-    var colsize: []u16 = a.alloc(u16, 0) catch return Error.Memory;
+pub fn tableSize(a: Allocator, items: []const Lexeme, wh: Cord) Error![]u16 {
+    var colsize: []u16 = try a.alloc(u16, 0);
     errdefer a.free(colsize);
 
     var cols = items.len;
@@ -121,7 +123,7 @@ pub fn tableSize(a: Allocator, items: []Lexeme, wh: Cord) Error![]u16 {
         if (cols == 0) return Error.LayoutUnable;
         if (countLexems(items[0..cols]) > wh.x) continue;
 
-        colsize = a.realloc(colsize, cols) catch return Error.Memory;
+        colsize = try a.realloc(colsize, cols);
         @memset(colsize, 0);
         rows = @as(u32, @truncate(items.len / cols));
         if (items.len % cols > 0) rows += 1;
@@ -141,50 +143,33 @@ pub fn tableSize(a: Allocator, items: []Lexeme, wh: Cord) Error![]u16 {
     return colsize;
 }
 
-pub fn table(a: Allocator, items: anytype, wh: Cord) Error![]LexTree {
-    const T = @TypeOf(items);
-    const func = comptime switch (T) {
-        []Lexeme => tableLexeme,
-        *[][]const u8 => tableChar,
-        *const [12][]const u8 => tableChar,
-        else => unreachable,
-    };
-    return func(a, items, wh);
-}
-
-fn tableLexeme(a: Allocator, items: []Lexeme, wh: Cord) Error![]LexTree {
+fn tableLexeme(a: Allocator, items: []const Lexeme, wh: Cord) Error![][]Lexeme {
     const largest = maxWidthLexem(items);
     if (largest > wh.x) return Error.ViewportFit;
 
     const colsz = try tableSize(a, items, wh);
+    const stride = colsz.len;
     defer a.free(colsz);
-    var rows = (items.len / colsz.len);
-    if (items.len % colsz.len > 0) rows += 1;
+    const row_count = std.math.divCeil(usize, items.len, stride) catch unreachable;
+    const remainder = (items.len % stride) -| 1;
 
-    var trees = a.alloc(LexTree, rows) catch return Error.Memory;
+    const rows = try a.alloc([]Lexeme, row_count);
+    for (rows, 0..) |*dstrow, i| {
+        const row_num = if (i == row_count - 1) remainder else stride;
 
-    for (0..rows) |row| {
-        trees[row] = LexTree{
-            .siblings = items[row * colsz.len .. @min((row + 1) * colsz.len, items.len)],
-        };
-        for (0..colsz.len) |c| {
-            const rowcol = row * colsz.len + c;
-            if (rowcol >= items.len) break;
-            const old = items[rowcol].char;
-            trees[row].siblings[c].char = dupePadded(a, old, colsz[c]) catch return Error.Memory;
+        dstrow.* = try a.alloc(Lexeme, row_num);
+        for (dstrow.*, 0..) |*col, j| {
+            const offset = i * stride + j;
+            col.char = try dupePadded(a, items[offset].char, colsz[j]);
         }
     }
-    return trees;
+    return rows;
 }
 
 /// Caller owns memory, strings **are** duplicated
-/// *LexTree
-/// LexTree.siblings.Lexem,
-/// LexTree.siblings.Lexem[..].char must all be free'd
-/// items are not reordered
-fn tableChar(a: Allocator, items: []const []const u8, wh: Cord) Error![]LexTree {
-    const lexes = a.alloc(Lexeme, items.len) catch return Error.Memory;
-    errdefer a.free(lexes);
+fn tableChar(a: Allocator, items: []const []const u8, wh: Cord) Error![][]Lexeme {
+    const lexes = try a.alloc(Lexeme, items.len);
+    defer a.free(lexes);
 
     for (items, lexes) |i, *l| {
         l.*.char = i;
@@ -218,66 +203,48 @@ const strs13 = strs12 ++ [_][]const u8{"extra4luck"};
 
 test "table" {
     var a = std.testing.allocator;
-    const err = table(a, &strs12, Cord{ .x = 50, .y = 1 });
+    const err = tableChar(a, strs12[0..], Cord{ .x = 50, .y = 1 });
     try std.testing.expectError(Error.ItemCount, err);
 
-    const rows = try table(a, &strs12, Cord{ .x = 50, .y = 5 });
+    const rows = try tableChar(a, strs12[0..], Cord{ .x = 50, .y = 5 });
     //std.debug.print("rows {any}\n", .{rows});
     for (rows) |row| {
         //std.debug.print("  row {any}\n", .{row});
-        for (row.siblings) |sib| {
+        for (row) |col| {
             //std.debug.print("    sib {s}\n", .{sib.char});
-            a.free(sib.char);
+            a.free(col.char);
         }
     }
 
     try std.testing.expect(rows.len == 3);
-    try std.testing.expect(rows[0].siblings.len == 4);
+    try std.testing.expect(rows[0].len == 4);
 
-    // I have my good ol' C pointers back... this is so nice :)
-    a.free(@as(*[strs12.len]Lexeme, @ptrCast(rows[0].siblings)));
+    for (rows) |row| a.free(row);
     a.free(rows);
 }
 
 test "grid 3*4" {
     var a = std.testing.allocator;
 
-    const rows = try grid(a, &strs12, Cord{ .x = 50, .y = 1 });
+    const rows = try grid(a, strs12[0..], Cord{ .x = 50, .y = 1 });
     //std.debug.print("rows {any}\n", .{rows});
-    for (rows) |row| {
-        //std.debug.print("  row {any}\n", .{row});
-        for (row.siblings) |sib| {
-            //std.debug.print("    sib {s}\n", .{sib.char});
-            a.free(sib.char);
-        }
-    }
 
     try std.testing.expect(rows.len == 4);
-    try std.testing.expect(rows[0].siblings.len == 3);
-    try std.testing.expect(rows[3].siblings.len == 3);
+    try std.testing.expect(rows[0].len == 3);
+    try std.testing.expect(rows[3].len == 3);
 
-    // I have my good ol' C pointers back... this is so nice :)
-    a.free(@as(*[strs12.len]Lexeme, @ptrCast(rows[0].siblings)));
+    for (rows) |row| a.free(row);
     a.free(rows);
 }
 
 test "grid 3*4 + 1" {
     var a = std.testing.allocator;
     const rows = try grid(a, &strs13, Cord{ .x = 50, .y = 1 });
-    //std.debug.print("rows {any}\n", .{rows});
-    for (rows) |row| {
-        //std.debug.print("  row {any}\n", .{row});
-        for (row.siblings) |sib| {
-            //std.debug.print("    sib {s}\n", .{sib.char});
-            a.free(sib.char);
-        }
-    }
 
     try std.testing.expectEqual(rows.len, 5);
-    try std.testing.expect(rows[0].siblings.len == 3);
-    try std.testing.expect(rows[4].siblings.len == 1);
+    try std.testing.expect(rows[0].len == 3);
+    try std.testing.expect(rows[4].len == 1);
 
-    // I have my good ol' C pointers back... this is so nice :)
-    a.free(@as(*[strs13.len]Lexeme, @ptrCast(rows[0].siblings)));
+    for (rows) |row| a.free(row);
     a.free(rows);
 }

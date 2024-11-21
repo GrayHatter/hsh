@@ -204,7 +204,6 @@ fn exit(hsh: *HSH, i: *ParsedIterator) Err!u8 {
     }
     hsh.draw.raze();
     hsh.tty.raze();
-    hsh.tkn.raze();
     hsh.raze();
     std.posix.exit(code);
 }

@@ -32,8 +32,8 @@ pub fn hshLogFn(
         else => "[ NOS ] ",
     };
 
-    std.debug.getStderrMutex().lock();
-    defer std.debug.getStderrMutex().unlock();
+    std.debug.lockStdErr();
+    defer std.debug.unlockStdErr();
     const stderr = std.io.getStdErr().writer();
     stderr.print(prefix ++ format, args) catch return;
 }

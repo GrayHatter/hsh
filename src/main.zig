@@ -20,24 +20,29 @@ test "main" {
     std.testing.refAllDecls(@This());
 }
 
-fn core(hsh: *HSH) ![]u8 {
+fn core(hsh: *HSH, a: Allocator) ![]u8 {
+    var array_alloc = std.heap.ArenaAllocator.init(a);
+    defer array_alloc.deinit();
+    const alloc = array_alloc.allocator();
+    var line = try Line.init(hsh, alloc, .{ .interactive = hsh.tty.is_tty });
+
     defer hsh.draw.reset();
     //try Context.update(hsh, &[_]Context.Contexts{.git});
 
     var redraw = true;
     // TODO drop hsh
-    var line = hsh.line;
 
     while (true) {
         hsh.draw.clear();
         redraw = hsh.spin() or redraw;
+
         if (redraw) {
-            try prompt.draw(hsh);
+            try prompt.draw(hsh, line.peek());
             try Draw.render(&hsh.draw);
             redraw = false;
         }
 
-        return try line.do();
+        return a.dupe(u8, try line.do());
     }
 }
 
@@ -57,13 +62,12 @@ fn execTacC(args: *std.process.ArgIterator) u8 {
     hsh.tty = TTY.init(a) catch return 255;
     defer hsh.tty.raze();
 
-    while (args.next()) |arg| {
-        hsh.tkn.consumes(arg) catch return 2;
+    while (args.next()) |_| {
+        unreachable;
+        //hsh.tkn.consumes(arg) catch return 2;
     }
-    const str = hsh.alloc.dupe(u8, hsh.tkn.raw.items) catch return 2;
-    defer hsh.alloc.free(str);
-
-    Exec.exec(&hsh, str) catch |err| {
+    if (true) return 0;
+    Exec.exec(&hsh, undefined) catch |err| {
         log.err("-c error [{}]\n", .{err});
         return 1;
     };
@@ -130,16 +134,13 @@ pub fn main() !void {
     // Look at me, I'm the captain now!
     hsh.tty.pwnTTY();
 
-    var line = try Line.init(&hsh, .{ .interactive = hsh.tty.is_tty });
-    hsh.line = &line;
-
     hsh.draw = Drawable.init(&hsh) catch unreachable;
     defer hsh.draw.raze();
     hsh.draw.term_size = hsh.tty.geom() catch unreachable;
 
     var inerr = false;
     while (true) {
-        if (core(&hsh)) |str| {
+        if (core(&hsh, a)) |str| {
             inerr = false;
             if (str.len == 0) {
                 std.debug.print("\n goodbye :) \n", .{});
@@ -154,18 +155,12 @@ pub fn main() !void {
                 error.ExeNotFound => {
                     const first = Exec.execFromInput(&hsh, str) catch @panic("memory");
                     defer hsh.alloc.free(first);
-                    const tree = Draw.LexTree{ .siblings = @constCast(&[_]Draw.Lexeme{
-                        Draw.Lexeme{
-                            .char = "[ Unable to find ",
-                            .style = .{ .attr = .bold, .fg = .red },
-                        },
-                        Draw.Lexeme{
-                            .char = first,
-                            .style = .{ .attr = .bold, .fg = .red },
-                        },
-                        Draw.Lexeme{ .char = " ]", .style = .{ .attr = .bold, .fg = .red } },
-                    }) };
-                    try Draw.drawAfter(&hsh.draw, tree);
+                    const tree = [_]Draw.Lexeme{
+                        .{ .char = "[ Unable to find ", .style = .{ .attr = .bold, .fg = .red } },
+                        .{ .char = first, .style = .{ .attr = .bold, .fg = .red } },
+                        .{ .char = " ]", .style = .{ .attr = .bold, .fg = .red } },
+                    };
+                    try Draw.drawAfter(&hsh.draw, tree[0..]);
                     try Draw.render(&hsh.draw);
                 },
                 error.StdIOError => {
@@ -176,7 +171,6 @@ pub fn main() !void {
                     unreachable;
                 },
             };
-            hsh.tkn.exec();
             continue;
         } else |err| {
             switch (err) {

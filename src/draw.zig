@@ -11,12 +11,24 @@ pub const Layout = @import("draw/layout.zig");
 
 const DrawBuf = ArrayList(u8);
 
+alloc: Allocator,
+tty: *TTY,
+hsh: *HSH,
+cursor: u32 = 0,
+cursor_reposition: bool = true,
+before: DrawBuf = undefined,
+b: DrawBuf = undefined,
+right: DrawBuf = undefined,
+after: DrawBuf = undefined,
+term_size: Cord = .{},
+lines: u16 = 0,
+
 pub const Cord = struct {
     x: isize = 0,
     y: isize = 0,
 };
 
-pub const Err = error{
+pub const Error = error{
     Unknown,
     OutOfMemory,
     WriterIO,
@@ -52,23 +64,22 @@ pub const Color = enum {
     green,
 };
 
-pub const Style = struct {
-    attr: ?Attr = null,
-    fg: ?Color = null,
-    bg: ?Color = null,
-};
-
 pub const Lexeme = struct {
     char: []const u8,
-    style: Style = .{},
-};
+    padding: ?Padding = null,
+    style: ?Style = null,
 
-const LexSibling = []Lexeme;
+    pub const Style = struct {
+        attr: ?Attr = null,
+        fg: ?Color = null,
+        bg: ?Color = null,
+    };
 
-pub const LexTree = union(enum) {
-    lex: Lexeme,
-    siblings: LexSibling,
-    children: []LexTree,
+    pub const Padding = struct {
+        char: u8 = ' ',
+        left: i32 = 0,
+        right: i32 = 0,
+    };
 };
 
 var colorize: bool = true;
@@ -84,19 +95,7 @@ const Direction = enum {
 
 pub const Drawable = @This();
 
-alloc: Allocator,
-tty: *TTY,
-hsh: *HSH,
-cursor: u32 = 0,
-cursor_reposition: bool = true,
-before: DrawBuf = undefined,
-b: DrawBuf = undefined,
-right: DrawBuf = undefined,
-after: DrawBuf = undefined,
-term_size: Cord = .{},
-lines: u16 = 0,
-
-pub fn init(hsh: *HSH) Err!Drawable {
+pub fn init(hsh: *HSH) Error!Drawable {
     colorize = hsh.enabled(Features.Colorize);
     return .{
         .alloc = hsh.alloc,
@@ -109,12 +108,12 @@ pub fn init(hsh: *HSH) Err!Drawable {
     };
 }
 
-pub fn key(d: *Drawable, c: u8) Err!void {
-    _ = d.tty.out.write(&[1]u8{c}) catch return Err.WriterIO;
+pub fn key(d: *Drawable, c: u8) Error!void {
+    _ = d.tty.out.write(&[1]u8{c}) catch return Error.WriterIO;
 }
 
-pub fn write(d: *Drawable, out: []const u8) Err!usize {
-    return d.tty.out.write(out) catch Err.WriterIO;
+pub fn write(d: *Drawable, out: []const u8) Error!usize {
+    return d.tty.out.write(out) catch Error.WriterIO;
 }
 
 pub fn move(_: *Drawable, comptime dir: Direction, count: u16) []const u8 {
@@ -150,7 +149,7 @@ pub fn raze(d: *Drawable) void {
     d.b.clearAndFree();
 }
 
-fn setAttr(buf: *DrawBuf, attr: ?Attr) Err!void {
+fn setAttr(buf: *DrawBuf, attr: ?Attr) Error!void {
     if (attr) |a| {
         switch (a) {
             .bold => try buf.appendSlice("\x1B[1m"),
@@ -163,7 +162,7 @@ fn setAttr(buf: *DrawBuf, attr: ?Attr) Err!void {
     }
 }
 
-fn bgColor(buf: *DrawBuf, c: ?Color) Err!void {
+fn bgColor(buf: *DrawBuf, c: ?Color) Error!void {
     if (c) |bg| {
         const color = switch (bg) {
             .red => "\x1B[41m",
@@ -175,7 +174,7 @@ fn bgColor(buf: *DrawBuf, c: ?Color) Err!void {
     }
 }
 
-fn fgColor(buf: *DrawBuf, c: ?Color) Err!void {
+fn fgColor(buf: *DrawBuf, c: ?Color) Error!void {
     if (c) |fg| {
         const color = switch (fg) {
             .red => "\x1B[31m",
@@ -187,40 +186,32 @@ fn fgColor(buf: *DrawBuf, c: ?Color) Err!void {
     }
 }
 
-fn drawLexeme(buf: *DrawBuf, x: usize, y: usize, l: Lexeme) Err!void {
+fn drawLexeme(buf: *DrawBuf, _: usize, _: usize, l: Lexeme) Error!void {
     if (l.char.len == 0) return;
-    _ = x;
-    _ = y;
     if (colorize) {
-        try setAttr(buf, l.style.attr);
-        try fgColor(buf, l.style.fg);
-        try bgColor(buf, l.style.bg);
+        if (l.style) |style| {
+            try setAttr(buf, style.attr);
+            try fgColor(buf, style.fg);
+            try bgColor(buf, style.bg);
+        }
     }
     try buf.appendSlice(l.char);
-    if (colorize) {
+    if (colorize and l.style != null) {
         try bgColor(buf, .none);
         try fgColor(buf, .none);
         try setAttr(buf, .reset);
     }
 }
 
-fn drawSibling(buf: *DrawBuf, x: usize, y: usize, s: []Lexeme) Err!void {
+fn drawLexemeMany(buf: *DrawBuf, x: usize, y: usize, s: []const Lexeme) Error!void {
     for (s) |sib| {
         try drawLexeme(buf, x, y, sib);
     }
 }
 
-fn drawTree(buf: *DrawBuf, x: usize, y: usize, t: LexTree) Err!void {
-    return switch (t) {
-        LexTree.lex => |lex| drawLexeme(buf, x, y, lex),
-        LexTree.siblings => |sib| drawSibling(buf, x, y, sib),
-        LexTree.children => |child| drawTrees(buf, x, y, child),
-    };
-}
-
-fn drawTrees(buf: *DrawBuf, x: usize, y: usize, tree: []LexTree) Err!void {
-    for (tree) |t| {
-        try drawTree(buf, x, y, t);
+fn drawLexemeTree(buf: *DrawBuf, x: usize, y: usize, t: []const []const Lexeme) Error!void {
+    for (t) |set| {
+        drawLexemeMany(buf, x, y, set);
     }
 }
 
@@ -228,29 +219,29 @@ fn countLines(buf: []const u8) u16 {
     return @truncate(std.mem.count(u8, buf, "\n"));
 }
 
-pub fn drawBefore(d: *Drawable, t: LexTree) !void {
-    try drawTree(&d.before, 0, 0, t);
+pub fn drawBefore(d: *Drawable, t: []const Lexeme) !void {
+    try drawLexemeMany(&d.before, 0, 0, t);
     try d.before.appendSlice("\x1B[K");
 }
 
-pub fn drawAfter(d: *Drawable, t: LexTree) !void {
+pub fn drawAfter(d: *Drawable, t: []const Lexeme) !void {
     try d.after.append('\n');
-    try drawTree(&d.after, 0, 0, t);
+    try drawLexemeMany(&d.after, 0, 0, t);
 }
 
-pub fn drawRight(d: *Drawable, tree: LexTree) !void {
-    try drawTree(&d.right, 0, 0, tree);
+pub fn drawRight(d: *Drawable, tree: []const Lexeme) !void {
+    try drawLexemeMany(&d.right, 0, 0, tree);
 }
 
-pub fn draw(d: *Drawable, tree: LexTree) !void {
-    try drawTree(&d.b, 0, 0, tree);
+pub fn draw(d: *Drawable, tree: []const Lexeme) !void {
+    try drawLexemeMany(&d.b, 0, 0, tree);
 }
 
 /// Renders the "prompt" line
 /// hsh is based around the idea of user keyboard-driven input, so plugin should
 /// provide the context, expecting not to know about, or touch the final user
 /// input line
-pub fn render(d: *Drawable) Err!void {
+pub fn render(d: *Drawable) Error!void {
     _ = try d.write("\r");
     _ = try d.write(d.move(.Up, d.lines));
     d.lines = 0;
@@ -299,7 +290,7 @@ pub fn clearCtx(d: *Drawable) void {
 /// prompt before exec.
 pub fn clear_before_exec(_: *Drawable) void {}
 
-pub fn newLine(d: *Drawable) Err!void {
+pub fn newLine(d: *Drawable) Error!void {
     _ = try d.write("\n");
 }
 

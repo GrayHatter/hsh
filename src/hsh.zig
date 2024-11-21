@@ -2,10 +2,10 @@ const std = @import("std");
 const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 const Drawable = @import("draw.zig").Drawable;
-const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const TTY = @import("tty.zig").TTY;
 const builtin = @import("builtin");
 const ArrayList = std.ArrayList;
+const Token = @import("token.zig");
 const Signals = @import("signals.zig");
 const Queue = std.atomic.Queue;
 const jobs = @import("jobs.zig");
@@ -84,8 +84,6 @@ fn readFromRC(hsh: *HSH) E!void {
         const r = rc_.reader();
         var a = hsh.alloc;
 
-        var tokenizer = Tokenizer.init(a);
-        defer tokenizer.raze();
         rc_.seekTo(0) catch return E.FSError;
         while (readLine(&a, r)) |line| {
             defer a.free(line);
@@ -95,9 +93,7 @@ fn readFromRC(hsh: *HSH) E!void {
             if (line.len > 0 and line[0] == '#') {
                 continue;
             }
-            defer tokenizer.reset();
-            tokenizer.consumes(line) catch return E.Memory;
-            var titr = tokenizer.iterator();
+            var titr = Token.Iterator{ .raw = line };
             const tokens = titr.toSlice(a) catch return E.Memory;
             defer a.free(tokens);
             var pitr = Parser.parse(a, tokens) catch continue;
@@ -189,7 +185,6 @@ pub const HSH = struct {
     jobs: *jobs.Jobs,
     tty: TTY = undefined,
     draw: Drawable = undefined,
-    tkn: Tokenizer = undefined,
     line: *Line = undefined,
     input: i32 = 0,
     changes: []u8 = undefined,
@@ -213,7 +208,6 @@ pub const HSH = struct {
             .env = env,
             .pid = std.os.linux.getpid(),
             .jobs = jobs.init(a),
-            .tkn = Tokenizer.init(a),
             .hfs = hfs,
         };
 
@@ -239,7 +233,6 @@ pub const HSH = struct {
         hsh.env.deinit();
         jobs.raze(hsh.alloc);
         hsh.hfs.raze(hsh.alloc);
-        hsh.tkn.raze();
     }
 
     fn sleep(_: *HSH) void {

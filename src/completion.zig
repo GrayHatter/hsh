@@ -207,7 +207,7 @@ pub const CompSet = struct {
     //orig_token: ?*const Token = null,
     kind: Token.Kind = .nos,
     err: bool = false,
-    draw_cache: [flavors_len]?[]Draw.LexTree = .{null} ** 3,
+    draw_cache: [flavors_len]?[]Draw.Lexeme = .{null} ** 3,
 
     /// Intentionally excludes original from the count
     pub fn count(self: *const CompSet) usize {
@@ -387,8 +387,9 @@ pub const CompSet = struct {
             if (err == Draw.Layout.Error.ItemCount) {
                 var fbuf: [128]u8 = undefined;
                 const str = try std.fmt.bufPrint(&fbuf, ERRSTR_TOOBIG, .{self.count()});
-                try Draw.drawAfter(d, Draw.LexTree{
-                    .lex = Draw.Lexeme{ .char = str, .style = .{ .attr = .bold, .fg = .red } },
+                try Draw.drawAfter(d, Draw.Lexeme{
+                    .char = str,
+                    .style = .{ .attr = .bold, .fg = .red },
                 });
                 self.err = true;
                 return err;
@@ -400,15 +401,17 @@ pub const CompSet = struct {
         if (self.err) {
             var fbuf: [128]u8 = undefined;
             const str = try std.fmt.bufPrint(&fbuf, ERRSTR_TOOBIG, .{self.count()});
-            try Draw.drawAfter(d, Draw.LexTree{
-                .lex = Draw.Lexeme{ .char = str, .style = .{ .attr = .bold, .fg = .red } },
-            });
+            try Draw.drawAfter(
+                d,
+                Draw.Lexeme{ .char = str, .style = .{ .attr = .bold, .fg = .red } },
+            );
             return;
         }
         if (self.count() == 0) {
-            try Draw.drawAfter(d, Draw.LexTree{
-                .lex = Draw.Lexeme{ .char = ERRSTR_NOOPTS, .style = .{ .attr = .bold, .fg = .red } },
-            });
+            try Draw.drawAfter(
+                d,
+                Draw.Lexeme{ .char = ERRSTR_NOOPTS, .style = .{ .attr = .bold, .fg = .red } },
+            );
             return;
         }
 

@@ -1,8 +1,7 @@
 const std = @import("std");
 const hsh = @import("../hsh.zig");
 const HSH = hsh.HSH;
-const tokenizer = @import("../tokenizer.zig");
-const Token = tokenizer.Token;
+const Token = @import("../token.zig");
 const bi = @import("../builtins.zig");
 const Err = bi.Err;
 const Parse = @import("../parse.zig");
@@ -158,7 +157,7 @@ test "save" {
     defer raze(a);
     const str = "alias haxzor='ssh 127.0.0.1 \"echo hsh was here | sudo tee /root/.lmao.txt\"'";
 
-    var itr = tokenizer.TokenIterator{ .raw = str };
+    var itr = Token.Iterator{ .raw = str };
     const slice = try itr.toSliceExec(a);
     defer a.free(slice);
     var pitr = try Parse.Parser.parse(a, slice);
