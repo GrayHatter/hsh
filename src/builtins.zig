@@ -186,7 +186,7 @@ pub fn die(_: *HSH, _: *ParsedIterator) Err!u8 {
 test "fs" {
     const c = std.fs.cwd();
     // I assume this dir will always exist... but we'll see :D
-    const ndir = try c.openDir("./zig-cache", .{});
+    const ndir = try c.openDir("./src", .{});
     try ndir.setAsCwd();
 }
 

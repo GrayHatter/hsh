@@ -79,22 +79,20 @@ pub fn peek(line: Line) []const u8 {
     return line.tkn.raw.items;
 }
 
-pub fn do(line: *Line) ![]u8 {
+fn core(line: *Line) !void {
     while (true) {
         const input = switch (line.mode) {
             .interactive => line.input.interactive(),
             .scripted => line.input.nonInteractive(),
-            .external_editor => return line.externEditorRead(),
+            .external_editor => return error.PassToExternEditor,
         } catch |err| switch (err) {
             error.io => return err,
             error.signaled => {
                 Draw.clearCtx(&line.hsh.draw);
                 try Draw.render(&line.hsh.draw);
-                return line.alloc.dupe(u8, "");
+                return error.SendEmpty;
             },
-            error.end_of_text => {
-                return try line.alloc.dupe(u8, line.tkn.raw.items);
-            },
+            error.end_of_text => return error.FIXME,
         };
         ////hsh.draw.cursor = 0;
         //if (tkn.raw.items.len == 0) {
@@ -131,8 +129,8 @@ pub fn do(line: *Line) ![]u8 {
                     .left => line.tkn.move(.dec),
                     .right => line.tkn.move(.inc),
                     .backspace => line.tkn.pop(),
-                    .newline => return try line.dupeText(),
-                    .end_of_text => return try line.dupeText(),
+                    .newline => return,
+                    .end_of_text => return,
                     .delete_word => _ = try line.tkn.dropWord(),
                     .tab => {}, //try line.complete(),
                     else => |els| log.warn("unknown {}\n", .{els}),
@@ -144,10 +142,20 @@ pub fn do(line: *Line) ![]u8 {
 
             else => |el| {
                 log.err("uncaptured {}\n", .{el});
-                return line.dupeText();
+                return;
             },
         }
     }
+}
+
+pub fn do(line: *Line) ![]u8 {
+    line.core() catch |err| switch (err) {
+        error.PassToExternEditor => return try line.externEditorRead(),
+        error.SendEmpty => return try line.alloc.dupe(u8, ""),
+        error.FIXME => return try line.alloc.dupe(u8, line.tkn.raw.items),
+        else => return err,
+    };
+    return line.dupeText();
 }
 
 fn dupeText(line: Line) ![]u8 {
