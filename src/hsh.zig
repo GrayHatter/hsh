@@ -46,9 +46,9 @@ pub const hshFeature = struct {
 // Until tagged structs are a thing, enforce these to be equal at compile time
 // it's probably not important for the order to be equal... but here we are :)
 comptime {
-    std.debug.assert(@typeInfo(Features).Enum.fields.len == @typeInfo(hshFeature).Struct.fields.len);
-    for (@typeInfo(Features).Enum.fields, 0..) |field, i| {
-        std.debug.assert(std.mem.eql(u8, field.name, @typeInfo(hshFeature).Struct.fields[i].name));
+    std.debug.assert(@typeInfo(Features).@"enum".fields.len == @typeInfo(hshFeature).@"struct".fields.len);
+    for (@typeInfo(Features).@"enum".fields, 0..) |field, i| {
+        std.debug.assert(std.mem.eql(u8, field.name, @typeInfo(hshFeature).@"struct".fields[i].name));
         //@compileLog("{s}\n", .{field.name});
     }
 }

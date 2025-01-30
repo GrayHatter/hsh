@@ -113,10 +113,10 @@ pub fn execOpt(self: BuiltinOptionals) BuiltinFn {
 
 /// Caller must ensure this builtin exists by calling exists, or optionalExists
 pub fn strExec(str: []const u8) BuiltinFn {
-    inline for (@typeInfo(Builtins).Enum.fields[0..]) |f| {
+    inline for (@typeInfo(Builtins).@"enum".fields[0..]) |f| {
         if (std.mem.eql(u8, f.name, str)) return exec(@enumFromInt(f.value));
     }
-    inline for (@typeInfo(BuiltinOptionals).Enum.fields[0..]) |f| {
+    inline for (@typeInfo(BuiltinOptionals).@"enum".fields[0..]) |f| {
         if (std.mem.eql(u8, f.name, str)) return execOpt(@enumFromInt(f.value));
     }
     log.err("strExec panic on {s}\n", .{str});
@@ -124,7 +124,7 @@ pub fn strExec(str: []const u8) BuiltinFn {
 }
 
 pub fn exists(str: []const u8) bool {
-    inline for (@typeInfo(Builtins).Enum.fields[0..]) |f| {
+    inline for (@typeInfo(Builtins).@"enum".fields[0..]) |f| {
         if (std.mem.eql(u8, f.name, str)) return true;
     }
     return false;
@@ -133,7 +133,7 @@ pub fn exists(str: []const u8) bool {
 /// Optional builtins "exist" only if they don't already exist on the system.
 /// this is not enforced internally callers are expected to behave
 pub fn existsOptional(str: []const u8) bool {
-    inline for (@typeInfo(BuiltinOptionals).Enum.fields[0..]) |f| {
+    inline for (@typeInfo(BuiltinOptionals).@"enum".fields[0..]) |f| {
         if (std.mem.eql(u8, f.name, str)) return true;
     }
     return false;
@@ -238,13 +238,13 @@ fn noimpl(_: *HSH, i: *ParsedIterator) Err!u8 {
 test "builtins" {
     const str = @tagName(Builtins.alias);
     var bi: bool = false;
-    inline for (@typeInfo(Builtins).Enum.fields[0..]) |f| {
+    inline for (@typeInfo(Builtins).@"enum".fields[0..]) |f| {
         if (std.mem.eql(u8, f.name, str)) bi = true;
     }
     try std.testing.expect(bi);
     var bi2 = false;
     const never = "pleasegodletthisneverbecomeabuiltin";
-    inline for (@typeInfo(Builtins).Enum.fields[0..]) |f| {
+    inline for (@typeInfo(Builtins).@"enum".fields[0..]) |f| {
         if (std.mem.eql(u8, f.name, never)) bi2 = true;
     }
     try std.testing.expect(!bi2);

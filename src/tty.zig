@@ -128,7 +128,7 @@ pub fn pwnTTY(self: *TTY) void {
     self.pid = std.os.linux.getpid();
     const ssid = custom_syscalls.getsid(0);
     log.debug("pwnTTY {} and {} \n", .{ self.pid, ssid });
-    if (ssid != self.pid) _ = custom_syscalls.setpgid(self.pid, self.pid);
+    if (ssid != self.pid) _ = std.os.linux.setpgid(self.pid, self.pid);
 
     const res = std.posix.tcsetpgrp(self.dev, self.pid) catch |err| {
         self.owner = self.pid;
@@ -211,8 +211,8 @@ pub fn geom(self: *TTY) !Cord {
         return std.posix.unexpectedErrno(@enumFromInt(err));
     }
     return .{
-        .x = size.ws_col,
-        .y = size.ws_row,
+        .x = size.col,
+        .y = size.row,
     };
 }
 
@@ -230,7 +230,7 @@ pub fn raze(self: *TTY) void {
 const expect = std.testing.expect;
 test "split" {
     var s = "\x1B[86;1R";
-    var splits = std.mem.split(u8, s[2..], ";");
+    var splits = std.mem.splitAny(u8, s[2..], ";");
     const x: usize = std.fmt.parseInt(usize, splits.next().?, 10) catch 0;
     var y: usize = 0;
     if (splits.next()) |thing| {

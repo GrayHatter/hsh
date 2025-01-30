@@ -52,7 +52,7 @@ fn save(h: *HSH, _: *anyopaque) ?[][]const u8 {
     for (aliases.items, 0..) |a, i| {
         list[i] = std.fmt.allocPrint(h.alloc, "{save}\n", .{a}) catch continue;
     }
-    return list;
+    return @ptrCast(list);
 }
 
 pub fn alias(h: *HSH, titr: *ParsedIterator) Err!u8 {

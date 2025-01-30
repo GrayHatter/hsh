@@ -261,7 +261,7 @@ pub const ParsedIterator = struct {
 
         var tokens = ArrayList(Token).init(self.alloc);
         if (std.mem.indexOf(u8, token.cannon(), "/")) |_| {
-            var bitr = std.mem.splitBackwards(u8, token.cannon(), "/");
+            var bitr = std.mem.splitBackwardsAny(u8, token.cannon(), "/");
             const glob = bitr.first();
             const dir = bitr.rest();
             if (Parser.globAt(self.alloc, dir, glob)) |names| {
@@ -315,7 +315,7 @@ pub const ParsedIterator = struct {
         if (self.aliases.len > 0) {
             self.alloc.free(self.aliases);
         }
-        self.aliases = self.alloc.alloc([]u8, 0) catch @panic("Alloc 0 can't fail");
+        self.aliases = self.alloc.alloc([]const u8, 0) catch @panic("Alloc 0 can't fail");
         for (self.resolved) |*token| {
             token.raze();
         }
@@ -343,7 +343,7 @@ pub const Parser = struct {
             .alloc = a,
             .resolved = a.alloc(Parsed, 0) catch return Error.Memory,
             .tokens = tokens[start..],
-            .aliases = a.alloc([]u8, 0) catch return Error.Memory,
+            .aliases = a.alloc([]const u8, 0) catch return Error.Memory,
         };
     }
 

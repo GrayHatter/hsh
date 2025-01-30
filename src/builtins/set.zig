@@ -26,7 +26,7 @@ pub const Opts = enum(u8) {
     Trace = 'x',
 
     pub fn find(c: u8) Err!Opts {
-        inline for (@typeInfo(Opts).Enum.fields) |field| {
+        inline for (@typeInfo(Opts).@"enum".fields) |field| {
             if (field.value == c) return @enumFromInt(field.value);
         }
         return Err.InvalidToken;
@@ -140,7 +140,7 @@ fn option(_: std.mem.Allocator, opt: []const u8, titr: *ParsedIterator) Err!u8 {
 }
 
 fn dump() Err!u8 {
-    inline for (@typeInfo(PosixOpts).Enum.fields) |o| {
+    inline for (@typeInfo(PosixOpts).@"enum".fields) |o| {
         const name = o.name;
         const truthy = if (Vars.get(name)) |str|
             std.mem.eql(u8, "true", str)

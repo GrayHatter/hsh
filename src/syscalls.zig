@@ -9,9 +9,6 @@ comptime {
 
     if (@hasDecl(std.os.linux, "getsid"))
         @compileError("Os already provides custom getsid");
-
-    if (@hasDecl(std.os.linux, "setpgid"))
-        @compileError("Os already provides custom setpgid");
 }
 
 pub fn getsid(pid: pid_t) pid_t {
@@ -26,10 +23,4 @@ pub fn getpgid(pid: pid_t) pid_t {
     return @truncate(@as(isize, @bitCast(
         std.os.linux.syscall1(.getpgid, @bitCast(@as(isize, pid))),
     )));
-}
-
-pub fn setpgid(pid: pid_t, pgid: pid_t) usize {
-    return @bitCast(
-        std.os.linux.syscall2(.setpgid, @bitCast(@as(isize, pid)), @bitCast(@as(isize, pgid))),
-    );
 }

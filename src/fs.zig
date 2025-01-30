@@ -77,7 +77,7 @@ watches: [1]?INotify,
 pub fn init(a: mem.Allocator, env: std.process.EnvMap) !fs {
     var paths = std.ArrayList([]const u8).init(a);
     if (env.get("PATH")) |penv| {
-        var mpaths = std.mem.tokenize(u8, penv, ":");
+        var mpaths = std.mem.tokenizeAny(u8, penv, ":");
         while (mpaths.next()) |mpath| {
             try paths.append(mpath);
         }

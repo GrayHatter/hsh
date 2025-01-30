@@ -34,7 +34,7 @@ pub const Reserved = enum {
     pub fn fromStr(str: []const u8) ?Reserved {
         std.debug.assert(str.len <= 5);
         var lower: [6]u8 = undefined;
-        inline for (@typeInfo(Reserved).Enum.fields) |f| {
+        inline for (@typeInfo(Reserved).@"enum".fields) |f| {
             const name = std.ascii.lowerString(&lower, f.name);
             if (std.mem.eql(u8, str, name)) return @enumFromInt(f.value);
         }

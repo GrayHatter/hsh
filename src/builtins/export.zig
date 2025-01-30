@@ -58,7 +58,7 @@ fn save(h: *HSH, _: *anyopaque) ?[][]const u8 {
     for (export_list.items, 0..) |ex, i| {
         list[i] = std.fmt.allocPrint(h.alloc, "{save}\n", .{ex}) catch continue;
     }
-    return list;
+    return @ptrCast(list);
 }
 
 /// print the list of known exports to whatever builtin suggests
@@ -81,7 +81,7 @@ pub fn exports(h: *HSH, pitr: *ParsedIterator) Err!u8 {
     }
 
     if (std.mem.indexOf(u8, name.?.cannon(), "=")) |_| {
-        var keyitr = std.mem.split(u8, name.?.cannon(), "=");
+        var keyitr = std.mem.splitAny(u8, name.?.cannon(), "=");
         const key = keyitr.first();
         const value = keyitr.rest();
         Variables.put(key, value) catch {

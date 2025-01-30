@@ -69,7 +69,7 @@ pub const Event = union(enum) {
     keysm: KeyMod,
     mouse: Mouse,
 
-    pub fn key(k: Key) Event {
+    pub fn fromKey(k: Key) Event {
         return .{
             .keysm = .{
                 .evt = .{
@@ -78,7 +78,8 @@ pub const Event = union(enum) {
             },
         };
     }
-    pub fn ascii(a: ASCII) Event {
+
+    pub fn fromAscii(a: ASCII) Event {
         return .{
             .keysm = .{
                 .evt = .{
@@ -100,9 +101,9 @@ pub fn esc(io: i32) Error!Event {
     var buffer: [1]u8 = .{0x1B};
     _ = std.posix.read(io, &buffer) catch return Error.IO;
     switch (buffer[0]) {
-        0x1B => return Event.key(.esc),
+        0x1B => return Event.fromKey(.esc),
         '[' => return csi(io),
-        'O' => return Event.key(try sst(io)),
+        'O' => return Event.fromKey(try sst(io)),
         else => {
             log.warn("\n\nunknown input: escape {s} {}\n", .{ buffer, buffer[0] });
             return Event{ .keysm = .{
@@ -147,7 +148,7 @@ fn csi(io: i32) Error!Event {
     }
     std.debug.assert(i != buffer.len);
     switch (buffer[i]) {
-        '~' => return Event.key(try csi_vt(buffer[0..i])), // intentionally dropping ~
+        '~' => return Event.fromKey(try csi_vt(buffer[0..i])), // intentionally dropping ~
         'a'...'z', 'A'...'Z' => return csi_xterm(buffer[0 .. i + 1]),
         else => std.debug.print("\n\nunknown\n{any}\n\n\n", .{buffer}),
     }
@@ -156,12 +157,12 @@ fn csi(io: i32) Error!Event {
 
 fn csi_xterm(buffer: []const u8) Error!Event {
     switch (buffer[0]) {
-        'A' => return Event.key(.up),
-        'B' => return Event.key(.down),
-        'C' => return Event.key(.right),
-        'D' => return Event.key(.left),
-        'H' => return Event.key(.home),
-        'F' => return Event.key(.end),
+        'A' => return Event.fromKey(.up),
+        'B' => return Event.fromKey(.down),
+        'C' => return Event.fromKey(.right),
+        'D' => return Event.fromKey(.left),
+        'H' => return Event.fromKey(.home),
+        'F' => return Event.fromKey(.end),
         'I' => return .{ .mouse = .in },
         'O' => return .{ .mouse = .out },
         '0'...'9' => {
@@ -169,7 +170,7 @@ fn csi_xterm(buffer: []const u8) Error!Event {
             log.debug("\n\n{s} [{any}] key {}\n\n", .{ buffer, buffer, key });
             std.debug.assert(std.mem.count(u8, buffer, ";") == 1);
 
-            var mods = std.mem.split(u8, buffer, ";");
+            var mods = std.mem.splitAny(u8, buffer, ";");
             // Yes, I know hacky af, but I don't know all the other combos I
             // care about yet. :/
             if (!std.mem.eql(u8, "1", mods.first())) @panic("xterm is unable to parse given string");

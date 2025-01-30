@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const Queue = std.TailQueue;
+const Queue = std.DoublyLinkedList;
 const HSH = @import("hsh.zig").HSH;
 const log = @import("log");
 const jobs = @import("jobs.zig");
@@ -102,7 +102,7 @@ pub fn init(a: Allocator) !void {
     };
 
     for (wanted) |sig| {
-        try std.posix.sigaction(sig, &std.posix.Sigaction{
+        std.posix.sigaction(sig, &std.posix.Sigaction{
             .handler = .{ .sigaction = sig_cb },
             .mask = std.posix.empty_sigset,
             .flags = SA.SIGINFO | SA.RESTART,
@@ -114,7 +114,7 @@ pub fn init(a: Allocator) !void {
         std.posix.SIG.TTOU,
     };
     for (ignored) |sig| {
-        try std.posix.sigaction(sig, &std.posix.Sigaction{
+        std.posix.sigaction(sig, &std.posix.Sigaction{
             .handler = .{ .handler = std.posix.SIG.IGN },
             .mask = std.posix.empty_sigset,
             .flags = SA.RESTART,

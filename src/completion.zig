@@ -66,7 +66,7 @@ pub const Flavors = enum(u3) {
     file_system,
 };
 
-const flavors_len = @typeInfo(Flavors).Enum.fields.len;
+const flavors_len = @typeInfo(Flavors).@"enum".fields.len;
 
 pub const Kind = union(Flavors) {
     any: void,
@@ -525,7 +525,7 @@ fn completeDirBase(cs: *CompSet, cwdi: Dir, base: []const u8) !void {
 fn completePath(cs: *CompSet, _: *HSH, target: []const u8) !void {
     if (target.len < 1) return;
 
-    var whole = std.mem.splitBackwards(u8, target, "/");
+    var whole = std.mem.splitBackwardsAny(u8, target, "/");
     const base = whole.first();
     const path = whole.rest();
 

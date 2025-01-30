@@ -18,12 +18,15 @@ const Spinners = enum {
     corners,
     dots2t3,
 
-    const dots = [_][]const u8{ "⡄", "⡆", "⠆", "⠇", "⠃", "⠋", "⠉", "⠙", "⠘", "⠸", "⠰", "⢰", "⢠", "⣠", "⣀", "⣄" };
-    const corners = [_][]const u8{ "◢", "◣", "◤", "◥" };
+    pub const glyphs = struct {
+        const dots = [_][]const u8{ "⡄", "⡆", "⠆", "⠇", "⠃", "⠋", "⠉", "⠙", "⠘", "⠸", "⠰", "⢰", "⢠", "⣠", "⣀", "⣄" };
+        const corners = [_][]const u8{ "◢", "◣", "◤", "◥" };
+    };
+
     pub fn spin(s: Spinners, pos: usize) []const u8 {
         const art = switch (s) {
-            .corners => &[_][]const u8{ "◢", "◣", "◤", "◥" },
-            .dots2t3 => &[_][]const u8{ "⡄", "⡆", "⠆", "⠇", "⠃", "⠋", "⠉", "⠙", "⠘", "⠸", "⠰", "⢰", "⢠", "⣠", "⣀", "⣄" },
+            .corners => &glyphs.corners,
+            .dots2t3 => &glyphs.dots,
         };
         return art[pos % art.len];
     }
