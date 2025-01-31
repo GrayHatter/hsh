@@ -195,18 +195,15 @@ pub fn main() !void {
 
 // TODO determine if hsh still needs a custom panic the answer is probably yes,
 // to capture/save state, but that's a much later TODO
-//pub fn panic(msg: []const u8, trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
-//    @branchHint(.cold);
-//
-//    log.err("Panic reached... your TTY is likely broken now.\n\n      ...sorry about that!\n\n", .{});
-//    std.debug.print("\n\r\x1B[J", .{});
-//    _ = msg;
-//    _ = trace;
-//    //std.debug.defaultPanic(msg, trace);
-//    if (TTY.current_tty) |*t| {
-//        TTY.current_tty = null;
-//        t.raze();
-//    }
-//    std.time.sleep(1000 * 1000 * 1000 * 30);
-//    unreachable;
-//}
+pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, addr: ?usize) noreturn {
+    @branchHint(.cold);
+
+    log.err("Panic reached... your TTY is likely broken now.\n\n      ...sorry about that!\n\n", .{});
+    std.debug.print("\n\r\x1B[J", .{});
+    if (TTY.current_tty) |*t| {
+        TTY.current_tty = null;
+        t.raze();
+    }
+    std.debug.defaultPanic(msg, addr);
+    @trap();
+}
