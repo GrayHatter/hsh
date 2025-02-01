@@ -42,15 +42,15 @@ pub const FSKind = enum {
     }
 };
 
-pub const Flavors = enum(u3) {
+pub const Flavor = enum(u3) {
     any,
     path_exe,
     file_system,
 
-    pub const len = @typeInfo(Flavors).@"enum".fields.len;
+    pub const len = @typeInfo(Flavor).@"enum".fields.len;
 };
 
-pub const Kind = union(Flavors) {
+pub const Kind = union(Flavor) {
     any: void,
     path_exe: void,
     file_system: FSKind,
@@ -179,7 +179,7 @@ pub const CompSet = struct {
     alloc: Allocator,
     original: ?CompOption,
     /// Eventually groups should be dynamically allocated if it gets bigger
-    groups: [Flavors.len]CompList,
+    groups: [Flavor.len]CompList,
     group: *CompList,
     group_index: usize = 0,
     index: usize = 0,
@@ -189,7 +189,7 @@ pub const CompSet = struct {
     //orig_token: ?*const Token = null,
     kind: Token.Kind = .nos,
     err: bool = false,
-    draw_cache: [Flavors.len]?[][]Draw.Lexeme = .{null} ** 3,
+    draw_cache: [Flavor.len]?[][]Draw.Lexeme = .{null} ** 3,
 
     /// Intentionally excludes original from the count
     pub fn count(self: *const CompSet) usize {
@@ -301,7 +301,7 @@ pub const CompSet = struct {
         }
     }
 
-    pub fn groupSet(self: *CompSet, grp: ?Flavors) void {
+    pub fn groupSet(self: *CompSet, grp: ?Flavor) void {
         if (grp) |g| {
             self.group_index = @intFromEnum(g);
         } else {
@@ -315,93 +315,56 @@ pub const CompSet = struct {
         try self.group.append(o);
     }
 
-    pub fn drawGroup(self: *CompSet, f: Flavors, d: *Draw.Drawable, wh: Cord) !void {
-        //defer list.clearAndFree();
-        const g_int = @intFromEnum(f);
-        const group = &self.groups[g_int];
-        const current_group = g_int == self.group_index;
+    pub fn drawGroup(self: *CompSet, f: Flavor, wh: Cord) ![][]Draw.Lexeme {
+        const cache: *?[][]Draw.Lexeme = &self.draw_cache[@intFromEnum(f)];
+        const group = &self.groups[@intFromEnum(f)];
 
-        if (group.items.len == 0) return;
+        if (group.items.len == 0) return error.Empty;
 
-        if (self.draw_cache[g_int]) |dcache| {
+        if (cache.*) |dcache| {
             const mod: usize = if (dcache[0].len > 0) dcache[0].len else 1;
-            // self.index points to the next item, current item is index - 1
-
             const this_row = (self.index) / mod;
             const this_col = (self.index) % mod;
 
             for (dcache, 0..) |row, r| {
-                var plz_draw = false;
                 for (row) |*column| {
                     if (searchMatch(column.char, self.search.items) == null) {
                         column.style.?.attr = .dim;
                     } else {
                         styleInactive(column);
-                        plz_draw = true;
                     }
                 }
-
-                if (current_group and r == this_row and row.len > 0) {
+                if (r == this_row and row.len > 0) {
                     styleActive(&row[this_col]);
                 }
-
-                if (plz_draw) try Draw.drawAfter(d, row);
             }
-            return;
+            return dcache;
         }
-        try self.drawGroupBuild(f, d, wh);
-        return self.drawGroup(f, d, wh);
+
+        cache.* = try self.buildDrawGroup(f, wh);
+        return cache.*.?;
     }
 
-    pub fn drawGroupBuild(self: *CompSet, f: Flavors, d: *Draw.Drawable, wh: Cord) !void {
-        const g_int = @intFromEnum(f);
-        const group = &self.groups[g_int];
+    fn buildDrawGroup(self: CompSet, f: Flavor, wh: Cord) ![][]Draw.Lexeme {
+        const group = &self.groups[@intFromEnum(f)];
 
         var list = ArrayList(Draw.Lexeme).init(self.alloc);
-        for (group.items) |itm| {
-            const lex = itm.lexeme(false);
-            list.append(lex) catch break;
-        }
+        for (group.items) |itm| list.append(itm.lexeme(false)) catch break;
         const items = try list.toOwnedSlice();
-        if (Draw.Layout.tableLexeme(self.alloc, items, wh)) |lexes| {
-            self.draw_cache[g_int] = lexes;
-        } else |err| switch (err) {
-            error.ItemCount => {
-                var fbuf: [128]u8 = undefined;
-                const str = try std.fmt.bufPrint(&fbuf, ERRSTR_TOOBIG, .{self.count()});
-                try Draw.drawAfter(d, &[_]Draw.Lexeme{.{
-                    .char = str,
-                    .style = .{ .attr = .bold, .fg = .red },
-                }});
-                self.err = true;
-                return err;
-            },
-            else => unreachable,
-        }
+        return try Draw.Layout.tableLexeme(self.alloc, items, wh);
     }
 
-    pub fn drawAll(self: *CompSet, d: *Draw.Drawable, wh: Cord) !void {
-        if (self.err) {
-            var fbuf: [128]u8 = undefined;
-            const str = try std.fmt.bufPrint(&fbuf, ERRSTR_TOOBIG, .{self.count()});
-            try Draw.drawAfter(
-                d,
-                &[_]Draw.Lexeme{.{ .char = str, .style = .{ .attr = .bold, .fg = .red } }},
-            );
-            return;
-        }
+    pub fn drawAll(self: *CompSet, wh: Cord) !void {
         if (self.count() == 0) {
-            try Draw.drawAfter(
-                d,
-                &[_]Draw.Lexeme{.{ .char = ERRSTR_NOOPTS, .style = .{ .attr = .bold, .fg = .red } }},
-            );
             return;
         }
 
-        // Yeah... I know
-        for (0..Flavors.len) |flavor| {
+        for (0..Flavor.len) |flavor| {
             // TODO Draw name
-            try self.drawGroup(@enumFromInt(flavor), d, wh);
+            _ = self.drawGroup(@enumFromInt(flavor), wh) catch |err| switch (err) {
+                error.Empty => continue,
+                else => return err,
+            };
         }
     }
 
@@ -615,12 +578,6 @@ pub fn complete(cs: *CompSet, hsh: *HSH, tks: *Tokenizer) !void {
     // TODO need the real bug here
     var pair = findToken(tks);
     const hint: Kind = if (ts.len <= 1) .path_exe else .any;
-
-    try Draw.drawAfter(&hsh.draw, &[_]Draw.Lexeme{.{
-        .char = "[ complete ]",
-        .style = .{ .attr = .bold, .fg = .green },
-    }});
-    try hsh.draw.render();
 
     switch (hint) {
         .path_exe => {

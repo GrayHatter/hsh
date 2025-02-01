@@ -247,10 +247,6 @@ fn complete(line: *Line) !void {
             switch (ks) {
                 .char => |c| {
                     line.hsh.draw.clear();
-                    try Draw.drawAfter(&line.hsh.draw, &[_]Draw.Lexeme{.{
-                        .char = "[ char ]",
-                        .style = Draw.Style.BoldGreen,
-                    }});
                     try Prompt.draw(line.hsh, line.peek());
                     try line.hsh.draw.render();
 
@@ -258,7 +254,11 @@ fn complete(line: *Line) !void {
                         0x09 => unreachable,
                         0x0A => unreachable,
                         0x7f => unreachable,
-                        ' ' => continue :sw .{ .redraw = {} },
+                        ' ' => {
+                            try line.tkn.maybeCommit(null);
+                            cmplt.raze();
+                            continue :sw .{ .done = {} };
+                        },
                         '/' => |chr| {
                             // IFF this is an existing directory,
                             // completion should continue
@@ -344,10 +344,15 @@ fn complete(line: *Line) !void {
         },
         .redraw => {
             line.hsh.draw.clear();
-            cmplt.drawAll(&line.hsh.draw, line.hsh.draw.term_size) catch |err| switch (err) {
+            cmplt.drawAll(line.hsh.draw.term_size) catch |err| switch (err) {
                 error.ItemCount => {},
                 else => return err,
             };
+            for (cmplt.draw_cache) |grp| {
+                for (grp orelse continue) |row| {
+                    try line.hsh.draw.drawAfter(row);
+                }
+            }
             try Prompt.draw(line.hsh, line.peek());
             try line.hsh.draw.render();
             continue :sw .{ .read = {} };

@@ -154,13 +154,14 @@ pub fn tableLexeme(a: Allocator, items: []const Lexeme, wh: Cord) Error![][]Lexe
     const remainder = (items.len % stride) -| 1;
 
     const rows = try a.alloc([]Lexeme, row_count);
-    for (rows, 0..) |*dstrow, i| {
-        const row_num = if (i == row_count - 1) remainder else stride;
+    for (rows, 0..) |*row, i| {
+        const row_num = if (i == row_count - 1 and i != 0) remainder else stride;
 
-        dstrow.* = try a.alloc(Lexeme, row_num);
-        for (dstrow.*, 0..) |*col, j| {
+        row.* = try a.alloc(Lexeme, row_num);
+        for (row.*, 0..) |*col, j| {
             const offset = i * stride + j;
             col.char = try dupePadded(a, items[offset].char, colsz[j]);
+            col.style = items[offset].style;
         }
     }
     return rows;
