@@ -1,16 +1,3 @@
-const std = @import("std");
-const Allocator = std.mem.Allocator;
-const TTY = @import("tty.zig").TTY;
-const ArrayList = std.ArrayList;
-const hsh_ = @import("hsh.zig");
-const HSH = hsh_.HSH;
-const Features = hsh_.Features;
-const countPrintable = Layout.countPrintable;
-
-pub const Layout = @import("draw/layout.zig");
-
-const DrawBuf = ArrayList(u8);
-
 alloc: Allocator,
 tty: *TTY,
 hsh: *HSH,
@@ -22,6 +9,9 @@ right: DrawBuf = undefined,
 after: DrawBuf = undefined,
 term_size: Cord = .{},
 lines: u16 = 0,
+
+pub const Layout = @import("draw/layout.zig");
+const DrawBuf = ArrayList(u8);
 
 pub const Cord = struct {
     x: isize = 0,
@@ -304,3 +294,12 @@ pub fn printAfter(d: *const Drawable, comptime c: []const u8, a: anytype) !void 
     _ = try w.write("\x1B[A");
     _ = try w.write("\r");
 }
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const TTY = @import("tty.zig").TTY;
+const ArrayList = std.ArrayList;
+const hsh_ = @import("hsh.zig");
+const HSH = hsh_.HSH;
+const Features = hsh_.Features;
+const countPrintable = Layout.countPrintable;
