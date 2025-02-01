@@ -77,15 +77,6 @@ pub fn draw(hsh: *HSH, line: []const u8) !void {
 
     try prompt(&hsh.draw, hsh.env.get("USER"), hsh.hfs.names.cwd_short);
     try userText(hsh, line, "");
-    // try drawRight(&hsh.draw, .{
-    //     .siblings = @constCast(&[_]Lexeme{
-    //         .{ .char = try std.fmt.bufPrint(&tokens, "({}) ({}) [{}]", .{
-    //             tkn.raw.items.len,
-    //             tkn.tokens.items.len,
-    //             tkn.c_tkn,
-    //         }) },
-    //     }),
-    // });
 }
 
 fn jobsContext(hsh: *HSH, jobs: []*Job) !void {
