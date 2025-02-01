@@ -1,21 +1,4 @@
-const std = @import("std");
-const Allocator = std.mem.Allocator;
-const log = @import("log");
-
-const fs = @import("fs.zig");
-const HSH = @import("hsh.zig").HSH;
-const Complete = @import("completion.zig");
-const History = @import("history.zig");
-const Input = @import("input.zig");
-const Keys = @import("keys.zig");
-const Prompt = @import("prompt.zig");
-
-const printAfter = Draw.printAfter;
-const Draw = @import("draw.zig");
-
 const Line = @This();
-
-const Tokenizer = @import("tokenizer.zig");
 
 const Mode = enum {
     TYPING,
@@ -122,7 +105,7 @@ fn core(line: *Line) !void {
         switch (input) {
             .char => |c| try line.char(c),
             .control => |ctrl| {
-                switch (ctrl) {
+                switch (ctrl.c) {
                     .esc => continue,
                     .up => line.findHistory(.up),
                     .down => line.findHistory(.down),
@@ -132,7 +115,7 @@ fn core(line: *Line) !void {
                     .newline => return,
                     .end_of_text => return,
                     .delete_word => _ = try line.tkn.dropWord(),
-                    .tab => {}, //try line.complete(),
+                    .tab => try line.complete(),
                     else => |els| log.warn("unknown {}\n", .{els}),
                 }
                 line.hsh.draw.clear();
@@ -245,16 +228,17 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *Complete.CompSet) !Mode {
             return .COMPENDING;
         } else {
             comp.raze();
-            try Draw.drawAfter(&hsh.draw, Draw.LexTree{
-                .lex = Draw.Lexeme{ .char = "[ found ]", .style = .{ .attr = .bold, .fg = .green } },
-            });
+            try Draw.drawAfter(&hsh.draw, &[_]Draw.Lexeme{.{
+                .char = "[ found ]",
+                .style = .{ .attr = .bold, .fg = .green },
+            }});
             return .TYPING;
         }
     }
 
     if (comp.countFiltered() == 0) {
-        try Draw.drawAfter(&hsh.draw, Draw.LexTree{
-            .lex = Draw.Lexeme{ .char = "[ nothing found ]", .style = .{ .attr = .bold, .fg = .red } },
+        try Draw.drawAfter(&hsh.draw, &[_]Draw.Lexeme{
+            Draw.Lexeme{ .char = "[ nothing found ]", .style = .{ .attr = .bold, .fg = .red } },
         });
         if (comp.count() == 0) {
             comp.raze();
@@ -273,113 +257,134 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *Complete.CompSet) !Mode {
     return .COMPLETING;
 }
 
-fn completing(in: *Input, hsh: *HSH, tkn: *Tokenizer, ks: Keys.KeyMod, comp: *Complete.CompSet) !Input.Event {
-    if (in.mode == .TYPING) {
-        try Complete.complete(comp, hsh, tkn);
-        in.mode = .COMPLETING;
-        return in.completing(hsh, tkn, ks, comp);
-    }
+const CompState = union(enum) {
+    typing: Input.Event,
+    pending: void,
+    read: void,
+    redraw: void,
+    done: void,
+};
 
-    switch (ks.evt) {
-        .ascii => |c| {
-            switch (c) {
-                0x09 => {
-                    // tab \t
-                    if (ks.mods.shift) {
-                        comp.revr();
-                        comp.revr();
-                    }
-                    in.mode = try doComplete(hsh, tkn, comp);
-                    return .Redraw;
-                },
-                0x0A => {
-                    // newline \n
-                    if (in.mode == .COMPENDING) {
-                        in.mode = .TYPING;
-                        return .Exec;
-                    }
-                    if (comp.count() > 0) {
-                        try tkn.maybeReplace(comp.current());
-                        try tkn.maybeCommit(comp.current());
-                        in.mode = .COMPENDING;
-                    }
-                    return .Redraw;
-                },
-                0x7f => { // backspace
-                    if (in.mode == .COMPENDING) {
-                        in.mode = .TYPING;
-                        return .Redraw;
-                    }
-                    comp.searchPop() catch {
-                        in.mode = .TYPING;
-                        comp.raze();
-                        tkn.raw_maybe = null;
-                        return .Redraw;
-                    };
-                    in.mode = try doComplete(hsh, tkn, comp);
-                    try tkn.maybeDrop();
-                    try tkn.maybeAdd(comp.search.items);
-                    return .Redraw;
-                },
-                ' ' => {
-                    in.mode = .TYPING;
-                    return .Redraw;
-                },
-                '/' => |chr| {
-                    // IFF this is an existing directory,
-                    // completion should continue
-                    if (comp.count() > 1) {
-                        if (comp.current().kind) |kind| {
-                            if (kind == .file_system and kind.file_system == .dir) {
-                                try tkn.consumec(chr);
+fn complete(line: *Line) !void {
+    sw: switch (CompState{ .typing = Input.Event{ .char = 0x09 } }) {
+        .pending => {},
+        .typing => |ks| {
+            switch (ks) {
+                .char => |c| {
+                    switch (c) {
+                        0x09 => {}, // unreachable?
+                        0x0A => {
+                            // TODO don't return if navigating around
+                            continue :sw .{ .done = {} };
+                            //if (line.completion.count() > 0) {
+                            //    try line.tkn.maybeReplace(line.completion.current());
+                            //    try line.tkn.maybeCommit(line.completion.current());
+                            //    continue :sw .{ .pending = {} };
+                            //}
+                            //continue :sw .{ .redraw = {} };
+                        },
+                        0x7f => { // backspace
+                            line.completion.?.searchPop() catch {
+                                line.completion.?.raze();
+                                line.tkn.raw_maybe = null;
+                                continue :sw .{ .done = {} };
+                            };
+                            //line.mode = try doComplete(line.hsh, line.tkn, line.completion);
+                            try line.tkn.maybeDrop();
+                            try line.tkn.maybeAdd(line.completion.?.search.items);
+                            continue :sw .{ .redraw = {} };
+                        },
+                        ' ' => continue :sw .{ .redraw = {} },
+                        '/' => |chr| {
+                            // IFF this is an existing directory,
+                            // completion should continue
+                            if (line.completion.?.count() > 1) {
+                                if (line.completion.?.current().kind) |kind| {
+                                    if (kind == .file_system and kind.file_system == .dir) {
+                                        try line.tkn.consumec(chr);
+                                    }
+                                }
                             }
-                        }
+                            continue :sw .{ .redraw = {} };
+                        },
+                        else => {
+                            //if (line.mode == .COMPENDING) line.mode = .COMPLETING;
+                            //try line.completion.?.searchChar(c);
+                            //line.mode = try doComplete(line.hsh, line.tkn, line.completion);
+                            //if (line.mode == .COMPLETING) {
+                            //    try line.tkn.maybeDrop();
+                            //    try line.tkn.maybeAdd(line.completion.search.items);
+                            //}
+                            continue :sw .{ .redraw = {} };
+                        },
                     }
-                    in.mode = .TYPING;
-                    return .Redraw;
                 },
-                else => {
-                    if (in.mode == .COMPENDING) in.mode = .COMPLETING;
-                    try comp.searchChar(c);
-                    in.mode = try doComplete(hsh, tkn, comp);
-                    if (in.mode == .COMPLETING) {
-                        try tkn.maybeDrop();
-                        try tkn.maybeAdd(comp.search.items);
+                .control => |k| {
+                    switch (k.c) {
+                        .tab => {
+                            if (k.mod.shift) {
+                                line.completion.?.revr();
+                                line.completion.?.revr();
+                            }
+                            _ = try doComplete(line.hsh, &line.tkn, &line.completion.?);
+                            continue :sw .{ .redraw = {} };
+                        },
+                        .esc => {
+                            try line.tkn.maybeDrop();
+                            if (line.completion.?.original) |o| {
+                                try line.tkn.maybeAdd(o.str);
+                                try line.tkn.maybeCommit(null);
+                            }
+                            line.completion.?.raze();
+                            continue :sw .{ .redraw = {} };
+                        },
+                        .up, .down, .left, .right => {
+                            // TODO implement arrows
+                            continue :sw .{ .redraw = {} };
+                        },
+                        .home, .end => |h_e| {
+                            try line.tkn.maybeCommit(null);
+                            line.tkn.idx = if (h_e == .home) 0 else line.tkn.raw.items.len;
+                            continue :sw .{ .redraw = {} };
+                        },
+                        else => {
+                            log.err("unexpected key  [{}]\n", .{ks});
+                            try line.tkn.maybeCommit(null);
+                        },
                     }
-                    return .Redraw;
                 },
+                .mouse => {},
+                .action => {},
             }
         },
-        .key => |k| {
-            switch (k) {
-                .Esc => {
-                    in.mode = .TYPING;
-                    try tkn.maybeDrop();
-                    if (comp.original) |o| {
-                        try tkn.maybeAdd(o.str);
-                        try tkn.maybeCommit(null);
-                    }
-                    comp.raze();
-                    return .Redraw;
-                },
-                .Up, .Down, .Left, .Right => {
-                    // TODO implement arrows
-                    return .Redraw;
-                },
-                .Home, .End => |h_e| {
-                    in.mode = .TYPING;
-                    try tkn.maybeCommit(null);
-                    tkn.cPos(if (h_e == .Home) .home else .end);
-                    return .Redraw;
-                },
-                else => {
-                    log.err("unexpected key  [{}]\n", .{ks});
-                    in.mode = .TYPING;
-                    try tkn.maybeCommit(null);
-                },
-            }
+        .redraw => {
+            line.hsh.draw.clear();
+            try Prompt.draw(line.hsh, line.peek());
+            try line.hsh.draw.render();
+            continue :sw .{ .read = {} };
+        },
+        .read => {
+            continue :sw .{ .typing = try line.input.interactive() };
+        },
+        .done => {
+            return;
         },
     }
-    log.err("end of completing... oops\n  [{}]\n", .{ks});
     unreachable;
 }
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const log = @import("log");
+
+const Tokenizer = @import("tokenizer.zig");
+const fs = @import("fs.zig");
+const HSH = @import("hsh.zig").HSH;
+const Complete = @import("completion.zig");
+const History = @import("history.zig");
+const Input = @import("input.zig");
+const Keys = @import("keys.zig");
+const Prompt = @import("prompt.zig");
+
+const Draw = @import("draw.zig");
+const printAfter = Draw.printAfter;

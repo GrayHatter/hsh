@@ -29,6 +29,25 @@ pub const Key = enum(u8) {
 };
 // zig fmt: on
 
+pub const Mods = struct {
+    shift: bool = false,
+    alt: bool = false,
+    ctrl: bool = false,
+    meta: bool = false,
+
+    pub fn any(m: *@This()) bool {
+        return m.shift or m.alt or m.ctrl or m.meta;
+    }
+
+    pub fn make(bits: u8) @This() {
+        return .{
+            .shift = (bits & 1) != 0,
+            .alt = (bits & 2) != 0,
+            .ctrl = (bits & 4) != 0,
+            .meta = (bits & 8) != 0,
+        };
+    }
+};
 pub const ASCII = u8;
 
 pub const KeyMod = struct {
@@ -37,26 +56,6 @@ pub const KeyMod = struct {
         key: Key,
     },
     mods: Mods = .{},
-
-    pub const Mods = struct {
-        shift: bool = false,
-        alt: bool = false,
-        ctrl: bool = false,
-        meta: bool = false,
-
-        pub fn any(m: *@This()) bool {
-            return m.shift or m.alt or m.ctrl or m.meta;
-        }
-
-        pub fn make(bits: u8) @This() {
-            return .{
-                .shift = (bits & 1) != 0,
-                .alt = (bits & 2) != 0,
-                .ctrl = (bits & 4) != 0,
-                .meta = (bits & 8) != 0,
-            };
-        }
-    };
 };
 
 pub const Mouse = enum {
@@ -110,7 +109,7 @@ pub fn esc(io: i32) Error!Event {
                 .evt = .{
                     .ascii = buffer[0],
                 },
-                .mods = KeyMod.Mods.make(2),
+                .mods = Mods.make(2),
             } };
         },
     }
@@ -180,7 +179,7 @@ fn csi_xterm(buffer: []const u8) Error!Event {
             return .{
                 .keysm = .{
                     .evt = .{ .key = key },
-                    .mods = KeyMod.Mods.make(mod_bits),
+                    .mods = Mods.make(mod_bits),
                 },
             };
         },
@@ -189,7 +188,7 @@ fn csi_xterm(buffer: []const u8) Error!Event {
             return Event{
                 .keysm = .{
                     .evt = .{ .ascii = 0x09 },
-                    .mods = KeyMod.Mods.make(1),
+                    .mods = Mods.make(1),
                 },
             };
         },

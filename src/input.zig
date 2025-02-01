@@ -38,19 +38,34 @@ pub const Control = enum {
     end_of_text,
     external_editor,
     reset_term,
+};
 
-    pub fn fromKey(k: Keys.Key) Control {
-        return switch (k) {
-            .esc => .esc,
-            .up => .up,
-            .down => .down,
-            .left => .left,
-            .right => .right,
-            .home => .home,
-            .end => .end,
-            .pgdn => .pgdn,
-            .pgup => .pgup,
-            else => unreachable,
+pub const CtrlMod = struct {
+    c: Control,
+    mod: Keys.Mods = .{},
+
+    pub fn fromChr(comptime c: u8) CtrlMod {
+        return .{ .c = switch (c) {
+            0x7F => .backspace,
+            else => comptime unreachable,
+        } };
+    }
+
+    pub fn fromKey(k: Keys.Key, mods: Keys.Mods) CtrlMod {
+        return .{
+            .c = switch (k) {
+                .esc => .esc,
+                .up => .up,
+                .down => .down,
+                .left => .left,
+                .right => .right,
+                .home => .home,
+                .end => .end,
+                .pgdn => .pgdn,
+                .pgup => .pgup,
+                else => unreachable,
+            },
+            .mod = mods,
         };
     }
 };
@@ -64,7 +79,7 @@ const errors = error{
 pub const Event = union(enum) {
     action: Action,
     char: u8,
-    control: Control,
+    control: CtrlMod,
     mouse: Keys.Mouse,
 };
 
@@ -163,9 +178,9 @@ fn event(km: Keys.KeyMod) Event {
             .pgup,
             .pgdn,
             => |r| {
-                return .{ .control = Control.fromKey(r) };
+                return .{ .control = CtrlMod.fromKey(r, km.mods) };
             },
-            .delete => return .{ .control = .delete },
+            .delete => return .{ .control = CtrlMod.fromKey(.delete, .{}) },
             else => {
                 log.err("unknown control key {}\n", .{k});
                 return .{ .action = .none };
@@ -181,10 +196,10 @@ fn utf8(key: Keys.ASCII) u8 {
 
 fn ascii(key: Keys.ASCII) Event {
     switch (key) {
-        0x00...0x1F => return .{ .control = ctrlCode(key) },
+        0x00...0x1F => return .{ .control = .{ .c = ctrlCode(key) } },
         // Normal printable ascii
         ' '...'~' => |b| return .{ .char = b },
-        0x7F => return .{ .control = .backspace },
+        0x7F => return .{ .control = CtrlMod.fromChr(0x7F) },
         0x80...0xFF => return .{ .char = utf8(key) },
     }
     return .{ .control = .none };
@@ -201,7 +216,7 @@ fn toChar(k: Keys.Event) errors!Event {
     }
 }
 
-pub fn nonInteractive(input: *Input) errors!Event {
+pub fn nonInteractive(input: Input) errors!Event {
     var buffer: [1]u8 = undefined;
 
     const nbyte: usize = input.read(&buffer) catch |err| {
