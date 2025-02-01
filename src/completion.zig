@@ -686,7 +686,7 @@ const log = @import("log");
 
 const HSH = @import("hsh.zig").HSH;
 const fs = @import("fs.zig");
-const Tokenizer = @import("tokenizer.zig").Tokenizer;
+const Tokenizer = @import("tokenizer.zig");
 const Token = @import("token.zig");
 const Parser = @import("parse.zig").Parser;
 const Draw = @import("draw.zig");

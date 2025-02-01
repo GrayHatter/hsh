@@ -1,14 +1,14 @@
-const std = @import("std");
-const log = @import("log");
-const Allocator = mem.Allocator;
-const ArrayList = std.ArrayList;
-const File = std.fs.File;
-const io = std.io;
-const mem = std.mem;
-const CompOption = @import("completion.zig").CompOption;
-const Token = @import("token.zig");
+alloc: Allocator,
+raw: ArrayList(u8),
+idx: usize = 0,
+raw_maybe: ?[]const u8 = null,
+prev_exec: ?ArrayList(u8) = null,
+c_tkn: usize = 0, // cursor is over this token
+err_idx: usize = 0,
+user_data: bool = false,
+editor_mktmp: ?[]u8 = null,
 
-pub const Tokenizer = @This();
+const Tokenizer = @This();
 
 pub const TokenError = Token.Error;
 
@@ -26,16 +26,6 @@ pub const CursorMotion = enum(u8) {
     inc,
     dec,
 };
-
-alloc: Allocator,
-raw: ArrayList(u8),
-idx: usize = 0,
-raw_maybe: ?[]const u8 = null,
-prev_exec: ?ArrayList(u8) = null,
-c_tkn: usize = 0, // cursor is over this token
-err_idx: usize = 0,
-user_data: bool = false,
-editor_mktmp: ?[]u8 = null,
 
 pub fn init(a: Allocator) Tokenizer {
     return Tokenizer{
@@ -1405,3 +1395,13 @@ test "build functions" {
     }
     try std.testing.expectEqual(count, 1);
 }
+
+const std = @import("std");
+const log = @import("log");
+const Allocator = mem.Allocator;
+const ArrayList = std.ArrayList;
+const File = std.fs.File;
+const io = std.io;
+const mem = std.mem;
+const CompOption = @import("completion.zig").CompOption;
+const Token = @import("token.zig");

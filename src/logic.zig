@@ -3,8 +3,7 @@ const log = @import("log");
 const Allocator = std.mem.Allocator;
 const tokens = @import("token.zig");
 const Token = tokens.Token;
-const tokenizer = @import("tokenizer.zig");
-const Tokenizer = tokenizer.Tokenizer;
+const Tokenizer = @import("tokenizer.zig");
 const exec_ = @import("exec.zig");
 
 const HSH = @import("hsh.zig").HSH;
@@ -47,7 +46,7 @@ fn execBody(a: Allocator, h: *HSH, body: []const u8) !void {
     defer tzr.raze();
     for (body) |b| {
         tzr.consumec(b) catch |err| {
-            if (err == tokenizer.Error.Exec) {
+            if (err == Tokenizer.Error.Exec) {
                 try exec_.exec(h, tzr.raw.items);
                 tzr.reset();
             }

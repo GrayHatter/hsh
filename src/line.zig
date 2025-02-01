@@ -217,7 +217,7 @@ fn findHistory(line: *Line, dr: enum { up, down }) void {
     }
 }
 
-fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *Complete.CompSet) !Mode {
+fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *Complete.CompSet) !bool {
     if (comp.known()) |only| {
         // original and single, complete now
         try tkn.maybeReplace(only);
@@ -225,14 +225,14 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *Complete.CompSet) !Mode {
 
         if (only.kind != null and only.kind.? == .file_system and only.kind.?.file_system == .dir) {
             try Complete.complete(comp, hsh, tkn);
-            return .COMPENDING;
+            return false;
         } else {
             comp.raze();
             try Draw.drawAfter(&hsh.draw, &[_]Draw.Lexeme{.{
                 .char = "[ found ]",
                 .style = .{ .attr = .bold, .fg = .green },
             }});
-            return .TYPING;
+            return true;
         }
     }
 
@@ -243,18 +243,18 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *Complete.CompSet) !Mode {
         if (comp.count() == 0) {
             comp.raze();
         }
-        return .TYPING;
+        return true;
     }
 
     if (comp.countFiltered() > 1) {
         const target = comp.next();
         try tkn.maybeReplace(target);
         comp.drawAll(&hsh.draw, hsh.draw.term_size) catch |err| {
-            if (err == Draw.Layout.Error.ItemCount) return .COMPLETING else return err;
+            if (err == Draw.Layout.Error.ItemCount) return false else return err;
         };
     }
 
-    return .COMPLETING;
+    return false;
 }
 
 const CompState = union(enum) {
