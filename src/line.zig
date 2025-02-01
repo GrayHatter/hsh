@@ -1,12 +1,3 @@
-const Line = @This();
-
-const Mode = enum {
-    TYPING,
-    COMPLETING,
-    COMPENDING, // Just completed a token, may or may not need more
-    EXEDIT,
-};
-
 hsh: *HSH,
 alloc: Allocator,
 input: Input,
@@ -22,6 +13,15 @@ completion: ?Complete.CompSet = null,
 text: []u8,
 
 usr_line: [1024]u8 = undefined,
+
+const Line = @This();
+
+const Mode = enum {
+    TYPING,
+    COMPLETING,
+    COMPENDING, // Just completed a token, may or may not need more
+    EXEDIT,
+};
 
 pub const Options = struct {
     interactive: bool = true,
