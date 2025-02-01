@@ -249,7 +249,7 @@ fn complete(line: *Line) !void {
                     line.hsh.draw.clear();
                     try Draw.drawAfter(&line.hsh.draw, &[_]Draw.Lexeme{.{
                         .char = "[ char ]",
-                        .style = .{ .attr = .bold, .fg = .green },
+                        .style = Draw.Style.BoldGreen,
                     }});
                     try Prompt.draw(line.hsh, line.peek());
                     try line.hsh.draw.render();

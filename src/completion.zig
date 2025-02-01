@@ -65,8 +65,8 @@ pub const CompOption = struct {
         try std.fmt.format(out, "CompOption{{{s}, {s}}}", .{ self.str, @tagName(self.kind) });
     }
 
-    pub fn style(self: CompOption, active: bool) Draw.Lexeme.Style {
-        const default = Draw.Lexeme.Style{
+    pub fn style(self: CompOption, active: bool) Draw.Style {
+        const default = Draw.Style{
             .attr = if (active) .reverse else .reset,
         };
         if (self.kind == null) return default;

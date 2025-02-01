@@ -54,16 +54,19 @@ pub const Color = enum {
     green,
 };
 
+pub const Style = struct {
+    attr: ?Attr = null,
+    fg: ?Color = null,
+    bg: ?Color = null,
+
+    pub const BoldGreen: Style = .{ .attr = .bold, .fg = .green };
+    pub const Green: Style = .{ .fg = .green };
+};
+
 pub const Lexeme = struct {
     char: []const u8,
     padding: ?Padding = null,
     style: ?Style = null,
-
-    pub const Style = struct {
-        attr: ?Attr = null,
-        fg: ?Color = null,
-        bg: ?Color = null,
-    };
 
     pub const Padding = struct {
         char: u8 = ' ',
