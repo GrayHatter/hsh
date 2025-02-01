@@ -1,22 +1,4 @@
-const std = @import("std");
-const ArrayList = std.ArrayList;
-const Allocator = std.mem.Allocator;
-const HSH = @import("hsh.zig").HSH;
-const fs = @import("fs.zig");
-const Dir = std.fs.Dir;
-const Tokenizer = @import("tokenizer.zig").Tokenizer;
-const Token = @import("token.zig");
-const Parser = @import("parse.zig").Parser;
-const Draw = @import("draw.zig");
-const Cord = Draw.Cord;
-const log = @import("log");
-const S = @import("strings.zig");
-const ERRSTR_TOOBIG = S.COMPLETE_TOOBIG;
-const ERRSTR_NOOPTS = S.COMPLETE_NOOPTS;
-const indexOfScalar = std.mem.indexOfScalar;
-const toUpper = std.ascii.toUpper;
-
-const Self = @This();
+const Completion = @This();
 
 pub const CompList = ArrayList(CompOption);
 
@@ -64,9 +46,9 @@ pub const Flavors = enum(u3) {
     any,
     path_exe,
     file_system,
-};
 
-const flavors_len = @typeInfo(Flavors).@"enum".fields.len;
+    pub const len = @typeInfo(Flavors).@"enum".fields.len;
+};
 
 pub const Kind = union(Flavors) {
     any: void,
@@ -83,8 +65,8 @@ pub const CompOption = struct {
         try std.fmt.format(out, "CompOption{{{s}, {s}}}", .{ self.str, @tagName(self.kind) });
     }
 
-    pub fn style(self: CompOption, active: bool) Draw.Style {
-        const default = Draw.Style{
+    pub fn style(self: CompOption, active: bool) Draw.Lexeme.Style {
+        const default = Draw.Lexeme.Style{
             .attr = if (active) .reverse else .reset,
         };
         if (self.kind == null) return default;
@@ -158,26 +140,26 @@ fn styleToggle(lex: *Draw.Lexeme) void {
 }
 
 fn styleActive(lex: *Draw.Lexeme) void {
-    if (lex.style.attr) |*attr| {
+    if (lex.style) |*style| if (style.attr) |*attr| {
         attr.* = switch (attr.*) {
             .reset => .reverse,
             .bold => .reverse_bold,
             .dim => .reverse,
             else => .reset,
         };
-    }
+    };
 }
 
 fn styleInactive(lex: *Draw.Lexeme) void {
-    if (lex.style.attr) |*attr| {
+    if (lex.style) |*style| if (style.attr) |*attr| {
         attr.* = switch (attr.*) {
             .reverse => .reset,
             .reverse_bold => .bold,
             .reverse_dim => .dim,
-            .dim => if (lex.style.fg != null) .bold else .reset, // TODO fixme
+            .dim => if (style.fg != null) .bold else .reset, // TODO fixme
             else => attr.*,
         };
-    }
+    };
 }
 
 fn sortAscStr(_: void, a: []const u8, b: []const u8) bool {
@@ -197,7 +179,7 @@ pub const CompSet = struct {
     alloc: Allocator,
     original: ?CompOption,
     /// Eventually groups should be dynamically allocated if it gets bigger
-    groups: [flavors_len]CompList,
+    groups: [Flavors.len]CompList,
     group: *CompList,
     group_index: usize = 0,
     index: usize = 0,
@@ -207,7 +189,7 @@ pub const CompSet = struct {
     //orig_token: ?*const Token = null,
     kind: Token.Kind = .nos,
     err: bool = false,
-    draw_cache: [flavors_len]?[]Draw.Lexeme = .{null} ** 3,
+    draw_cache: [Flavors.len]?[][]Draw.Lexeme = .{null} ** 3,
 
     /// Intentionally excludes original from the count
     pub fn count(self: *const CompSet) usize {
@@ -341,29 +323,29 @@ pub const CompSet = struct {
 
         if (group.items.len == 0) return;
 
-        if (self.draw_cache[g_int]) |*dc| {
-            const mod: usize = dc.*[0].siblings.len;
+        if (self.draw_cache[g_int]) |dcache| {
+            const mod: usize = dcache[0].len;
             // self.index points to the next item, current item is index - 1
 
             const this_row = (self.index) / mod;
             const this_col = (self.index) % mod;
 
-            for (dc.*, 0..) |tree, row| {
+            for (dcache, 0..) |row, r| {
                 var plz_draw = false;
-                for (tree.siblings) |*sib| {
-                    if (searchMatch(sib.char, self.search.items) == null) {
-                        sib.style.attr = .dim;
+                for (row) |*column| {
+                    if (searchMatch(column.char, self.search.items) == null) {
+                        column.style.?.attr = .dim;
                     } else {
-                        styleInactive(sib);
+                        styleInactive(column);
                         plz_draw = true;
                     }
                 }
 
-                if (current_group and row == this_row) {
-                    styleActive(&tree.siblings[this_col]);
+                if (current_group and r == this_row) {
+                    styleActive(&row[this_col]);
                 }
 
-                if (plz_draw) try Draw.drawAfter(d, tree);
+                if (plz_draw) try Draw.drawAfter(d, row);
             }
             return;
         }
@@ -381,19 +363,20 @@ pub const CompSet = struct {
             list.append(lex) catch break;
         }
         const items = try list.toOwnedSlice();
-        if (Draw.Layout.table(self.alloc, items, wh)) |trees| {
-            self.draw_cache[g_int] = trees;
-        } else |err| {
-            if (err == Draw.Layout.Error.ItemCount) {
+        if (Draw.Layout.tableLexeme(self.alloc, items, wh)) |lexes| {
+            self.draw_cache[g_int] = lexes;
+        } else |err| switch (err) {
+            error.ItemCount => {
                 var fbuf: [128]u8 = undefined;
                 const str = try std.fmt.bufPrint(&fbuf, ERRSTR_TOOBIG, .{self.count()});
-                try Draw.drawAfter(d, Draw.Lexeme{
+                try Draw.drawAfter(d, &[_]Draw.Lexeme{.{
                     .char = str,
                     .style = .{ .attr = .bold, .fg = .red },
-                });
+                }});
                 self.err = true;
                 return err;
-            }
+            },
+            else => unreachable,
         }
     }
 
@@ -403,20 +386,20 @@ pub const CompSet = struct {
             const str = try std.fmt.bufPrint(&fbuf, ERRSTR_TOOBIG, .{self.count()});
             try Draw.drawAfter(
                 d,
-                Draw.Lexeme{ .char = str, .style = .{ .attr = .bold, .fg = .red } },
+                &[_]Draw.Lexeme{.{ .char = str, .style = .{ .attr = .bold, .fg = .red } }},
             );
             return;
         }
         if (self.count() == 0) {
             try Draw.drawAfter(
                 d,
-                Draw.Lexeme{ .char = ERRSTR_NOOPTS, .style = .{ .attr = .bold, .fg = .red } },
+                &[_]Draw.Lexeme{.{ .char = ERRSTR_NOOPTS, .style = .{ .attr = .bold, .fg = .red } }},
             );
             return;
         }
 
         // Yeah... I know
-        for (0..flavors_len) |flavor| {
+        for (0..Flavors.len) |flavor| {
             // TODO Draw name
             try self.drawGroup(@enumFromInt(flavor), d, wh);
         }
@@ -461,19 +444,18 @@ pub const CompSet = struct {
     }
 
     fn razeDrawing(self: *CompSet) void {
-        for (&self.draw_cache) |*cache_group| {
-            if (cache_group.*) |*trees| {
+        for (&self.draw_cache) |*dcache| {
+            if (dcache.*) |*row| {
                 var real_size: usize = 0;
-                for (trees.*) |row| {
-                    for (row.siblings) |lex| {
+                for (row.*) |col| {
+                    for (col) |lex| {
                         self.alloc.free(lex.char);
                         real_size += 1;
                     }
                 }
-                trees.*[0].siblings.len = real_size;
-                self.alloc.free(trees.*[0].siblings);
-                self.alloc.free(trees.*);
-                cache_group.* = null;
+                row.*[0].len = real_size;
+                self.alloc.free(row.*);
+                dcache.* = null;
             }
         }
         self.err = false;
@@ -604,7 +586,7 @@ const TknPair = struct {
 fn findToken(tkns: *Tokenizer) TknPair {
     var itr = tkns.iterator();
     var pair: TknPair = .{};
-    var idx: usize = tkns.c_idx;
+    var idx: usize = tkns.idx;
     while (itr.next()) |t| {
         pair.count += 1;
         if (idx <= t.str.len) {
@@ -693,3 +675,22 @@ pub fn init(hsh: *HSH) !CompSet {
     compset.group = &compset.groups[0];
     return compset;
 }
+
+const std = @import("std");
+const ArrayList = std.ArrayList;
+const Allocator = std.mem.Allocator;
+const Dir = std.fs.Dir;
+const indexOfScalar = std.mem.indexOfScalar;
+const toUpper = std.ascii.toUpper;
+const log = @import("log");
+
+const HSH = @import("hsh.zig").HSH;
+const fs = @import("fs.zig");
+const Tokenizer = @import("tokenizer.zig").Tokenizer;
+const Token = @import("token.zig");
+const Parser = @import("parse.zig").Parser;
+const Draw = @import("draw.zig");
+const Cord = Draw.Cord;
+const S = @import("strings.zig");
+const ERRSTR_TOOBIG = S.COMPLETE_TOOBIG;
+const ERRSTR_NOOPTS = S.COMPLETE_NOOPTS;

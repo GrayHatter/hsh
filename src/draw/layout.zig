@@ -143,7 +143,7 @@ pub fn tableSize(a: Allocator, items: []const Lexeme, wh: Cord) Error![]u16 {
     return colsize;
 }
 
-fn tableLexeme(a: Allocator, items: []const Lexeme, wh: Cord) Error![][]Lexeme {
+pub fn tableLexeme(a: Allocator, items: []const Lexeme, wh: Cord) Error![][]Lexeme {
     const largest = maxWidthLexem(items);
     if (largest > wh.x) return Error.ViewportFit;
 
@@ -167,7 +167,7 @@ fn tableLexeme(a: Allocator, items: []const Lexeme, wh: Cord) Error![][]Lexeme {
 }
 
 /// Caller owns memory, strings **are** duplicated
-fn tableChar(a: Allocator, items: []const []const u8, wh: Cord) Error![][]Lexeme {
+pub fn tableChar(a: Allocator, items: []const []const u8, wh: Cord) Error![][]Lexeme {
     const lexes = try a.alloc(Lexeme, items.len);
     defer a.free(lexes);
 
