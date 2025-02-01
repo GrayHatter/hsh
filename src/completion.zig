@@ -341,7 +341,7 @@ pub const CompSet = struct {
                     }
                 }
 
-                if (current_group and r == this_row) {
+                if (current_group and r == this_row and row.len > 0) {
                     styleActive(&row[this_col]);
                 }
 
@@ -616,6 +616,12 @@ pub fn complete(cs: *CompSet, hsh: *HSH, tks: *Tokenizer) !void {
     var pair = findToken(tks);
     const hint: Kind = if (ts.len <= 1) .path_exe else .any;
 
+    try Draw.drawAfter(&hsh.draw, &[_]Draw.Lexeme{.{
+        .char = "[ complete ]",
+        .style = .{ .attr = .bold, .fg = .green },
+    }});
+    try hsh.draw.render();
+
     switch (hint) {
         .path_exe => {
             try completeSysPath(cs, hsh, pair.t.cannon());
@@ -660,17 +666,17 @@ pub fn complete(cs: *CompSet, hsh: *HSH, tks: *Tokenizer) !void {
     return;
 }
 
-pub fn init(hsh: *HSH) !CompSet {
+pub fn init(a: Allocator) CompSet {
     var compset = CompSet{
-        .alloc = hsh.alloc,
+        .alloc = a,
         .original = null,
         .group = undefined,
         .groups = .{
-            CompList.init(hsh.alloc),
-            CompList.init(hsh.alloc),
-            CompList.init(hsh.alloc),
+            CompList.init(a),
+            CompList.init(a),
+            CompList.init(a),
         },
-        .search = ArrayList(u8).init(hsh.alloc),
+        .search = ArrayList(u8).init(a),
     };
     compset.group = &compset.groups[0];
     return compset;

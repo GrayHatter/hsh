@@ -9,7 +9,7 @@ mode: union(enum) {
     external_editor: []u8,
 },
 history: History = undefined,
-completion: ?Complete.CompSet = null,
+completion: Complete.CompSet,
 text: []u8,
 
 usr_line: [1024]u8 = undefined,
@@ -33,7 +33,7 @@ pub fn init(hsh: *HSH, a: Allocator, options: Options) !Line {
         .alloc = a,
         .input = .{ .stdin = hsh.input, .spin = spin, .hsh = hsh },
         .tkn = Tokenizer.init(a),
-        .completion = try Complete.init(hsh),
+        .completion = Complete.init(a),
         .options = options,
         .history = History.init(hsh.hfs.history, hsh.alloc),
         .mode = if (options.interactive) .{ .interactive = {} } else .{ .scripted = {} },
@@ -132,13 +132,22 @@ fn core(line: *Line) !void {
 }
 
 pub fn do(line: *Line) ![]u8 {
-    line.core() catch |err| switch (err) {
-        error.PassToExternEditor => return try line.externEditorRead(),
-        error.SendEmpty => return try line.alloc.dupe(u8, ""),
-        error.FIXME => return try line.alloc.dupe(u8, line.tkn.raw.items),
-        else => return err,
-    };
-    return line.dupeText();
+    while (true) {
+        line.core() catch |err| switch (err) {
+            error.PassToExternEditor => return try line.externEditorRead(),
+            error.SendEmpty => return try line.alloc.dupe(u8, ""),
+            error.FIXME => return try line.alloc.dupe(u8, line.tkn.raw.items),
+            else => return err,
+        };
+        if (line.peek().len > 0) {
+            return line.dupeText();
+        } else {
+            line.hsh.draw.newline();
+            line.hsh.draw.clear();
+            try Prompt.draw(line.hsh, line.peek());
+            try line.hsh.draw.render();
+        }
+    }
 }
 
 fn dupeText(line: Line) ![]u8 {
@@ -217,46 +226,6 @@ fn findHistory(line: *Line, dr: enum { up, down }) void {
     }
 }
 
-fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *Complete.CompSet) !bool {
-    if (comp.known()) |only| {
-        // original and single, complete now
-        try tkn.maybeReplace(only);
-        try tkn.maybeCommit(only);
-
-        //if (only.kind) |kind| if (kind == .file_system and kind.file_system == .dir) {
-        //    try Complete.complete(comp, hsh, tkn);
-        //    return false;
-        //};
-
-        comp.raze();
-        try Draw.drawAfter(&hsh.draw, &[_]Draw.Lexeme{.{
-            .char = "[ found ]",
-            .style = .{ .attr = .bold, .fg = .green },
-        }});
-        return true;
-    }
-
-    if (comp.countFiltered() == 0) {
-        try Draw.drawAfter(&hsh.draw, &[_]Draw.Lexeme{
-            Draw.Lexeme{ .char = "[ nothing found ]", .style = .{ .attr = .bold, .fg = .red } },
-        });
-        if (comp.count() == 0) {
-            comp.raze();
-        }
-        return true;
-    }
-
-    if (comp.countFiltered() > 1) {
-        const target = comp.next();
-        try tkn.maybeReplace(target);
-        comp.drawAll(&hsh.draw, hsh.draw.term_size) catch |err| {
-            if (err == Draw.Layout.Error.ItemCount) return false else return err;
-        };
-    }
-
-    return false;
-}
-
 const CompState = union(enum) {
     start: void,
     typing: Input.Event,
@@ -267,10 +236,11 @@ const CompState = union(enum) {
 };
 
 fn complete(line: *Line) !void {
+    const cmplt: *Complete.CompSet = &line.completion;
     sw: switch (CompState{ .start = {} }) {
         .pending => unreachable,
         .start => {
-            try Complete.complete(&line.completion.?, line.hsh, &line.tkn);
+            try Complete.complete(cmplt, line.hsh, &line.tkn);
             continue :sw .{ .redraw = {} };
         },
         .typing => |ks| {
@@ -292,8 +262,8 @@ fn complete(line: *Line) !void {
                         '/' => |chr| {
                             // IFF this is an existing directory,
                             // completion should continue
-                            if (line.completion.?.count() > 1) {
-                                if (line.completion.?.current().kind) |kind| {
+                            if (cmplt.count() > 1) {
+                                if (cmplt.current().kind) |kind| {
                                     if (kind == .file_system and kind.file_system == .dir) {
                                         try line.tkn.consumec(chr);
                                     }
@@ -302,18 +272,15 @@ fn complete(line: *Line) !void {
                             continue :sw .{ .redraw = {} };
                         },
                         else => {
-                            try Complete.complete(&line.completion.?, line.hsh, &line.tkn);
+                            try Complete.complete(cmplt, line.hsh, &line.tkn);
 
-                            if (line.completion.?.count() == 0) {
+                            if (cmplt.count() == 0) {
                                 try line.tkn.consumec(c);
+                                continue :sw .{ .done = {} };
                             } else {
-                                try line.completion.?.searchChar(c);
+                                try cmplt.searchChar(c);
                             }
 
-                            line.completion.?.drawAll(&line.hsh.draw, line.hsh.draw.term_size) catch |err| switch (err) {
-                                error.ItemCount => {},
-                                else => return err,
-                            };
                             continue :sw .{ .redraw = {} };
                         },
                     }
@@ -322,19 +289,20 @@ fn complete(line: *Line) !void {
                     switch (k.c) {
                         .tab => {
                             if (k.mod.shift) {
-                                line.completion.?.revr();
-                                line.completion.?.revr();
+                                cmplt.revr();
+                                cmplt.revr();
                             }
-                            //_ = try doComplete(line.hsh, &line.tkn, &line.completion.?);
-                            try line.tkn.maybeReplace(line.completion.?.next());
+                            //_ = try doComplete(line.hsh, &line.tkn, &cmplt);
+                            try line.tkn.maybeReplace(cmplt.next());
                         },
                         .esc => {
                             try line.tkn.maybeDrop();
-                            if (line.completion.?.original) |o| {
+                            if (cmplt.original) |o| {
                                 try line.tkn.maybeAdd(o.str);
                                 try line.tkn.maybeCommit(null);
                             }
-                            line.completion.?.raze();
+                            cmplt.raze();
+                            continue :sw .{ .done = {} };
                         },
                         .up, .down, .left, .right => {
                             // TODO implement arrows
@@ -345,19 +313,19 @@ fn complete(line: *Line) !void {
                         },
                         .newline => {
                             try line.tkn.maybeCommit(null);
-                            line.completion.?.raze();
+                            cmplt.raze();
                             try line.tkn.consumec(' ');
                             continue :sw .{ .done = {} };
                         },
                         .backspace => {
-                            line.completion.?.searchPop() catch {
-                                line.completion.?.raze();
+                            cmplt.searchPop() catch {
+                                cmplt.raze();
                                 line.tkn.raw_maybe = null;
                                 continue :sw .{ .redraw = {} };
                             };
                             //line.mode = try doComplete(line.hsh, line.tkn, line.completion);
                             try line.tkn.maybeDrop();
-                            try line.tkn.maybeAdd(line.completion.?.search.items);
+                            try line.tkn.maybeAdd(cmplt.search.items);
                             continue :sw .{ .redraw = {} };
                         },
                         .delete_word => {
@@ -375,9 +343,13 @@ fn complete(line: *Line) !void {
             }
         },
         .redraw => {
+            line.hsh.draw.clear();
+            cmplt.drawAll(&line.hsh.draw, line.hsh.draw.term_size) catch |err| switch (err) {
+                error.ItemCount => {},
+                else => return err,
+            };
             try Prompt.draw(line.hsh, line.peek());
             try line.hsh.draw.render();
-            line.hsh.draw.clear();
             continue :sw .{ .read = {} };
         },
         .read => {

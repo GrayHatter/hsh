@@ -227,6 +227,10 @@ pub fn draw(d: *Drawable, tree: []const Lexeme) !void {
     try drawLexemeMany(&d.b, 0, 0, tree);
 }
 
+pub fn newline(d: *Drawable) void {
+    _ = d.write("\n\r") catch @panic("unable to write newline");
+}
+
 /// Renders the "prompt" line
 /// hsh is based around the idea of user keyboard-driven input, so plugin should
 /// provide the context, expecting not to know about, or touch the final user
@@ -279,10 +283,6 @@ pub fn clearCtx(d: *Drawable) void {
 /// Any context before the prompt line should be cleared and replaced with the
 /// prompt before exec.
 pub fn clear_before_exec(_: *Drawable) void {}
-
-pub fn newLine(d: *Drawable) Error!void {
-    _ = try d.write("\n");
-}
 
 // TODO rm -rf
 /// feeling lazy, might delete later

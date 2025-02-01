@@ -42,7 +42,8 @@ fn core(hsh: *HSH, a: Allocator) ![]u8 {
             redraw = false;
         }
 
-        return a.dupe(u8, try line.do());
+        // TOOD fixme this is the wrong place for the arena
+        return try a.dupe(u8, try line.do());
     }
 }
 
@@ -150,7 +151,7 @@ pub fn main() !void {
             std.debug.assert(str.len != 0);
 
             //var itr = hsh.tkn.iterator();
-            try Draw.newLine(&hsh.draw);
+            hsh.draw.newline();
             Exec.exec(&hsh, str) catch |err| switch (err) {
                 error.ExeNotFound => {
                     const first = Exec.execFromInput(&hsh, str) catch @panic("memory");
