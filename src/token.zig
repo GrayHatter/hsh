@@ -1,9 +1,10 @@
-const std = @import("std");
-const log = @import("log");
-const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
-const Tokenizer = @import("tokenizer.zig").Tokenizer;
-pub const Reserved = @import("logic.zig").Reserved;
+str: []const u8,
+kind: Kind = .nos,
+parsed: bool = false,
+subtoken: u8 = 0,
+// I hate this but I've spent too much time on this already #YOLO
+resolved: ?[]u8 = null,
+substr: ?[]const u8 = null,
 
 pub const Token = @This();
 
@@ -58,14 +59,6 @@ pub const Kind = union(enum) {
     subp: void,
     word: void,
 };
-
-str: []const u8,
-kind: Kind = .nos,
-parsed: bool = false,
-subtoken: u8 = 0,
-// I hate this but I've spent too much time on this already #YOLO
-resolved: ?[]u8 = null,
-substr: ?[]const u8 = null,
 
 pub fn make(str: []const u8, k: Kind) Token {
     return Token{
@@ -623,3 +616,10 @@ test "path" {
     const tokenn = try path("blerg");
     try std.testing.expectEqualStrings(tokenn.str, "blerg");
 }
+
+const std = @import("std");
+const log = @import("log");
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
+const Tokenizer = @import("tokenizer.zig").Tokenizer;
+pub const Reserved = @import("logic.zig").Reserved;
