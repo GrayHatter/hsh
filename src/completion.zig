@@ -324,7 +324,7 @@ pub const CompSet = struct {
         if (group.items.len == 0) return;
 
         if (self.draw_cache[g_int]) |dcache| {
-            const mod: usize = dcache[0].len;
+            const mod: usize = if (dcache[0].len > 0) dcache[0].len else 1;
             // self.index points to the next item, current item is index - 1
 
             const this_row = (self.index) / mod;

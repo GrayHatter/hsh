@@ -223,17 +223,17 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *Complete.CompSet) !bool {
         try tkn.maybeReplace(only);
         try tkn.maybeCommit(only);
 
-        if (only.kind != null and only.kind.? == .file_system and only.kind.?.file_system == .dir) {
-            try Complete.complete(comp, hsh, tkn);
-            return false;
-        } else {
-            comp.raze();
-            try Draw.drawAfter(&hsh.draw, &[_]Draw.Lexeme{.{
-                .char = "[ found ]",
-                .style = .{ .attr = .bold, .fg = .green },
-            }});
-            return true;
-        }
+        //if (only.kind) |kind| if (kind == .file_system and kind.file_system == .dir) {
+        //    try Complete.complete(comp, hsh, tkn);
+        //    return false;
+        //};
+
+        comp.raze();
+        try Draw.drawAfter(&hsh.draw, &[_]Draw.Lexeme{.{
+            .char = "[ found ]",
+            .style = .{ .attr = .bold, .fg = .green },
+        }});
+        return true;
     }
 
     if (comp.countFiltered() == 0) {
@@ -258,6 +258,7 @@ fn doComplete(hsh: *HSH, tkn: *Tokenizer, comp: *Complete.CompSet) !bool {
 }
 
 const CompState = union(enum) {
+    start: void,
     typing: Input.Event,
     pending: void,
     read: void,
@@ -266,34 +267,27 @@ const CompState = union(enum) {
 };
 
 fn complete(line: *Line) !void {
-    sw: switch (CompState{ .typing = Input.Event{ .char = 0x09 } }) {
-        .pending => {},
+    sw: switch (CompState{ .start = {} }) {
+        .pending => unreachable,
+        .start => {
+            try Complete.complete(&line.completion.?, line.hsh, &line.tkn);
+            continue :sw .{ .redraw = {} };
+        },
         .typing => |ks| {
             switch (ks) {
                 .char => |c| {
+                    line.hsh.draw.clear();
+                    try Draw.drawAfter(&line.hsh.draw, &[_]Draw.Lexeme{.{
+                        .char = "[ char ]",
+                        .style = .{ .attr = .bold, .fg = .green },
+                    }});
+                    try Prompt.draw(line.hsh, line.peek());
+                    try line.hsh.draw.render();
+
                     switch (c) {
-                        0x09 => {}, // unreachable?
-                        0x0A => {
-                            // TODO don't return if navigating around
-                            continue :sw .{ .done = {} };
-                            //if (line.completion.count() > 0) {
-                            //    try line.tkn.maybeReplace(line.completion.current());
-                            //    try line.tkn.maybeCommit(line.completion.current());
-                            //    continue :sw .{ .pending = {} };
-                            //}
-                            //continue :sw .{ .redraw = {} };
-                        },
-                        0x7f => { // backspace
-                            line.completion.?.searchPop() catch {
-                                line.completion.?.raze();
-                                line.tkn.raw_maybe = null;
-                                continue :sw .{ .done = {} };
-                            };
-                            //line.mode = try doComplete(line.hsh, line.tkn, line.completion);
-                            try line.tkn.maybeDrop();
-                            try line.tkn.maybeAdd(line.completion.?.search.items);
-                            continue :sw .{ .redraw = {} };
-                        },
+                        0x09 => unreachable,
+                        0x0A => unreachable,
+                        0x7f => unreachable,
                         ' ' => continue :sw .{ .redraw = {} },
                         '/' => |chr| {
                             // IFF this is an existing directory,
@@ -308,13 +302,18 @@ fn complete(line: *Line) !void {
                             continue :sw .{ .redraw = {} };
                         },
                         else => {
-                            //if (line.mode == .COMPENDING) line.mode = .COMPLETING;
-                            //try line.completion.?.searchChar(c);
-                            //line.mode = try doComplete(line.hsh, line.tkn, line.completion);
-                            //if (line.mode == .COMPLETING) {
-                            //    try line.tkn.maybeDrop();
-                            //    try line.tkn.maybeAdd(line.completion.search.items);
-                            //}
+                            try Complete.complete(&line.completion.?, line.hsh, &line.tkn);
+
+                            if (line.completion.?.count() == 0) {
+                                try line.tkn.consumec(c);
+                            } else {
+                                try line.completion.?.searchChar(c);
+                            }
+
+                            line.completion.?.drawAll(&line.hsh.draw, line.hsh.draw.term_size) catch |err| switch (err) {
+                                error.ItemCount => {},
+                                else => return err,
+                            };
                             continue :sw .{ .redraw = {} };
                         },
                     }
@@ -326,8 +325,8 @@ fn complete(line: *Line) !void {
                                 line.completion.?.revr();
                                 line.completion.?.revr();
                             }
-                            _ = try doComplete(line.hsh, &line.tkn, &line.completion.?);
-                            continue :sw .{ .redraw = {} };
+                            //_ = try doComplete(line.hsh, &line.tkn, &line.completion.?);
+                            try line.tkn.maybeReplace(line.completion.?.next());
                         },
                         .esc => {
                             try line.tkn.maybeDrop();
@@ -336,41 +335,63 @@ fn complete(line: *Line) !void {
                                 try line.tkn.maybeCommit(null);
                             }
                             line.completion.?.raze();
-                            continue :sw .{ .redraw = {} };
                         },
                         .up, .down, .left, .right => {
                             // TODO implement arrows
-                            continue :sw .{ .redraw = {} };
                         },
                         .home, .end => |h_e| {
                             try line.tkn.maybeCommit(null);
                             line.tkn.idx = if (h_e == .home) 0 else line.tkn.raw.items.len;
+                        },
+                        .newline => {
+                            try line.tkn.maybeCommit(null);
+                            line.completion.?.raze();
+                            try line.tkn.consumec(' ');
+                            continue :sw .{ .done = {} };
+                        },
+                        .backspace => {
+                            line.completion.?.searchPop() catch {
+                                line.completion.?.raze();
+                                line.tkn.raw_maybe = null;
+                                continue :sw .{ .redraw = {} };
+                            };
+                            //line.mode = try doComplete(line.hsh, line.tkn, line.completion);
+                            try line.tkn.maybeDrop();
+                            try line.tkn.maybeAdd(line.completion.?.search.items);
+                            continue :sw .{ .redraw = {} };
+                        },
+                        .delete_word => {
+                            _ = try line.tkn.dropWord();
                             continue :sw .{ .redraw = {} };
                         },
                         else => {
-                            log.err("unexpected key  [{}]\n", .{ks});
+                            log.err("\n\nunexpected key  [{}]\n\n\n", .{ks});
                             try line.tkn.maybeCommit(null);
                         },
                     }
+                    continue :sw .{ .redraw = {} };
                 },
-                .mouse => {},
-                .action => {},
+                .mouse, .action => unreachable,
             }
         },
         .redraw => {
-            line.hsh.draw.clear();
             try Prompt.draw(line.hsh, line.peek());
             try line.hsh.draw.render();
+            line.hsh.draw.clear();
             continue :sw .{ .read = {} };
         },
         .read => {
-            continue :sw .{ .typing = try line.input.interactive() };
+            const chr = line.input.interactive() catch |err| switch (err) {
+                error.signaled => continue :sw .{ .typing = .{ .control = .{ .c = .esc } } },
+                else => return err,
+            };
+            continue :sw .{ .typing = chr };
         },
         .done => {
             return;
         },
     }
-    unreachable;
+    comptime unreachable;
 }
 
 const std = @import("std");
