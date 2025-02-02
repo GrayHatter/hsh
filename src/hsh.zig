@@ -1,25 +1,3 @@
-const std = @import("std");
-const mem = @import("mem.zig");
-const Allocator = mem.Allocator;
-const Drawable = @import("draw.zig").Drawable;
-const TTY = @import("tty.zig").TTY;
-const builtin = @import("builtin");
-const ArrayList = std.ArrayList;
-const Token = @import("token.zig");
-const Signals = @import("signals.zig");
-const Queue = std.atomic.Queue;
-const jobs = @import("jobs.zig");
-const parser = @import("parse.zig");
-const Parser = parser.Parser;
-const bi = @import("builtins.zig");
-const State = @import("state.zig");
-const Context = @import("context.zig");
-const fs = @import("fs.zig");
-const Variables = @import("variables.zig");
-const log = @import("log");
-const INEvent = @import("inotify.zig").Event;
-const Line = @import("line.zig");
-
 pub const Error = error{
     Unknown,
     OutOfMemory,
@@ -264,3 +242,25 @@ pub const HSH = struct {
         return Signals.do(hsh) != .none;
     }
 };
+
+const std = @import("std");
+const mem = @import("mem.zig");
+const Allocator = mem.Allocator;
+const Drawable = @import("draw.zig").Drawable;
+const TTY = @import("tty.zig").TTY;
+const builtin = @import("builtin");
+const ArrayList = std.ArrayList;
+const Token = @import("token.zig");
+const Signals = @import("signals.zig");
+const Queue = std.atomic.Queue;
+const jobs = @import("jobs.zig");
+const parser = @import("parse.zig");
+const Parser = parser.Parser;
+const bi = @import("builtins.zig");
+const State = @import("state.zig");
+const Context = @import("context.zig");
+const fs = @import("fs.zig");
+const Variables = @import("variables.zig");
+const log = @import("log");
+const INEvent = @import("inotify.zig").Event;
+const Line = @import("line.zig");
