@@ -16,13 +16,6 @@ usr_line: [1024]u8 = undefined,
 
 const Line = @This();
 
-const Mode = enum {
-    TYPING,
-    COMPLETING,
-    COMPENDING, // Just completed a token, may or may not need more
-    EXEDIT,
-};
-
 pub const Options = struct {
     interactive: bool = true,
 };
@@ -251,9 +244,7 @@ fn complete(line: *Line) !void {
                     try line.hsh.draw.render();
 
                     switch (c) {
-                        0x09 => unreachable,
-                        0x0A => unreachable,
-                        0x7f => unreachable,
+                        0x00...0x1f => unreachable,
                         ' ' => {
                             try line.tkn.maybeCommit(null);
                             cmplt.raze();
@@ -283,6 +274,7 @@ fn complete(line: *Line) !void {
 
                             continue :sw .{ .redraw = {} };
                         },
+                        0x7f...0xff => unreachable,
                     }
                 },
                 .control => |k| {

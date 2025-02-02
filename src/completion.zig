@@ -2,10 +2,6 @@ const Completion = @This();
 
 pub const CompList = ArrayList(CompOption);
 
-const Error = error{
-    search_empty,
-};
-
 pub const FSKind = enum {
     file,
     dir,
@@ -60,6 +56,7 @@ pub const CompOption = struct {
     str: []const u8,
     /// the original user text has kind == null
     kind: ?Kind = Kind{ .any = {} },
+
     pub fn format(self: CompOption, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
         if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
         try std.fmt.format(out, "CompOption{{{s}, {s}}}", .{ self.str, @tagName(self.kind) });
@@ -400,28 +397,10 @@ pub const CompSet = struct {
 
     pub fn searchPop(self: *CompSet) !void {
         if (self.search.items.len == 0) {
-            return Error.search_empty;
+            return error.SearchEmpty;
         }
         _ = self.search.pop();
         self.searchMove();
-    }
-
-    fn razeDrawing(self: *CompSet) void {
-        for (&self.draw_cache) |*dcache| {
-            if (dcache.*) |*row| {
-                var real_size: usize = 0;
-                for (row.*) |col| {
-                    for (col) |lex| {
-                        self.alloc.free(lex.char);
-                        real_size += 1;
-                    }
-                }
-                row.*[0].len = real_size;
-                self.alloc.free(row.*);
-                dcache.* = null;
-            }
-        }
-        self.err = false;
     }
 
     pub fn raze(self: *CompSet) void {
@@ -435,7 +414,6 @@ pub const CompSet = struct {
             self.alloc.free(o.str);
             self.original = null;
         }
-        self.razeDrawing();
         self.search.clearAndFree();
     }
 };

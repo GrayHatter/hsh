@@ -30,7 +30,7 @@ pub const CursorMotion = enum(u8) {
 pub fn init(a: Allocator) Tokenizer {
     return Tokenizer{
         .alloc = a,
-        .raw = ArrayList(u8).init(a),
+        .raw = ArrayList(u8).initCapacity(a, 512) catch ArrayList(u8).init(a), // lol
     };
 }
 
@@ -443,7 +443,8 @@ test "quotes tokened" {
 }
 
 test "alloc" {
-    const t = Tokenizer.init(std.testing.allocator);
+    var t = Tokenizer.init(std.testing.allocator);
+    defer t.raze();
     try expect(std.mem.eql(u8, t.raw.items, ""));
 }
 
@@ -1109,6 +1110,7 @@ test "subp" {
 test "make safe" {
     var a = std.testing.allocator;
     var tk = Tokenizer.init(a);
+    defer tk.raze();
 
     try std.testing.expect(null == try tk.makeSafe("string"));
 
