@@ -233,19 +233,20 @@ pub fn nonInteractive(input: Input) errors!Event {
 pub fn interactive(input: Input) errors!Event {
     var buffer: [1]u8 = undefined;
 
-    var nbyte: usize = input.read(&buffer) catch |err| {
-        log.err("unable to read {}", .{err});
-        return error.io;
-    };
-    while (nbyte == 0) {
-        if (input.spin) |spin| if (spin(input.hsh)) return error.signaled;
-        nbyte = input.read(&buffer) catch |err| {
+    while (true) {
+        if (input.read(&buffer) catch |err| {
             log.err("unable to read {}", .{err});
             return error.io;
-        };
-    }
+        } == 0) {
+            if (input.spin) |spin| {
+                if (spin(input.hsh))
+                    return error.signaled;
+            }
+            continue;
+        }
 
-    if (Keys.translate(buffer[0], input.stdin)) |key| {
-        return toChar(key);
-    } else |_| unreachable;
+        if (Keys.translate(buffer[0], input.stdin)) |key| {
+            return toChar(key);
+        } else |_| unreachable;
+    }
 }

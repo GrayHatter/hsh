@@ -6,7 +6,6 @@ pub const History = @This();
 alloc: ?std.mem.Allocator = null,
 seen_list: ?std.ArrayList([]const u8) = null,
 file: ?std.fs.File,
-cnt: usize = 0,
 
 fn seenAdd(self: *History, seen: []const u8) void {
     if (self.seen_list) |*sl| {
@@ -75,9 +74,9 @@ fn readLinePrev(self: *History, buffer: ?*std.ArrayList(u8)) !bool {
     return self.readLine(buffer);
 }
 
-pub fn readAt(self: *History, buffer: *std.ArrayList(u8)) bool {
+pub fn readAt(self: *History, position: usize, buffer: *std.ArrayList(u8)) bool {
     var hfile = self.file orelse return false;
-    var row = self.cnt;
+    var row = position;
     hfile.seekFromEnd(0) catch return false;
     while (row > 0) {
         if (!(readLinePrev(self, null) catch false)) break;
@@ -86,9 +85,14 @@ pub fn readAt(self: *History, buffer: *std.ArrayList(u8)) bool {
     return readLinePrev(self, buffer) catch false;
 }
 
-pub fn readAtFiltered(self: *History, buffer: *std.ArrayList(u8), search: []const u8) bool {
+pub fn readAtFiltered(
+    self: *History,
+    position: usize,
+    search: []const u8,
+    buffer: *std.ArrayList(u8),
+) bool {
     var hfile = self.file orelse return false;
-    var row = self.cnt;
+    var row = position;
     hfile.seekFromEnd(-1) catch return false;
     defer self.seenReset();
     while (row > 0) {

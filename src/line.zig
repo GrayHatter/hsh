@@ -9,15 +9,21 @@ mode: union(enum) {
     external_editor: []u8,
 },
 history: History = undefined,
+history_position: ?usize = null,
+history_search: ?[]const u8 = null,
 completion: Complete.CompSet,
 text: []u8,
-
-usr_line: [1024]u8 = undefined,
 
 const Line = @This();
 
 pub const Options = struct {
     interactive: bool = true,
+};
+
+const Action = enum {
+    exec,
+    empty,
+    external,
 };
 
 pub fn init(hsh: *HSH, a: Allocator, options: Options) !Line {
@@ -55,18 +61,18 @@ pub fn peek(line: Line) []const u8 {
     return line.tkn.raw.items;
 }
 
-fn core(line: *Line) !void {
+fn core(line: *Line) !Action {
     while (true) {
         const input = switch (line.mode) {
             .interactive => line.input.interactive(),
             .scripted => line.input.nonInteractive(),
-            .external_editor => return error.PassToExternEditor,
+            .external_editor => return .external,
         } catch |err| switch (err) {
             error.io => return err,
             error.signaled => {
                 Draw.clearCtx(&line.hsh.draw);
                 try Draw.render(&line.hsh.draw);
-                return error.SendEmpty;
+                return .empty;
             },
             error.end_of_text => return error.FIXME,
         };
@@ -99,14 +105,17 @@ fn core(line: *Line) !void {
             .char => |c| try line.char(c),
             .control => |ctrl| {
                 switch (ctrl.c) {
-                    .esc => continue,
+                    .esc => {
+                        // TODO reset many
+                        continue;
+                    },
                     .up => line.findHistory(.up),
                     .down => line.findHistory(.down),
                     .left => line.tkn.move(.dec),
                     .right => line.tkn.move(.inc),
                     .backspace => line.tkn.pop(),
-                    .newline => return,
-                    .end_of_text => return,
+                    .newline => return .exec,
+                    .end_of_text => return .exec,
                     .delete_word => _ = try line.tkn.dropWord(),
                     .tab => try line.complete(),
                     else => |els| log.warn("unknown {}\n", .{els}),
@@ -118,7 +127,7 @@ fn core(line: *Line) !void {
 
             else => |el| {
                 log.err("uncaptured {}\n", .{el});
-                return;
+                unreachable;
             },
         }
     }
@@ -126,20 +135,21 @@ fn core(line: *Line) !void {
 
 pub fn do(line: *Line) ![]u8 {
     while (true) {
-        line.core() catch |err| switch (err) {
-            error.PassToExternEditor => return try line.externEditorRead(),
-            error.SendEmpty => return try line.alloc.dupe(u8, ""),
-            error.FIXME => return try line.alloc.dupe(u8, line.tkn.raw.items),
-            else => return err,
+        return switch (try line.core()) {
+            .external => try line.externEditorRead(),
+            .empty => continue,
+            .exec => {
+                if (line.peek().len > 0) {
+                    return try line.dupeText();
+                }
+
+                line.hsh.draw.newline();
+                line.hsh.draw.clear();
+                try Prompt.draw(line.hsh, line.peek());
+                try line.hsh.draw.render();
+                continue;
+            },
         };
-        if (line.peek().len > 0) {
-            return line.dupeText();
-        } else {
-            line.hsh.draw.newline();
-            line.hsh.draw.clear();
-            try Prompt.draw(line.hsh, line.peek());
-            try line.hsh.draw.render();
-        }
     }
 }
 
@@ -183,37 +193,47 @@ fn findHistory(line: *Line, dr: enum { up, down }) void {
 
     switch (dr) {
         .up => {
-            defer history.cnt += 1;
-            if (history.cnt == 0) {
-                if (tkn.user_data == true) {
-                    // TODO let token manage it's own brain :<
-                    tkn.prev_exec = null;
-                } else if (tkn.prev_exec) |pe| {
-                    tkn.raw = pe;
-                    // lol, super leaks
-                    tkn.prev_exec = null;
-                    tkn.idx = tkn.raw.items.len;
-                    return;
+            if (line.history_position) |pos| {
+                _ = history.readAtFiltered(pos, line.history_search.?, tkn.lineReplaceHistory());
+                line.history_position.? = pos + 1;
+            } else {
+                line.history_position = 0;
+                if (tkn.raw.items.len == 0) {
+                    if (tkn.prev_exec) |prvexe| {
+                        tkn.raw = prvexe;
+                        tkn.idx = tkn.raw.items.len;
+                        tkn.prev_exec = null;
+                        return;
+                    }
+                    line.history_search = line.alloc.dupe(u8, "") catch @panic("OOM");
+                } else if (line.history_search == null) {
+                    if (tkn.user_data == true) {
+                        log.warn("clobbered userdata\n", .{});
+                    }
+                    line.history_search = line.alloc.dupe(u8, line.tkn.raw.items) catch @panic("OOM");
                 }
+                _ = history.readAtFiltered(0, line.history_search.?, tkn.lineReplaceHistory());
             }
-            _ = history.readAtFiltered(tkn.lineReplaceHistory(), &line.usr_line);
             line.tkn.move(.end);
             return;
         },
         .down => {
-            if (history.cnt > 1) {
-                history.cnt -= 1;
-                tkn.reset();
-            } else {
-                history.cnt -|= 1;
-                tkn.reset();
-                tkn.consumes(&line.usr_line) catch unreachable;
-                //in.hist_orig = in.hist_data[0..0];
-
-                return;
+            if (line.history_position) |pos| {
+                if (pos == 0) {
+                    tkn.reset();
+                    log.warn("todo restore userdata\n", .{});
+                    tkn.reset();
+                    line.history_position = null;
+                    tkn.move(.end);
+                } else {
+                    line.history_position.? -|= 1;
+                    _ = history.readAtFiltered(pos, line.history_search.?, tkn.lineReplaceHistory());
+                    //tkn.reset();
+                    //tkn.consumes(&line.usr_line) catch unreachable;
+                    tkn.move(.end);
+                }
             }
-            _ = history.readAtFiltered(tkn.lineReplaceHistory(), &line.usr_line);
-            tkn.move(.end);
+
             return;
         },
     }
@@ -248,6 +268,7 @@ fn complete(line: *Line) !void {
                         ' ' => {
                             try line.tkn.maybeCommit(null);
                             cmplt.raze();
+                            try line.tkn.consumec(' ');
                             continue :sw .{ .done = {} };
                         },
                         '/' => |chr| {
@@ -357,6 +378,7 @@ fn complete(line: *Line) !void {
             continue :sw .{ .typing = chr };
         },
         .done => {
+            line.hsh.draw.clearCtx();
             return;
         },
     }
