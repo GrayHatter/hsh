@@ -88,16 +88,16 @@ const Direction = enum {
 
 pub const Drawable = @This();
 
-pub fn init(hsh: *HSH) Error!Drawable {
+pub fn init(a: Allocator, hsh: *HSH) Error!Drawable {
     colorize = hsh.enabled(Features.Colorize);
     return .{
-        .alloc = hsh.alloc,
+        .alloc = a,
         .tty = &hsh.tty,
         .hsh = hsh,
-        .before = DrawBuf.init(hsh.alloc),
-        .b = DrawBuf.init(hsh.alloc),
-        .right = DrawBuf.init(hsh.alloc),
-        .after = DrawBuf.init(hsh.alloc),
+        .before = DrawBuf.init(a),
+        .b = DrawBuf.init(a),
+        .right = DrawBuf.init(a),
+        .after = DrawBuf.init(a),
     };
 }
 

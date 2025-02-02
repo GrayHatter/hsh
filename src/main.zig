@@ -135,7 +135,7 @@ pub fn main() !void {
     // Look at me, I'm the captain now!
     hsh.tty.pwnTTY();
 
-    hsh.draw = Drawable.init(&hsh) catch unreachable;
+    hsh.draw = Drawable.init(a, &hsh) catch unreachable;
     defer hsh.draw.raze();
     hsh.draw.term_size = hsh.tty.geom() catch unreachable;
 
