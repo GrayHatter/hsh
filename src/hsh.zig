@@ -76,12 +76,12 @@ fn readFromRC(hsh: *HSH) E!void {
             defer a.free(tokens);
             var pitr = Parser.parse(a, tokens) catch continue;
 
-            if (!bi.exists(pitr.first().cannon())) {
+            if (!shellbuiltin.exists(pitr.first().cannon())) {
                 log.warn("Unknown rc line \n    {s}\n", .{line});
                 continue;
             }
 
-            const bi_func = bi.strExec(titr.first().cannon());
+            const bi_func = shellbuiltin.strExec(titr.first().cannon());
             _ = bi_func(hsh, &pitr) catch |err| {
                 log.err("rc parse error {}\n", .{err});
             };
@@ -99,8 +99,8 @@ fn initShell(h: *HSH) !void {
     Variables.init(h.alloc);
 
     // builtins that wish to save data depend on this being available
-    savestates = ArrayList(State).init(h.alloc);
-    try bi.init(h.alloc);
+    savestates = std.ArrayList(State).init(h.alloc);
+    try shellbuiltin.init(h.alloc);
     try Context.init(&h.alloc);
     try readFromRC(h);
 
@@ -110,13 +110,13 @@ fn initShell(h: *HSH) !void {
 fn razeShell(h: *HSH) void {
     Context.raze();
 
-    bi.raze(h.alloc);
+    shellbuiltin.raze(h.alloc);
     savestates.clearAndFree();
 
     Variables.raze();
 }
 
-var savestates: ArrayList(State) = undefined;
+var savestates: std.ArrayList(State) = undefined;
 
 pub fn addState(s: State) E!void {
     try savestates.append(s);
@@ -244,23 +244,20 @@ pub const HSH = struct {
 };
 
 const std = @import("std");
-const mem = @import("mem.zig");
-const Allocator = mem.Allocator;
-const Drawable = @import("draw.zig").Drawable;
-const TTY = @import("tty.zig").TTY;
-const builtin = @import("builtin");
-const ArrayList = std.ArrayList;
-const Token = @import("token.zig");
-const Signals = @import("signals.zig");
-const Queue = std.atomic.Queue;
-const jobs = @import("jobs.zig");
-const parser = @import("parse.zig");
-const Parser = parser.Parser;
-const bi = @import("builtins.zig");
-const State = @import("state.zig");
-const Context = @import("context.zig");
-const fs = @import("fs.zig");
-const Variables = @import("variables.zig");
+const Allocator = std.mem.Allocator;
 const log = @import("log");
+const builtin = @import("builtin");
+
+const Context = @import("context.zig");
+const Drawable = @import("draw.zig").Drawable;
 const INEvent = @import("inotify.zig").Event;
 const Line = @import("line.zig");
+const Parser = @import("parse.zig").Parser;
+const Signals = @import("signals.zig");
+const State = @import("state.zig");
+const TTY = @import("tty.zig").TTY;
+const Token = @import("token.zig");
+const Variables = @import("variables.zig");
+const fs = @import("fs.zig");
+const jobs = @import("jobs.zig");
+const shellbuiltin = @import("builtins.zig");
