@@ -187,9 +187,6 @@ fn saveLine(_: *Line, _: []const u8) void {
 fn findHistory(line: *Line, dr: enum { up, down }) void {
     var history = line.history;
     var tkn = &line.tkn;
-    if (tkn.user_data) {
-        line.saveLine(tkn.raw.items);
-    }
 
     switch (dr) {
         .up => {
