@@ -177,13 +177,6 @@ pub fn externEditorRead(line: *Line) ![]u8 {
     return line.text;
 }
 
-fn saveLine(_: *Line, _: []const u8) void {
-    //const amount = @min(1024, save.len);
-    //for (line.usr_line[0..amount], line[0..amount]) |*l, r| {
-    //    l.* = r;
-    //}
-}
-
 fn findHistory(line: *Line, dr: enum { up, down }) void {
     var history = line.history;
     var tkn = &line.tkn;

@@ -619,6 +619,9 @@ pub fn childZ(a: Allocator, argv: [:null]const ?[*:0]const u8) Error!ChildResult
 }
 
 test "mkstack" {
+    var a = std.testing.allocator;
+    paths = &[_][]const u8{"/usr/bin"};
+
     var ti = TokenIterator{
         .raw = "ls | sort",
     };
@@ -634,9 +637,6 @@ test "mkstack" {
     ti.skip();
     try std.testing.expectEqualStrings("sort", ti.next().?.cannon());
 
-    paths = &[_][]const u8{"/usr/bin"};
-
-    var a = std.testing.allocator;
     ti.restart();
     const stk = try mkCallableStack(a, &ti);
     try std.testing.expect(stk.len == 2);
@@ -644,4 +644,22 @@ test "mkstack" {
         free(a, s);
     }
     a.free(stk);
+
+    ti = TokenIterator{
+        .raw = "zig build && zig-out/bin/hsh",
+    };
+    ti.restart();
+    const stk2 = try mkCallableStack(a, &ti);
+    for (stk2) |*s| {
+        free(a, s);
+    }
+    a.free(stk2);
+
+    try std.testing.expectEqualStrings("zig", ti.first().cannon());
+    ti.skip();
+    try std.testing.expectEqualStrings("build", ti.next().?.cannon());
+    ti.skip();
+    try std.testing.expectEqualStrings("&&", ti.next().?.cannon());
+    ti.skip();
+    try std.testing.expectEqualStrings("zig-out/bin/hsh", ti.next().?.cannon());
 }
