@@ -1,26 +1,4 @@
-const std = @import("std");
-const log = @import("log");
-const hsh_build = @import("hsh_build");
-const Allocator = std.mem.Allocator;
-const TTY = @import("tty.zig");
-const Draw = @import("draw.zig");
-const Drawable = Draw.Drawable;
-const prompt = @import("prompt.zig");
-const jobsContext = @import("prompt.zig").jobsContext;
-const ctxContext = @import("prompt.zig").ctxContext;
-const Context = @import("context.zig");
-const HSH = @import("hsh.zig").HSH;
-const Exec = @import("exec.zig");
-const Signals = @import("signals.zig");
-const History = @import("history.zig");
-const jobs = @import("jobs.zig");
-const Line = @import("line.zig");
-
-test "main" {
-    std.testing.refAllDecls(@This());
-}
-
-fn core(hsh: *HSH, a: Allocator) ![]u8 {
+fn core(hsh: *Hsh, a: Allocator, io: Io) ![]u8 {
     var array_alloc = std.heap.ArenaAllocator.init(a);
     defer array_alloc.deinit();
     const alloc = array_alloc.allocator();
@@ -34,7 +12,7 @@ fn core(hsh: *HSH, a: Allocator) ![]u8 {
 
     while (true) {
         hsh.draw.clear();
-        redraw = hsh.spin() or redraw;
+        redraw = hsh.spin(a, io) or redraw;
 
         if (redraw) {
             try prompt.draw(hsh, line.peek());
@@ -43,7 +21,7 @@ fn core(hsh: *HSH, a: Allocator) ![]u8 {
         }
 
         // TOOD fixme this is the wrong place for the arena
-        return try a.dupe(u8, try line.do());
+        return try a.dupe(u8, try line.do(a, io));
     }
 }
 
@@ -55,14 +33,14 @@ fn usage() void {
 /// return 255 == unknown
 /// return   1 == exec error
 /// return   2 == alloc error
-fn execTacC(args: *std.process.ArgIterator) u8 {
+fn execTacC(mini: std.process.Init.Minimal, io: Io) u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const a = gpa.allocator();
-    var hsh = HSH.init(a) catch return 255;
-    defer hsh.raze();
-    hsh.tty = TTY.init(a) catch return 255;
+    var hsh = Hsh.init(mini.environ, a, io) catch return 255;
+    defer hsh.raze(a, io);
+    hsh.tty = Tty.init(a, io) catch return 255;
     defer hsh.tty.raze();
-
+    var args = mini.args.iterate();
     while (args.next()) |_| {
         unreachable;
         //hsh.tkn.consumes(arg) catch return 2;
@@ -72,7 +50,7 @@ fn execTacC(args: *std.process.ArgIterator) u8 {
         log.err("-c error [{}]\n", .{err});
         return 1;
     };
-    for (jobs.jobs.items) |job| {
+    for (hsh.jobs.jobs.items) |job| {
         if (job.exit_code != null and job.exit_code.? > 0) {
             return job.exit_code.?;
         }
@@ -80,8 +58,8 @@ fn execTacC(args: *std.process.ArgIterator) u8 {
     return 0;
 }
 
-fn readArgs() ?u8 {
-    var args = std.process.args();
+fn readArgs(mini: std.process.Init.Minimal, io: Io) ?u8 {
+    var args = mini.args.iterate();
     _ = args.next(); // argv[0] bin name
     while (args.next()) |arg| {
         log.info("arg: {s}\n", .{arg});
@@ -101,7 +79,7 @@ fn readArgs() ?u8 {
             // and print the config file[s] that would be sourced or updated
             @panic("Not Implemented");
         } else if (std.mem.eql(u8, "-c", arg)) {
-            return execTacC(&args);
+            return execTacC(mini, io);
         } else {
             log.warn("unknown arg: {s}\n", .{arg});
         }
@@ -109,27 +87,28 @@ fn readArgs() ?u8 {
     return null;
 }
 
-pub fn main() !void {
-    if (readArgs()) |err| {
+pub fn main(init: std.process.Init) !void {
+    var threaded: std.Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+
+    if (readArgs(init.minimal, io)) |err| {
         std.process.exit(err);
     }
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer {
-        if (gpa.detectLeaks()) {
-            std.debug.print("Leaked\n", .{});
-            std.time.sleep(6 * 1000 * 1000 * 1000);
-        }
-    }
+    defer if (gpa.detectLeaks() > 0) {
+        std.debug.print("Leaked\n", .{});
+        Io.sleep(io, .fromSeconds(6), .real) catch unreachable;
+    };
     const a = gpa.allocator();
 
-    var hsh = try HSH.init(a);
-    defer hsh.raze();
+    var hsh = try Hsh.init(init.minimal.environ, a, io);
+    defer hsh.raze(a, io);
 
     try Signals.init(a);
     defer Signals.raze();
 
-    hsh.tty = try TTY.init(a);
+    hsh.tty = try Tty.init(a, io);
     defer hsh.tty.raze();
     try hsh.tty.setRaw();
     // Look at me, I'm the captain now!
@@ -141,7 +120,7 @@ pub fn main() !void {
 
     var inerr = false;
     while (true) {
-        if (core(&hsh, a)) |str| {
+        if (core(&hsh, a, io)) |str| {
             inerr = false;
             if (str.len == 0) {
                 std.debug.print("\n goodbye :) \n", .{});
@@ -201,10 +180,34 @@ pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, addr: ?usize) noretur
 
     log.err("Panic reached... your TTY is likely broken now.\n\n      ...sorry about that!\n\n", .{});
     std.debug.print("\n\r\x1B[J", .{});
-    if (TTY.current_tty) |*t| {
-        TTY.current_tty = null;
+    if (Tty.current_tty) |*t| {
+        Tty.current_tty = null;
         t.raze();
     }
     std.debug.defaultPanic(msg, addr);
     @trap();
 }
+
+test "main" {
+    std.testing.refAllDecls(@This());
+}
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const hsh_build = @import("hsh_build");
+const Io = std.Io;
+
+const log = @import("log.zig");
+const Tty = @import("tty.zig");
+const Draw = @import("draw.zig");
+const Drawable = Draw.Drawable;
+const prompt = @import("prompt.zig");
+const jobsContext = @import("prompt.zig").jobsContext;
+const ctxContext = @import("prompt.zig").ctxContext;
+const Context = @import("context.zig");
+const Hsh = @import("hsh.zig");
+const Exec = @import("exec.zig");
+const Signals = @import("signals.zig");
+const History = @import("history.zig");
+const Jobs = @import("jobs.zig");
+const Line = @import("line.zig");

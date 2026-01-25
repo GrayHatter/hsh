@@ -1,3 +1,18 @@
+features: hshFeature,
+env: std.process.Environ,
+fs: Fs,
+pid: std.posix.pid_t,
+pgrp: std.posix.pid_t = -1,
+jobs: Jobs,
+tty: Tty = undefined,
+draw: Drawable = undefined,
+line: *Line = undefined,
+input: i32 = 0,
+changes: []u8 = undefined,
+waiting: bool = false,
+
+const Hsh = @This();
+
 pub const Error = error{
     Unknown,
     OutOfMemory,
@@ -6,8 +21,8 @@ pub const Error = error{
     CorruptFile,
     FSError,
     Other,
-} || fs.Error;
-const E = Error;
+    InitFailed,
+};
 
 pub const Features = enum {
     Debugging,
@@ -32,38 +47,31 @@ comptime {
 }
 
 /// caller owns memory
-fn readLine(a: *Allocator, r: std.fs.File.Reader) ![]u8 {
-    const buf = a.alloc(u8, 1024) catch return Error.Memory;
-    errdefer a.free(buf);
-    if (r.readUntilDelimiterOrEof(buf, '\n')) |line| {
-        if (line) |l| {
-            if (!a.resize(buf, l.len)) @panic("resize\n");
-            return l;
-        } else {
-            return Error.EOF;
-        }
+fn readLine(a: Allocator, r: *std.Io.Reader) ![]u8 {
+    if (r.takeSentinel('\n')) |line| {
+        return try a.dupe(u8, line);
     } else |err| return err;
 }
 
 /// TODO delete this helper
-pub fn readRCINotify(h: *HSH, e: INEvent) void {
+pub fn readRCINotify(h: *Hsh, e: INEvent, a: Allocator, io: Io) void {
     // This isn't the right way, but I'm doing it this way because I'll hate
     // this enough to fix it later.
     if (e == .write) {
         log.debug("Reading RC because new write detected\n", .{});
-        readFromRC(h) catch {
+        readFromRC(h, a, io) catch {
             log.err("write failed during inotify event\n", .{});
         };
     }
 }
 
-fn readFromRC(hsh: *HSH) E!void {
-    if (hsh.hfs.rc) |rc_| {
-        const r = rc_.reader();
-        var a = hsh.alloc;
+fn readFromRC(hsh: *Hsh, a: Allocator, io: Io) !void {
+    var r_b: [2048]u8 = undefined;
+    if (hsh.fs.rc) |rc| {
+        var r = rc.file.reader(io, &r_b);
 
-        rc_.seekTo(0) catch return E.FSError;
-        while (readLine(&a, r)) |line| {
+        r.seekTo(0) catch return error.FSError;
+        while (readLine(a, &r.interface)) |line| {
             defer a.free(line);
             if (line.len == 0 or line[0] == '#') continue;
 
@@ -72,7 +80,7 @@ fn readFromRC(hsh: *HSH) E!void {
                 continue;
             }
             var titr = Token.Iterator{ .raw = line };
-            const tokens = titr.toSlice(a) catch return E.Memory;
+            const tokens = titr.toSlice(a) catch return error.Memory;
             defer a.free(tokens);
             var pitr = Parser.parse(a, tokens) catch continue;
 
@@ -82,7 +90,7 @@ fn readFromRC(hsh: *HSH) E!void {
             }
 
             const bi_func = shellbuiltin.strExec(titr.first().cannon());
-            _ = bi_func(hsh, &pitr) catch |err| {
+            _ = bi_func(hsh, &pitr, a, io) catch |err| {
                 log.err("rc parse error {}\n", .{err});
             };
             pitr.raze();
@@ -95,169 +103,143 @@ fn readFromRC(hsh: *HSH) E!void {
     }
 }
 
-fn initShell(h: *HSH) !void {
-    Variables.init(h.alloc);
-
-    // builtins that wish to save data depend on this being available
-    savestates = std.ArrayList(State).init(h.alloc);
-    try shellbuiltin.init(h.alloc);
-    try Context.init(&h.alloc);
-    try readFromRC(h);
-
-    Variables.load(h.env) catch return E.Memory;
-}
-
-fn razeShell(h: *HSH) void {
-    Context.raze();
-
-    shellbuiltin.raze(h.alloc);
-    savestates.clearAndFree();
-
-    Variables.raze();
-}
-
-var savestates: std.ArrayList(State) = undefined;
-
-pub fn addState(s: State) E!void {
-    try savestates.append(s);
-}
-
 fn writeLine(f: std.fs.File, line: []const u8) !usize {
     const size = try f.write(line);
     return size;
 }
 
-fn writeState(h: *HSH, saves: []State) !void {
-    const outf = h.hfs.rc orelse return E.Other;
+//fn writeState(h: *Hsh ) !void {
+//    const outf = h.fs.rc orelse return error.Other;
+//
+//    for () |*s| {
+//        const data: ?[][]const u8 = s.save(h);
+//
+//        if (data) |dd| {
+//            _ = try writeLine(outf, "# [ ");
+//            _ = try writeLine(outf, s.name);
+//            _ = try writeLine(outf, " ]\n");
+//            for (dd) |line| {
+//                _ = try writeLine(outf, line);
+//                h.alloc.free(line);
+//            }
+//            _ = try writeLine(outf, "\n\n");
+//            h.alloc.free(dd);
+//        } else {
+//            _ = try writeLine(outf, "# [ ");
+//            _ = try writeLine(outf, s.name);
+//            _ = try writeLine(outf, " ] didn't provide any save data\n");
+//        }
+//    }
+//    const cpos = outf.getPos() catch return error.Other;
+//    outf.setEndPos(cpos) catch return error.Other;
+//}
 
-    for (saves) |*s| {
-        const data: ?[][]const u8 = s.save(h);
+pub fn init(env: Environ, a: Allocator, io: Io) Error!Hsh {
+    // I'm pulling all of env out at startup only because that's the first
+    // example I found. It's probably sub optimal, but ¯\_(ツ)_/¯. We may
+    // decide we care enough to fix this, or not. The internet seems to think
+    // it's a mistake to alter the env for a running process.
 
-        if (data) |dd| {
-            _ = try writeLine(outf, "# [ ");
-            _ = try writeLine(outf, s.name);
-            _ = try writeLine(outf, " ]\n");
-            for (dd) |line| {
-                _ = try writeLine(outf, line);
-                h.alloc.free(line);
-            }
-            _ = try writeLine(outf, "\n\n");
-            h.alloc.free(dd);
-        } else {
-            _ = try writeLine(outf, "# [ ");
-            _ = try writeLine(outf, s.name);
-            _ = try writeLine(outf, " ] didn't provide any save data\n");
-        }
-    }
-    const cpos = outf.getPos() catch return E.Other;
-    outf.setEndPos(cpos) catch return E.Other;
+    // TODO there's errors other than just mem here
+    var hsh: Hsh = .{
+        .features = .{},
+        .env = env,
+        .pid = std.os.linux.getpid(),
+        .jobs = .init(),
+        .fs = Fs.init(env, a, io) catch return error.Memory,
+    };
+    hsh.fs.inotifyInstallRc(readRCINotify, a) catch {
+        log.err("Unable to install rc INotify\n", .{});
+    };
+
+    // Init shell
+    Variables.init(a);
+    // builtins that wish to save data depend on this being available
+
+    shellbuiltin.init(io);
+    try Context.init(a);
+    try readFromRC(&hsh, a, io);
+    Variables.load(env, a) catch return error.Memory;
+
+    return hsh;
 }
 
-pub const HSH = struct {
-    alloc: Allocator,
-    features: hshFeature,
-    env: std.process.EnvMap,
-    hfs: fs,
-    pid: std.posix.pid_t,
-    pgrp: std.posix.pid_t = -1,
-    jobs: *jobs.Jobs,
-    tty: TTY = undefined,
-    draw: Drawable = undefined,
-    line: *Line = undefined,
-    input: i32 = 0,
-    changes: []u8 = undefined,
-    waiting: bool = false,
+pub fn enabled(hsh: *const Hsh, comptime f: Features) bool {
+    return switch (f) {
+        .Debugging => if (hsh.features.Debugging) true else false,
+        .TabComplete => hsh.feature.TabComplete,
+        .Colorize => hsh.features.Colorize orelse true,
+    };
+}
 
-    pub fn init(a: Allocator) Error!HSH {
-        // I'm pulling all of env out at startup only because that's the first
-        // example I found. It's probably sub optimal, but ¯\_(ツ)_/¯. We may
-        // decide we care enough to fix this, or not. The internet seems to think
-        // it's a mistake to alter the env for a running process.
-        const env = std.process.getEnvMap(a) catch return E.Unknown; // TODO err handling
-
-        var hfs = fs.init(a, env) catch return E.Memory;
-        hfs.inotifyInstallRc(readRCINotify) catch {
-            log.err("Unable to install rc INotify\n", .{});
-        };
-        // TODO there's errors other than just mem here
-        var hsh = HSH{
-            .alloc = a,
-            .features = .{},
-            .env = env,
-            .pid = std.os.linux.getpid(),
-            .jobs = jobs.init(a),
-            .hfs = hfs,
-        };
-
-        try initShell(&hsh);
-        return hsh;
+pub fn raze(hsh: *Hsh, a: Allocator, io: Io) void {
+    var b: [2048]u8 = undefined;
+    if (hsh.fs.rc) |rc| {
+        var fw = rc.file.writer(io, &b);
+        fw.seekTo(0) catch @panic("unable to seek rc");
+        shellbuiltin.save(hsh, &fw.interface) catch unreachable;
+        fw.interface.flush() catch unreachable;
     }
 
-    pub fn enabled(hsh: *const HSH, comptime f: Features) bool {
-        return switch (f) {
-            .Debugging => if (hsh.features.Debugging) true else false,
-            .TabComplete => hsh.feature.TabComplete,
-            .Colorize => hsh.features.Colorize orelse true,
-        };
-    }
+    Context.raze(a);
+    shellbuiltin.raze(a);
+    Variables.raze(a);
 
-    pub fn raze(hsh: *HSH) void {
-        if (hsh.hfs.rc) |rc| {
-            rc.seekTo(0) catch @panic("unable to seek rc");
-            writeState(hsh, savestates.items) catch {};
-        }
+    // Last cleanup
+    //hsh.env.deinit();
+    hsh.jobs.raze(a);
+    hsh.fs.raze(a, io);
+}
 
-        razeShell(hsh);
-        hsh.env.deinit();
-        jobs.raze(hsh.alloc);
-        hsh.hfs.raze(hsh.alloc);
-    }
+fn sleep(_: *Hsh) void {
+    // TODO make this adaptive and smrt
+    //std.time.sleep(10 * 1000 * 1000);
+    unreachable;
+}
 
-    fn sleep(_: *HSH) void {
-        // TODO make this adaptive and smrt
-        std.time.sleep(10 * 1000 * 1000);
+/// Returns true if there was an event requiring a redraw
+pub fn spin(hsh: *Hsh, a: Allocator, io: Io) bool {
+    var was_bg = false;
+    var event = hsh.doSignals();
+    while (hsh.jobs.getFg()) |_| {
+        event = hsh.doSignals() or event;
+        was_bg = true;
+        hsh.sleep();
     }
+    if (was_bg) hsh.tty.setOwner(null) catch {
+        log.err("Unable to setOwner after child event\n", .{});
+    };
+    while (hsh.waiting) {
+        event = hsh.doSignals() or event;
+        hsh.sleep();
+    }
+    _ = hsh.fs.checkINotify(hsh, a, io);
+    return event;
+}
 
-    /// Returns true if there was an event requiring a redraw
-    pub fn spin(hsh: *HSH) bool {
-        var was_bg = false;
-        var event = hsh.doSignals();
-        while (jobs.getFg()) |_| {
-            event = hsh.doSignals() or event;
-            was_bg = true;
-            hsh.sleep();
-        }
-        if (was_bg) hsh.tty.setOwner(null) catch {
-            log.err("Unable to setOwner after child event\n", .{});
-        };
-        while (hsh.waiting) {
-            event = hsh.doSignals() or event;
-            hsh.sleep();
-        }
-        _ = hsh.hfs.checkINotify(hsh);
-        return event;
-    }
-
-    fn doSignals(hsh: *HSH) bool {
-        return Signals.do(hsh) != .none;
-    }
-};
+fn doSignals(hsh: *Hsh) bool {
+    return Signals.do(hsh) != .none;
+}
 
 const std = @import("std");
+const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
-const log = @import("log");
+const Io = std.Io;
+const Writer = Io.Writer;
+const Environ = std.process.Environ;
+
 const builtin = @import("builtin");
 
+const log = @import("log.zig");
 const Context = @import("context.zig");
 const Drawable = @import("draw.zig").Drawable;
 const INEvent = @import("inotify.zig").Event;
 const Line = @import("line.zig");
 const Parser = @import("parse.zig").Parser;
 const Signals = @import("signals.zig");
-const State = @import("state.zig");
-const TTY = @import("tty.zig").TTY;
+const Tty = @import("tty.zig");
 const Token = @import("token.zig");
 const Variables = @import("variables.zig");
-const fs = @import("fs.zig");
-const jobs = @import("jobs.zig");
+const Fs = @import("fs.zig");
+const Jobs = @import("jobs.zig");
 const shellbuiltin = @import("builtins.zig");

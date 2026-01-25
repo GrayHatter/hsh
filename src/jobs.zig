@@ -1,10 +1,6 @@
-const std = @import("std");
-const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
-const HSH = @import("hsh.zig").HSH;
-const SI_CODE = @import("signals.zig").SI_CODE;
-const log = @import("log");
-const TTY = @import("tty.zig");
+jobs: ArrayList(Job),
+
+const Jobs = @This();
 
 pub const Error = error{
     Unknown,
@@ -101,42 +97,48 @@ pub const Job = struct {
     }
 };
 
-pub const Jobs = ArrayList(Job);
-
-pub var jobs: Jobs = undefined;
-
-pub fn init(a: Allocator) *Jobs {
-    jobs = Jobs.init(a);
-    return &jobs;
+pub fn init() Jobs {
+    return .{
+        .jobs = .{},
+    };
 }
 
-pub fn raze(a: Allocator) void {
-    for (jobs.items) |*job| {
-        a.free(job.*.name.?);
+pub fn raze(j: *Jobs, a: Allocator) void {
+    for (j.jobs.items) |job| {
+        a.free(job.name.?);
     }
-    jobs.clearAndFree();
+    j.jobs.clearAndFree(a);
 }
 
-pub fn get(jid: std.posix.pid_t) Error!*Job {
-    for (jobs.items) |*j| {
-        if (j.pid == jid) {
-            return j;
-        } else log.debug("job search {} {} \n", .{ j.pid, jid });
+pub fn getPtr(j: *Jobs, jid: std.posix.pid_t) Error!*Job {
+    for (j.jobs.items) |*job| {
+        if (job.pid == jid) {
+            return job;
+        } else log.debug("job search {} {} \n", .{ job.pid, jid });
     }
-    return Error.JobNotFound;
+    return error.JobNotFound;
 }
 
-pub fn add(j: Job) !void {
-    try jobs.append(j);
+pub fn get(j: Jobs, jid: std.posix.pid_t) Error!*const Job {
+    for (j.jobs.items) |*job| {
+        if (job.pid == jid) {
+            return job;
+        } else log.debug("job search {} {} \n", .{ job.pid, jid });
+    }
+    return error.JobNotFound;
 }
 
-pub fn getWaiting() Error!?*Job {
-    for (jobs.items) |*j| {
-        switch (j.status) {
+pub fn add(jobs: *Jobs, j: Job, a: Allocator) !void {
+    try jobs.jobs.append(a, j);
+}
+
+pub fn getWaiting(j: Jobs) Error!?*const Job {
+    for (j.jobs.items) |*job| {
+        switch (job.status) {
             .paused,
             .waiting,
             => {
-                return j;
+                return job;
             },
             else => continue,
         }
@@ -144,11 +146,11 @@ pub fn getWaiting() Error!?*Job {
     return null;
 }
 
-pub fn haltActive() Error!usize {
+pub fn haltActive(j: Jobs) Error!usize {
     var count: usize = 0;
-    for (jobs.items) |*j| {
-        if (j.*.status == .running) {
-            j.status = .paused;
+    for (j.jobs.items) |*job| {
+        if (job.status == .running) {
+            job.status = .paused;
             // TODO send signal
             count += 1;
         }
@@ -156,9 +158,9 @@ pub fn haltActive() Error!usize {
     return count;
 }
 
-pub fn getBg() ?*Job {
-    for (jobs.items) |*j| {
-        switch (j.status) {
+pub fn getBg(j: Jobs) ?*const Job {
+    for (j.jobs.items) |*job| {
+        switch (job.status) {
             .background,
             .waiting,
             .paused,
@@ -171,26 +173,10 @@ pub fn getBg() ?*Job {
     return null;
 }
 
-pub fn getBgSlice(a: Allocator) ![]*Job {
-    var out = ArrayList(*Job).init(a);
-    for (jobs.items) |*j| {
-        switch (j.status) {
-            .background,
-            .waiting,
-            .paused,
-            => {
-                try out.append(j);
-            },
-            else => continue,
-        }
-    }
-    return out.toOwnedSlice();
-}
-
-pub fn getFg() ?*const Job {
-    for (jobs.items) |*j| {
-        if (j.status == .running) {
-            return j;
+pub fn getFg(j: Jobs) ?*const Job {
+    for (j.jobs.items) |*job| {
+        if (job.status == .running) {
+            return job;
         }
     }
     return null;
@@ -203,7 +189,12 @@ const WaitError = if (@hasDecl(std.os, "WaitError")) std.os.WaitError else error
     CHILD,
 };
 
-fn hsh_waitpid(pid: std.posix.pid_t, flags: u32) WaitError!std.posix.WaitPidResult {
+pub const WaitResult = struct {
+    pid: std.posix.pid_t,
+    status: u32,
+};
+
+fn hsh_waitpid(pid: std.posix.pid_t, flags: u32) WaitError!WaitResult {
     const Status_t = if (builtin.link_libc) c_int else u32;
     var status: Status_t = undefined;
     const coerced_flags = if (builtin.link_libc) @as(c_int, @intCast(flags)) else flags;
@@ -215,7 +206,7 @@ fn hsh_waitpid(pid: std.posix.pid_t, flags: u32) WaitError!std.posix.WaitPidResu
                 .status = @as(u32, @bitCast(status)),
             },
             .INTR => continue,
-            .CHILD => return WaitError.CHILD,
+            .CHILD => return error.CHILD,
             .INVAL => unreachable, // Invalid flags.
             else => unreachable,
         }
@@ -227,8 +218,8 @@ const waitpid = if (@TypeOf(std.posix.waitpid) == fn (i32, u32) std.posix.WaitPi
 else
     std.posix.waitpid;
 
-pub fn waitForFg() void {
-    while (getFg()) |fg| {
+pub fn waitForFg(j: *Jobs) void {
+    while (j.getFg()) |fg| {
         log.debug("Waiting on {}\n", .{fg.pid});
         _ = waitFor(fg.pid) catch {
             // Debug because jobs aren't created in some exec cases (which? ¯\_(ツ)_/¯)
@@ -236,14 +227,14 @@ pub fn waitForFg() void {
                 "waitFor didn't find child \"{s}\" {}\n",
                 .{ fg.name orelse "Unknown Job", fg.pid },
             );
-            (get(fg.pid) catch unreachable).status = .unknown;
+            (j.get(fg.pid) catch unreachable).status = .unknown;
         };
     }
 }
 
-pub fn waitFor(jid: std.posix.pid_t) !*Job {
+pub fn waitFor(j: *Jobs, jid: std.posix.pid_t) !*const Job {
     if (jid > 0) {
-        var job = try get(jid);
+        var job = try j.get(jid);
         if (!job.status.alive()) {
             return job;
         }
@@ -252,7 +243,7 @@ pub fn waitFor(jid: std.posix.pid_t) !*Job {
     const s = try hsh_waitpid(jid, std.posix.W.UNTRACED);
     log.debug("status {} {} \n", .{ s.pid, s.status });
     if (s.pid == jid) {
-        if (get(s.pid)) |job| {
+        if (j.getPtr(s.pid)) |job| {
             if (std.posix.W.IFSIGNALED(s.status)) {
                 job.crash(0);
             } else if (std.os.linux.W.IFSTOPPED(s.status)) {
@@ -271,3 +262,11 @@ pub fn waitFor(jid: std.posix.pid_t) !*Job {
     } else log.debug("search != found {} did get {} \n", .{ jid, s.pid });
     return Error.JobNotFound;
 }
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
+const Hsh = @import("hsh.zig");
+const SI_CODE = @import("signals.zig").SI_CODE;
+const log = @import("log.zig");
+const TTY = @import("tty.zig");

@@ -30,7 +30,7 @@ pub const CursorMotion = enum(u8) {
 pub fn init(a: Allocator) Tokenizer {
     return Tokenizer{
         .alloc = a,
-        .raw = ArrayList(u8).initCapacity(a, 512) catch ArrayList(u8).init(a), // lol
+        .raw = ArrayList(u8).initCapacity(a, 512) catch unreachable,
     };
 }
 
@@ -171,21 +171,21 @@ pub fn maybeCommit(self: *Tokenizer, new: ?*const CompOption) !void {
 
 /// if returned value is null, string is already safe.
 fn makeSafe(self: *Tokenizer, str: []const u8) !?[]u8 {
-    if (mem.indexOfAny(u8, str, Token.BREAKING_TOKENS)) |_| {} else {
+    if (std.mem.indexOfAny(u8, str, Token.BREAKING_TOKENS)) |_| {} else {
         return null;
     }
     var extra: usize = str.len;
     var look = [1]u8{0};
     for (Token.BREAKING_TOKENS) |t| {
         look[0] = t;
-        extra += mem.count(u8, str, &look);
+        extra += std.mem.count(u8, str, &look);
     }
     std.debug.assert(extra > str.len);
 
     var safer = try self.alloc.alloc(u8, extra);
     var i: usize = 0;
     for (str) |c| {
-        if (mem.indexOfScalar(u8, Token.BREAKING_TOKENS, c)) |_| {
+        if (std.mem.indexOfScalar(u8, Token.BREAKING_TOKENS, c)) |_| {
             safer[i] = '\\';
             i += 1;
         }
@@ -1399,11 +1399,9 @@ test "build functions" {
 }
 
 const std = @import("std");
-const log = @import("log");
-const Allocator = mem.Allocator;
-const ArrayList = std.ArrayList;
-const File = std.fs.File;
-const io = std.io;
-const mem = std.mem;
+const Allocator = std.mem.Allocator;
+const ArrayList = std.array_list.Managed;
+const io = std.Io;
+const log = @import("log.zig");
 const CompOption = @import("completion.zig").CompOption;
 const Token = @import("token.zig");

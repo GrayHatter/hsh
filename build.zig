@@ -1,10 +1,8 @@
 const std = @import("std");
 
-// near default build.zig from 0.11.0-dev.1908+06b263825a
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const src = b.path("src/main.zig");
 
     const opts = b.addOptions();
     opts.addOption(
@@ -13,19 +11,19 @@ pub fn build(b: *std.Build) void {
         std.SemanticVersion.parse(version(b)) catch unreachable,
     );
 
-    const log = b.createModule(.{
-        .root_source_file = b.path("src/log.zig"),
-    });
-
-    const exe = b.addExecutable(.{
-        .name = "hsh",
-        .root_source_file = src,
+    const hsh = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
 
+    const exe = b.addExecutable(.{
+        .name = "hsh",
+        .root_module = hsh,
+    });
+
     exe.root_module.addOptions("hsh_build", opts);
-    exe.root_module.addImport("log", log);
+    //exe.root_module.addImport("log", log);
 
     b.installArtifact(exe);
 
@@ -44,12 +42,10 @@ pub fn build(b: *std.Build) void {
 
     // TESTS
     const unit_tests = b.addTest(.{
-        .root_source_file = src,
-        .target = target,
-        .optimize = optimize,
+        .root_module = hsh,
     });
     unit_tests.root_module.addOptions("hsh_build", opts);
-    unit_tests.root_module.addImport("log", log);
+    //unit_tests.root_module.addImport("log", log);
     const run_tests = b.addRunArtifact(unit_tests);
 
     const test_step = b.step("test", "Run unit tests");
@@ -68,7 +64,7 @@ fn version(b: *std.Build) []const u8 {
         "describe",
         "--dirty",
         "--always",
-    }, &code, .Ignore) catch {
+    }, &code, .ignore) catch {
         std.process.exit(2);
     };
 

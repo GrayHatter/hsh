@@ -1,9 +1,7 @@
-const std = @import("std");
-const log = @import("log");
-const HSH = @import("hsh.zig").HSH;
-const Keys = @import("keys.zig");
-const parser = @import("parse.zig");
-const Parser = parser.Parser;
+stdin: std.posix.fd_t,
+spin: ?*const fn (*Hsh, Allocator, Io) bool = null,
+hsh: ?*Hsh = null,
+next: ?Event = null,
 
 const Input = @This();
 
@@ -83,11 +81,6 @@ pub const Event = union(enum) {
     mouse: Keys.Mouse,
 };
 
-stdin: std.posix.fd_t,
-spin: ?*const fn (?*HSH) bool = null,
-hsh: ?*HSH = null,
-next: ?Event = null,
-
 pub fn init(stdin: std.posix.fd_t) Input {
     return .{
         .stdin = stdin,
@@ -125,7 +118,7 @@ fn ctrlCode(b: u8) Control {
         // TODO Currently hack af, this could use some more love!
         0x07 => .bell,
         0x08 => .delete_word,
-        0x09 => |_| .tab,
+        0x09 => .tab,
         //return in.completing(hsh, tkn, Keys.Event.ascii(c).keysm) catch unreachable;
         0x0A, 0x0D => .newline,
         0x0C => .reset_term,
@@ -230,7 +223,7 @@ pub fn nonInteractive(input: Input) errors!Event {
     } else |_| unreachable;
 }
 
-pub fn interactive(input: Input) errors!Event {
+pub fn interactive(input: Input, a: Allocator, io: Io) errors!Event {
     var buffer: [1]u8 = undefined;
 
     while (true) {
@@ -239,7 +232,7 @@ pub fn interactive(input: Input) errors!Event {
             return error.io;
         } == 0) {
             if (input.spin) |spin| {
-                if (spin(input.hsh))
+                if (spin(input.hsh, a, io))
                     return error.signaled;
             }
             continue;
@@ -250,3 +243,12 @@ pub fn interactive(input: Input) errors!Event {
         } else |_| unreachable;
     }
 }
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const Io = std.Io;
+const log = @import("log.zig");
+const Hsh = @import("hsh.zig");
+const Keys = @import("keys.zig");
+const parser = @import("parse.zig");
+const Parser = parser.Parser;

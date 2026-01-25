@@ -6,7 +6,7 @@ subtoken: u8 = 0,
 resolved: ?[]u8 = null,
 substr: ?[]const u8 = null,
 
-pub const Token = @This();
+const Token = @This();
 
 pub const BREAKING_TOKENS = " \t\n\"\\'`${|><#;}";
 const BSLH = '\\';
@@ -499,12 +499,12 @@ pub const Iterator = struct {
 
     // caller owns the memory, this will reset the index
     pub fn toSlice(self: *Self, a: Allocator) ![]Token {
-        var list = ArrayList(Token).init(a);
+        var list = ArrayList(Token){};
         self.index = 0;
         while (self.next()) |n| {
-            try list.append(n.*);
+            try list.append(a, n.*);
         }
-        return list.toOwnedSlice();
+        return list.toOwnedSlice(a);
     }
 
     // caller owns the memory, this will will move the index so calling next
@@ -513,18 +513,18 @@ pub const Iterator = struct {
     // start at the following word slice.
     // calling this invalidates the previously returned pointer from next/peek
     pub fn toSliceExec(self: *Self, a: Allocator) ![]Token {
-        var list = ArrayList(Token).init(a);
+        var list = ArrayList(Token){};
         if (self.nextExec()) |n| {
-            try list.append(n.*);
+            try list.append(a, n.*);
         } else if (self.next()) |n| {
             if (n.kind != .oper) {
-                try list.append(n.*);
+                try list.append(a, n.*);
             }
         }
         while (self.nextExec()) |n| {
-            try list.append(n.*);
+            try list.append(a, n.*);
         }
-        return list.toOwnedSlice();
+        return list.toOwnedSlice(a);
     }
 
     pub fn toSliceExecStr(self: *Self, a: Allocator) ![]const []const u8 {
@@ -618,7 +618,7 @@ test "path" {
 }
 
 const std = @import("std");
-const log = @import("log");
+const log = @import("log.zig");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const Tokenizer = @import("tokenizer.zig").Tokenizer;

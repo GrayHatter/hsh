@@ -1,11 +1,7 @@
-const std = @import("std");
-const fs = @import("fs.zig");
+seen_list: ArrayList([]const u8) = .{},
+file: ?std.Io.File,
 
-pub const History = @This();
-
-alloc: ?std.mem.Allocator = null,
-seen_list: ?std.ArrayList([]const u8) = null,
-file: ?std.fs.File,
+const History = @This();
 
 fn seenAdd(self: *History, seen: []const u8) void {
     if (self.seen_list) |*sl| {
@@ -32,11 +28,10 @@ fn seenExists(self: *History, this: []const u8) bool {
     return false;
 }
 
-pub fn init(f: ?std.fs.File, a: ?std.mem.Allocator) History {
+pub fn init(f: ?std.Io.File) History {
     return .{
         .file = f,
-        .alloc = a,
-        .seen_list = if (a) |aa| std.ArrayList([]const u8).init(aa) else null,
+        .seen_list = .{},
     };
 }
 
@@ -46,7 +41,7 @@ pub fn atTop(self: *History) bool {
 
 /// Returns true when there's is assumed to be more history
 /// Final file pos is undefined
-fn readLine(self: *History, buffer: ?*std.ArrayList(u8)) !bool {
+fn readLine(self: *History, buffer: ?*ArrayList(u8)) !bool {
     var hfile = self.file orelse return false;
     const b = buffer orelse return (hfile.getPos() catch 0) != 0;
     const pos = try hfile.getPos();
@@ -59,7 +54,7 @@ fn readLine(self: *History, buffer: ?*std.ArrayList(u8)) !bool {
 /// start of the line it would have read. If buffer is valid, the cursor
 /// position will have increased some amount. (Repeated calls with a valid
 /// buffer will likely return the same line)
-fn readLinePrev(self: *History, buffer: ?*std.ArrayList(u8)) !bool {
+fn readLinePrev(self: *History, buffer: ?*ArrayList(u8)) !bool {
     var hfile = self.file orelse return false;
     const cursor = try hfile.getPos();
     var buf: [1]u8 = undefined;
@@ -74,7 +69,7 @@ fn readLinePrev(self: *History, buffer: ?*std.ArrayList(u8)) !bool {
     return self.readLine(buffer);
 }
 
-pub fn readAt(self: *History, position: usize, buffer: *std.ArrayList(u8)) bool {
+pub fn readAt(self: *History, position: usize, buffer: *ArrayList(u8)) bool {
     var hfile = self.file orelse return false;
     var row = position;
     hfile.seekFromEnd(0) catch return false;
@@ -89,7 +84,7 @@ pub fn readAtFiltered(
     self: *History,
     position: usize,
     search: []const u8,
-    buffer: *std.ArrayList(u8),
+    buffer: *ArrayList(u8),
 ) bool {
     var hfile = self.file orelse return false;
     var row = position;
@@ -166,3 +161,8 @@ test "samesame" {
 
     try std.testing.expect(try samesame(fbs, line));
 }
+
+const std = @import("std");
+const ArrayList = std.ArrayList;
+const Allocator = std.mem.Allocator;
+const fs = @import("fs.zig");

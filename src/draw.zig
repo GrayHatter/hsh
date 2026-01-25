@@ -1,6 +1,6 @@
 alloc: Allocator,
-tty: *TTY,
-hsh: *HSH,
+tty: *Tty,
+hsh: *Hsh,
 cursor: u32 = 0,
 cursor_reposition: bool = true,
 before: DrawBuf = undefined,
@@ -88,16 +88,16 @@ const Direction = enum {
 
 pub const Drawable = @This();
 
-pub fn init(a: Allocator, hsh: *HSH) Error!Drawable {
+pub fn init(a: Allocator, hsh: *Hsh) Error!Drawable {
     colorize = hsh.enabled(Features.Colorize);
     return .{
         .alloc = a,
         .tty = &hsh.tty,
         .hsh = hsh,
-        .before = DrawBuf.init(a),
-        .b = DrawBuf.init(a),
-        .right = DrawBuf.init(a),
-        .after = DrawBuf.init(a),
+        .before = .{},
+        .b = .{},
+        .right = .{},
+        .after = .{},
     };
 }
 
@@ -300,9 +300,8 @@ pub fn printAfter(d: *const Drawable, comptime c: []const u8, a: anytype) !void 
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const TTY = @import("tty.zig").TTY;
+const Tty = @import("tty.zig");
 const ArrayList = std.ArrayList;
-const hsh_ = @import("hsh.zig");
-const HSH = hsh_.HSH;
-const Features = hsh_.Features;
+const Hsh = @import("hsh.zig");
+const Features = Hsh.Features;
 const countPrintable = Layout.countPrintable;

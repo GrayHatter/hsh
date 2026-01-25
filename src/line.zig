@@ -1,4 +1,4 @@
-hsh: *HSH,
+hsh: *Hsh,
 alloc: Allocator,
 input: Input,
 tkn: Tokenizer,
@@ -26,7 +26,7 @@ const Action = enum {
     external,
 };
 
-pub fn init(hsh: *HSH, a: Allocator, options: Options) !Line {
+pub fn init(hsh: *Hsh, a: Allocator, options: Options) !Line {
     return .{
         .hsh = hsh,
         .alloc = a,
@@ -34,9 +34,9 @@ pub fn init(hsh: *HSH, a: Allocator, options: Options) !Line {
         .tkn = Tokenizer.init(a),
         .completion = Complete.init(a),
         .options = options,
-        .history = History.init(hsh.hfs.history, hsh.alloc),
+        .history = History.init(hsh.fs.history.?.file),
         .mode = if (options.interactive) .{ .interactive = {} } else .{ .scripted = {} },
-        .text = try hsh.alloc.alloc(u8, 0),
+        .text = try a.alloc(u8, 0),
     };
 }
 
@@ -44,8 +44,8 @@ pub fn raze(line: Line) void {
     if (line.completion) |comp| comp.raze();
 }
 
-fn spin(hsh: ?*HSH) bool {
-    if (hsh) |h| return h.spin();
+fn spin(hsh: ?*Hsh, a: Allocator, io: Io) bool {
+    if (hsh) |h| return h.spin(a, io);
     return false;
 }
 
@@ -61,10 +61,10 @@ pub fn peek(line: Line) []const u8 {
     return line.tkn.raw.items;
 }
 
-fn core(line: *Line) !Action {
+fn core(line: *Line, a: Allocator, io: Io) !Action {
     while (true) {
         const input = switch (line.mode) {
-            .interactive => line.input.interactive(),
+            .interactive => line.input.interactive(a, io),
             .scripted => line.input.nonInteractive(),
             .external_editor => return .external,
         } catch |err| switch (err) {
@@ -133,9 +133,9 @@ fn core(line: *Line) !Action {
     }
 }
 
-pub fn do(line: *Line) ![]u8 {
+pub fn do(line: *Line, a: Allocator, io: Io) ![]u8 {
     while (true) {
-        return switch (try line.core()) {
+        return switch (try line.core(a, io)) {
             .external => try line.externEditorRead(),
             .empty => continue,
             .exec => {
@@ -157,8 +157,8 @@ fn dupeText(line: Line) ![]u8 {
     return try line.alloc.dupe(u8, line.text);
 }
 
-pub fn externEditor(line: *Line) ![]u8 {
-    line.mode = .{ .external_editor = fs.mktemp(line.alloc, line.text) catch |err| {
+pub fn externEditor(line: *Line, io: Io) ![]u8 {
+    line.mode = .{ .external_editor = Fs.mktemp(line.text, line.alloc, io) catch |err| {
         log.err("Unable to write prompt to tmp file {}\n", .{err});
         return err;
     } };
@@ -171,7 +171,7 @@ pub fn externEditorRead(line: *Line) ![]u8 {
     defer line.alloc.free(tmp);
     defer std.posix.unlink(tmp) catch unreachable;
 
-    var file = fs.openFile(tmp, false) orelse return error.io;
+    var file = Fs.openFile(tmp, false) orelse return error.io;
     defer file.close();
     line.text = file.reader().readAllAlloc(line.alloc, 4096) catch unreachable;
     return line.text;
@@ -377,11 +377,12 @@ fn complete(line: *Line) !void {
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const log = @import("log");
+const Io = std.Io;
 
+const log = @import("log.zig");
 const Tokenizer = @import("tokenizer.zig");
-const fs = @import("fs.zig");
-const HSH = @import("hsh.zig").HSH;
+const Fs = @import("fs.zig");
+const Hsh = @import("hsh.zig");
 const Complete = @import("completion.zig");
 const History = @import("history.zig");
 const Input = @import("input.zig");

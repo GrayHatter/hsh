@@ -1,14 +1,4 @@
-const std = @import("std");
-const hsh = @import("../hsh.zig");
-const HSH = hsh.HSH;
-const bi = @import("../builtins.zig");
-const Err = bi.Err;
-const ParsedIterator = @import("../parse.zig").ParsedIterator;
-const State = bi.State;
-const print = bi.print;
-const log = @import("log");
-const Variables = @import("../variables.zig");
-const Allocator = std.mem.Allocator;
+var export_list: ArrayList(Export) = .{};
 
 pub const Export = struct {
     // name is owned internally
@@ -23,42 +13,24 @@ pub const Export = struct {
         };
     }
 
-    pub fn format(self: Export, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
-        if (fmt.len == 4) {
-            try std.fmt.format(out, "export {s}='{s}'", .{ self.name, self.value });
-        } else {
-            try std.fmt.format(out, "{s}='{s}'", .{ self.name, self.value });
-        }
+    pub fn format(expt: Export, w: *Writer) !void {
+        try w.print("{s}='{s}'", .{ expt.name, expt.value });
     }
 };
 
-var alloc: std.mem.Allocator = undefined;
-var export_list: std.ArrayList(Export) = undefined;
+pub fn init() void {}
 
-pub fn init(a: std.mem.Allocator) void {
-    // Set up the local list of exports
-    alloc = a;
-    export_list = std.ArrayList(Export).init(a);
-    hsh.addState(State{
-        .name = "exports",
-        .ctx = &export_list,
-        .api = &.{ .save = save },
-    }) catch unreachable;
-}
-
-pub fn raze() void {
+pub fn raze(a: Allocator) void {
     for (export_list.items) |ex| {
-        alloc.free(ex.name);
+        a.free(ex.name);
     }
-    export_list.clearAndFree();
+    export_list.clearAndFree(a);
 }
 
-fn save(h: *HSH, _: *anyopaque) ?[][]const u8 {
-    var list = h.alloc.alloc([]u8, export_list.items.len) catch return null;
-    for (export_list.items, 0..) |ex, i| {
-        list[i] = std.fmt.allocPrint(h.alloc, "{save}\n", .{ex}) catch continue;
+pub fn save(_: *Hsh, w: *Writer) !void {
+    for (export_list.items) |ex| {
+        try w.print("export {f}\n", .{ex});
     }
-    return @ptrCast(list);
 }
 
 /// print the list of known exports to whatever builtin suggests
@@ -69,26 +41,23 @@ fn printAll() Err!u8 {
     return 0;
 }
 
-/// Named exports because I didn't want to fight the compiler for the word
-/// export
-pub fn exports(h: *HSH, pitr: *ParsedIterator) Err!u8 {
+pub fn call(h: *Hsh, pitr: *ParsedIterator, a: Allocator, _: Io) Err!u8 {
     const expt = pitr.first();
-    std.debug.assert(std.mem.eql(u8, expt.cannon(), "export"));
+    std.debug.assert(eql(u8, expt.cannon(), "export"));
 
     const name = pitr.next();
-    if (name == null or std.mem.eql(u8, name.?.cannon(), "-p")) {
+    if (name == null or eql(u8, name.?.cannon(), "-p")) {
         return printAll();
     }
 
-    if (std.mem.indexOf(u8, name.?.cannon(), "=")) |_| {
-        var keyitr = std.mem.splitAny(u8, name.?.cannon(), "=");
-        const key = keyitr.first();
-        const value = keyitr.rest();
+    if (findScalar(u8, name.?.cannon(), '=')) |idx| {
+        const key = name.?.cannon()[0..idx];
+        const value = name.?.cannon()[idx + 1 ..];
         Variables.put(key, value) catch {
             log.err("Unable to save variable", .{});
             return 1;
         };
-        add(key, value) catch {
+        add(key, value, a) catch {
             log.err("unable to save export", .{});
             return 1;
         };
@@ -100,7 +69,7 @@ pub fn exports(h: *HSH, pitr: *ParsedIterator) Err!u8 {
             log.err("Attempted to export an non-existant name\n", .{});
             return 1;
         };
-        add(key, value) catch {
+        add(key, value, a) catch {
             log.err("", .{});
             return 1;
         };
@@ -110,10 +79,26 @@ pub fn exports(h: *HSH, pitr: *ParsedIterator) Err!u8 {
 }
 
 /// TODO method to remove an export
-pub fn unexport(_: *HSH, _: *ParsedIterator) Err!u8 {
+pub fn unexport(_: *Hsh, _: *ParsedIterator) Err!u8 {
     unreachable;
 }
 
-fn add(k: []const u8, v: []const u8) !void {
-    return try export_list.append(try Export.new(alloc, k, v));
+fn add(k: []const u8, v: []const u8, a: Allocator) !void {
+    return try export_list.append(try .new(a, k, v));
 }
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
+const Io = std.Io;
+const Writer = std.Io.Writer;
+const eql = std.mem.eql;
+const findScalar = std.mem.findScalar;
+
+const Hsh = @import("../hsh.zig");
+const bi = @import("../builtins.zig");
+const Err = bi.Err;
+const ParsedIterator = @import("../parse.zig").ParsedIterator;
+const print = bi.print;
+const log = @import("../log.zig");
+const Variables = @import("../variables.zig");

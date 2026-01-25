@@ -1,21 +1,8 @@
-const std = @import("std");
-const hshz = @import("hsh.zig");
-const HSH = hshz.HSH;
-const Lexeme = Draw.Lexeme;
-
-pub const Draw = @import("draw.zig");
-
 pub const git = @import("contexts/git.zig");
 
-pub const Error = error{
-    Unknown,
-    Memory,
-    Other,
-};
-
-pub const Contexts = enum(u2) {
-    state = 1, // some internal state of hsh
-    git = 0, // I know, I'm sorry, but... *runs*
+pub const Flavor = enum {
+    git, // I know, I'm sorry, but... *runs*
+    state, // some internal state of hsh
 };
 
 /// Context priority clones log priority for simplicity, but isn't required to
@@ -33,50 +20,59 @@ const Priority = enum {
     Off,
 };
 
-const Init = *const fn () Error!void;
-const Raze = *const fn () void;
-const Update = *const fn (*HSH) Error!void;
-const Fetch = *const fn (*const HSH) Error!Lexeme;
+const Init = *const fn () error{InitFailed}!void;
+const Raze = *const fn (Allocator) void;
+const Update = *const fn (*Hsh, Allocator) error{ OutOfMemory, UpdateFailed }!void;
+const Fetch = *const fn (*const Hsh) Lexeme;
 
 pub const Ctx = struct {
     priority: Priority = .Noise,
     name: []const u8 = undefined,
     // unstable
-    kind: Contexts = .state,
+    kind: Flavor = .state,
     init: Init,
     raze: Raze,
     fetch: Fetch,
     update: Update,
 };
 
-var a_contexts: std.ArrayList(Ctx) = undefined;
+var a_contexts: ArrayList(Ctx) = .{};
 
-pub fn init(a: *std.mem.Allocator) Error!void {
-    a_contexts = std.ArrayList(Ctx).init(a.*);
-    a_contexts.append(git.ctx) catch return Error.Memory;
+pub fn init(a: Allocator) !void {
+    try a_contexts.append(a, git.ctx);
 
     for (a_contexts.items) |c| {
         try c.init();
     }
 }
 
-pub fn raze() void {
+pub fn raze(a: Allocator) void {
     for (a_contexts.items) |c| {
-        c.raze();
+        c.raze(a);
     }
-    a_contexts.clearAndFree();
+    a_contexts.clearAndFree(a);
 }
 
-pub fn available(hsh: *const HSH) ![]Contexts {
-    if (hsh.pid > 0) return [_]Contexts{.git} else return [0]Contexts{};
+pub fn available(hsh: *const Hsh) ![]Flavor {
+    return if (hsh.pid > 0)
+        [_]Flavor{.git}
+    else
+        &.{};
 }
 
-pub fn update(h: *HSH, requested: []const Contexts) !void {
+pub fn update(h: *Hsh, requested: []const Flavor) !void {
     for (requested) |r| {
         try a_contexts.items[@intFromEnum(r)].update(h);
     }
 }
 
-pub fn fetch(h: *const HSH, c: Contexts) Error!Lexeme {
+pub fn fetch(h: *const Hsh, c: Flavor) Lexeme {
     return try a_contexts.items[@intFromEnum(c)].fetch(h);
 }
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
+const Hsh = @import("hsh.zig");
+const Draw = @import("draw.zig");
+const Lexeme = Draw.Lexeme;

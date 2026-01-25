@@ -1,6 +1,3 @@
-const std = @import("std");
-const log = @import("log");
-
 pub const Error = error{
     UnknownEvent,
     IO,
@@ -183,7 +180,7 @@ fn csi_xterm(buffer: []const u8) Error!Event {
                 },
             };
         },
-        'Z' => |_| { // I hate this, but #YOLO
+        'Z' => { // I hate this, but #YOLO
             if (buffer.len > 1) unreachable;
             return Event{
                 .keysm = .{
@@ -236,3 +233,6 @@ fn csi_vt(in: []const u8) Error!Key {
     }
     return Error.UnknownEvent;
 }
+
+const std = @import("std");
+const log = @import("log.zig");

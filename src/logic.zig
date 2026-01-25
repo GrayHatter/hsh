@@ -1,14 +1,13 @@
 const std = @import("std");
-const log = @import("log");
+const log = @import("log.zig");
 const Allocator = std.mem.Allocator;
-const tokens = @import("token.zig");
-const Token = tokens.Token;
+const Token = @import("token.zig");
 const Tokenizer = @import("tokenizer.zig");
 const exec_ = @import("exec.zig");
 
-const HSH = @import("hsh.zig").HSH;
+const Hsh = @import("hsh.zig");
 
-const Error = tokens.Error || error{
+const Error = Token.Error || error{
     OutOfMemory,
     ExecFailure,
 };
@@ -41,7 +40,7 @@ pub const Reserved = enum {
     }
 };
 
-fn execBody(a: Allocator, h: *HSH, body: []const u8) !void {
+fn execBody(a: Allocator, h: *Hsh, body: []const u8) !void {
     var tzr = Tokenizer.init(a);
     defer tzr.raze();
     for (body) |b| {
@@ -186,7 +185,7 @@ const If = struct {
 
     /// If null logic completed successfully, if an If pointer is returned
     /// caller should call exec on the returned pointer.
-    pub fn exec(self: *If, h: *HSH) Error!?*If {
+    pub fn exec(self: *If, h: *Hsh) Error!?*If {
         if (self.execClause() catch return null) {
             execBody(self.alloc, h, self.body.?) catch |err| {
                 log.err(
@@ -311,7 +310,7 @@ pub const Logicizer = struct {
     }
 
     /// This API may not exist soon... feeling brave?
-    pub fn exec(self: *Logicizer, h: *HSH) Error!?*Logicizer {
+    pub fn exec(self: *Logicizer, h: *Hsh) Error!?*Logicizer {
         switch (self.current) {
             .if_ => |*if_| {
                 if (if_.exec(h)) |exec_if| {
@@ -331,9 +330,7 @@ pub const Logicizer = struct {
                     return null;
                 } else |err| return err;
             },
-            .while_ => |_| {
-                unreachable;
-            },
+            .while_ => unreachable,
         }
     }
 
@@ -341,7 +338,7 @@ pub const Logicizer = struct {
         switch (self.logic) {
             .if_ => |*if_| if_.raze(),
             .elif_ => |elif_| elif_.raze(),
-            .while_ => |_| {}, //while_.raze(),
+            .while_ => {}, //while_.raze(),
         }
     }
 };

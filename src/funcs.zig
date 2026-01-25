@@ -1,26 +1,16 @@
-const std = @import("std");
-const hsh = @import("hsh.zig");
-const State = @import("state.zig");
+const Funcs = @This();
 
-pub const Funcs = @This();
+var funcs: std.ArrayList(Funcs) = .{};
 
-var funcs: std.ArrayList(Funcs) = undefined;
+pub fn init(_: std.mem.Allocator) void {}
 
-pub const _funcs = &funcs;
-
-pub fn init(a: std.mem.Allocator) void {
-    funcs = std.ArrayList(Funcs).init(a);
-    hsh.addState(State{
-        .name = "exports",
-        .ctx = &funcs,
-        .api = &.{ .save = save },
-    }) catch unreachable;
-}
-
-fn save(_: *hsh.HSH, _: *anyopaque) ?[][]const u8 {
+fn save(_: *hsh.HSH, _: *std.Io.Writer) ?[][]const u8 {
     return null;
 }
 
 pub fn exists(str: []const u8) bool {
     return str.len >= 1 and false; // No functions actually exist yet
 }
+
+const std = @import("std");
+const hsh = @import("hsh.zig");

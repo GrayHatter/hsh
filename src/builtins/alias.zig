@@ -1,65 +1,34 @@
-const std = @import("std");
-const hsh = @import("../hsh.zig");
-const HSH = hsh.HSH;
-const Token = @import("../token.zig");
-const bi = @import("../builtins.zig");
-const Err = bi.Err;
-const Parse = @import("../parse.zig");
-const ParsedIterator = Parse.ParsedIterator;
-const State = bi.State;
-const print = bi.print;
-const log = @import("log");
-const builtin = @import("builtin");
-
 /// name and value are assumed to be owned by alias, and are expected to be
+// TODO this needs to become a map :/
+pub var aliases: ArrayList(Alias) = .{};
+
 /// valid between calls to alias.
 pub const Alias = struct {
     name: []const u8,
     value: []const u8,
 
-    pub fn format(self: Alias, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
-        if (fmt.len == 4) {
-            try std.fmt.format(out, "alias {s}='{s}'", .{ self.name, self.value });
-        } else {
-            try std.fmt.format(out, "{s}='{s}'", .{ self.name, self.value });
-        }
+    pub fn format(alias: Alias, w: *Writer) !void {
+        try w.print("{s}='{s}'", .{ alias.name, alias.value });
     }
 };
 
-// TODO this needs to become a map :/
-pub var aliases: std.ArrayList(Alias) = undefined;
+pub fn init() void {}
 
-pub fn init(a: std.mem.Allocator) void {
-    aliases = std.ArrayList(Alias).init(a);
-    if (builtin.is_test) return;
-    hsh.addState(State{
-        .name = "aliases",
-        .ctx = &aliases,
-        .api = &.{ .save = save },
-    }) catch unreachable;
-}
-
-pub fn raze(a: std.mem.Allocator) void {
+pub fn raze(a: Allocator) void {
     for (aliases.items) |ar| {
         a.free(ar.name);
         a.free(ar.value);
     }
-    aliases.clearAndFree();
+    aliases.deinit(a);
 }
 
-fn save(h: *HSH, _: *anyopaque) ?[][]const u8 {
-    var list = h.alloc.alloc([]u8, aliases.items.len) catch return null;
-    for (aliases.items, 0..) |a, i| {
-        list[i] = std.fmt.allocPrint(h.alloc, "{save}\n", .{a}) catch continue;
+pub fn save(_: *Hsh, w: *Writer) !void {
+    for (aliases.items) |al| {
+        try w.print("alias {f}\n", .{al});
     }
-    return @ptrCast(list);
 }
 
-pub fn alias(h: *HSH, titr: *ParsedIterator) Err!u8 {
-    return alias_core(h.alloc, titr);
-}
-
-pub fn alias_core(a: std.mem.Allocator, titr: *ParsedIterator) Err!u8 {
+pub fn call(_: *Hsh, titr: *ParsedIterator, a: Allocator, _: Io) Err!u8 {
     if (!std.mem.eql(u8, "alias", titr.first().cannon())) return Err.InvalidCommand;
 
     var name: ?[]const u8 = null;
@@ -113,10 +82,10 @@ pub fn find(src: []const u8) ?*Alias {
 }
 
 // TODO might leak
-fn add(a: std.mem.Allocator, src: []const u8, dst: []const u8) Err!void {
+fn add(a: Allocator, src: []const u8, dst: []const u8) Err!void {
     log.debug("ALIAS adding {s} = '{s}'\n", .{ src, dst });
     if (dst.len == 0) return del(src);
-    try aliases.append(Alias{
+    try aliases.append(a, .{
         .name = try a.dupe(u8, src),
         .value = try a.dupe(u8, dst),
     });
@@ -151,7 +120,7 @@ test "alias" {
     try std.testing.expectEqual(aliases.items.len, 0);
 }
 
-test "save" {
+test save {
     var a = std.testing.allocator;
     init(a);
     defer raze(a);
@@ -163,11 +132,27 @@ test "save" {
     var pitr = try Parse.Parser.parse(a, slice);
 
     defer pitr.raze();
-    const res = alias_core(a, &pitr);
+    const res = call(undefined, &pitr, a, undefined);
     try std.testing.expectEqual(res, 0);
 
     try std.testing.expectEqual(aliases.items.len, 1);
-    const tst = try std.fmt.allocPrint(a, "{save}\n", .{aliases.items[0]});
+    const tst = try std.fmt.allocPrint(a, "alias \n", .{aliases.items[0]});
     defer a.free(tst);
     try std.testing.expectEqualStrings(str, tst[0 .. tst.len - 1]); // strip newline
 }
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
+const Io = std.Io;
+const Writer = Io.Writer;
+
+const Hsh = @import("../hsh.zig");
+const Token = @import("../token.zig");
+const bi = @import("../builtins.zig");
+const Err = bi.Err;
+const Parse = @import("../parse.zig");
+const ParsedIterator = Parse.ParsedIterator;
+const print = bi.print;
+const log = @import("../log.zig");
+const builtin = @import("builtin");

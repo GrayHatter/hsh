@@ -1,17 +1,13 @@
-const std = @import("std");
-const Allocator = std.mem.Allocator;
-const fs = std.fs;
-const File = fs.File;
-const Reader = fs.File.Reader;
-const Writer = fs.File.Writer;
-const Cord = @import("draw.zig").Cord;
-const custom_syscalls = @import("syscalls.zig");
-const pid_t = std.posix.pid_t;
-const fd_t = std.posix.fd_t;
-const log = @import("log");
-const TCSA = std.os.linux.TCSA;
+alloc: Allocator,
+dev: i32,
+is_tty: bool,
+in: Reader,
+out: Writer,
+orig_attr: ?std.posix.termios,
+pid: std.posix.pid_t = undefined,
+owner: ?std.posix.pid_t = null,
 
-pub const TTY = @This();
+const Tty = @This();
 
 pub const VTCmds = enum {
     CurPosGet,
@@ -22,36 +18,28 @@ pub const VTCmds = enum {
     DECCKM,
 };
 
-pub var current_tty: ?TTY = null;
-
-alloc: Allocator,
-dev: i32,
-is_tty: bool,
-in: Reader,
-out: Writer,
-orig_attr: ?std.posix.termios,
-pid: std.posix.pid_t = undefined,
-owner: ?std.posix.pid_t = null,
+pub var current_tty: ?Tty = null;
 
 /// Calling init multiple times is UB
-pub fn init(a: Allocator) !TTY {
+pub fn init(a: Allocator, io: Io) !Tty {
     // TODO figure out how to handle multiple calls to current_tty?
-    const is_tty = std.io.getStdOut().isTty() and std.io.getStdIn().isTty();
+
+    const is_tty = Io.File.stdout().isTty(io) catch unreachable and Io.File.stdin().isTty(io) catch unreachable;
 
     const tty = if (is_tty)
-        std.posix.open("/dev/tty", .{ .ACCMODE = .RDWR }, 0) catch std.io.getStdOut().handle
+        Io.Dir.openFileAbsolute(io, "/dev/tty", .{ .mode = .read_write }) catch std.Io.File.stdout()
     else
-        std.io.getStdOut().handle;
+        std.Io.File.stdout();
 
     std.debug.assert(current_tty == null);
 
-    const self = TTY{
+    const self = Tty{
         .alloc = a,
-        .dev = tty,
+        .dev = tty.handle,
         .is_tty = is_tty,
-        .in = std.io.getStdIn().reader(),
-        .out = std.io.getStdOut().writer(),
-        .orig_attr = tcAttr(tty),
+        .in = Io.File.stdin().reader(io, try a.alloc(u8, 2048)),
+        .out = Io.File.stdout().writer(io, try a.alloc(u8, 2048)),
+        .orig_attr = tcAttr(tty.handle),
     };
 
     current_tty = self;
@@ -62,7 +50,7 @@ fn tcAttr(tty_fd: i32) ?std.posix.termios {
     return std.posix.tcgetattr(tty_fd) catch null;
 }
 
-pub fn getAttr(self: *TTY) ?std.posix.termios {
+pub fn getAttr(self: *Tty) ?std.posix.termios {
     return tcAttr(self.dev);
 }
 
@@ -90,17 +78,17 @@ fn makeRaw(orig: ?std.posix.termios) std.posix.termios {
     return next;
 }
 
-fn setTTYWhen(self: *TTY, mtio: ?std.posix.termios, when: TCSA) !void {
+fn setTTYWhen(self: *Tty, mtio: ?std.posix.termios, when: TCSA) !void {
     if (mtio) |tio| try std.posix.tcsetattr(self.dev, when, tio);
 }
 
-pub fn setTTY(self: *TTY, tio: ?std.posix.termios) void {
+pub fn setTTY(self: *Tty, tio: ?std.posix.termios) void {
     self.setTTYWhen(tio, .DRAIN) catch |err| {
         log.err("TTY ERROR encountered, {} when popping.\n", .{err});
     };
 }
 
-pub fn setOrig(self: *TTY) !void {
+pub fn setOrig(self: *Tty) !void {
     if (!self.is_tty) return;
     try self.setTTYWhen(self.orig_attr, .DRAIN);
     // try self.command(.ReqMouseEvents, false);
@@ -109,7 +97,7 @@ pub fn setOrig(self: *TTY) !void {
     try self.command(.DECCKM, false);
 }
 
-pub fn setRaw(self: *TTY) !void {
+pub fn setRaw(self: *Tty) !void {
     if (!self.is_tty) return;
     try self.setTTYWhen(makeRaw(self.orig_attr), .DRAIN);
     // try self.command(.ReqMouseEvents, true);
@@ -118,13 +106,13 @@ pub fn setRaw(self: *TTY) !void {
     try self.command(.DECCKM, false);
 }
 
-pub fn setOwner(self: *TTY, mpgrp: ?std.posix.pid_t) !void {
+pub fn setOwner(self: *Tty, mpgrp: ?std.posix.pid_t) !void {
     if (!self.is_tty or self.owner == null) return;
     const pgrp = mpgrp orelse self.pid;
     _ = try std.posix.tcsetpgrp(self.dev, pgrp);
 }
 
-pub fn pwnTTY(self: *TTY) void {
+pub fn pwnTTY(self: *Tty) void {
     self.pid = std.os.linux.getpid();
     const ssid = custom_syscalls.getsid(0);
     log.debug("pwnTTY {} and {} \n", .{ self.pid, ssid });
@@ -145,7 +133,7 @@ pub fn pwnTTY(self: *TTY) void {
     log.debug("get new pgrp {}\n", .{pgrp});
 }
 
-pub fn waitForFg(self: *TTY) void {
+pub fn waitForFg(self: *Tty) void {
     if (!self.is_tty) return;
     var pgid = custom_syscalls.getpgid(0);
     var fg = std.posix.tcgetpgrp(self.dev) catch |err| {
@@ -166,11 +154,12 @@ pub fn waitForFg(self: *TTY) void {
     }
 }
 
-pub fn print(tty: TTY, comptime fmt: []const u8, args: anytype) !void {
-    try tty.out.print(fmt, args);
+pub fn print(tty: *Tty, comptime fmt: []const u8, args: anytype) !void {
+    try tty.out.interface.print(fmt, args);
+    try tty.out.interface.flush();
 }
 
-pub fn command(tty: TTY, comptime code: VTCmds, comptime enable: ?bool) !void {
+pub fn command(tty: *Tty, comptime code: VTCmds, comptime enable: ?bool) !void {
     // TODO fetch info back out :/
     switch (code) {
         .CurPosGet => try tty.print("\x1B[6n", .{}),
@@ -204,7 +193,7 @@ pub fn command(tty: TTY, comptime code: VTCmds, comptime enable: ?bool) !void {
 //    };
 //}
 
-pub fn geom(self: *TTY) !Cord {
+pub fn geom(self: *Tty) !Cord {
     var size: std.posix.winsize = std.mem.zeroes(std.posix.winsize);
     const err = std.posix.system.ioctl(self.dev, std.posix.T.IOCGWINSZ, @intFromPtr(&size));
     if (std.posix.errno(err) != .SUCCESS) {
@@ -216,7 +205,7 @@ pub fn geom(self: *TTY) !Cord {
     };
 }
 
-pub fn raze(self: *TTY) void {
+pub fn raze(self: *Tty) void {
     if (self.orig_attr) |attr| {
         self.setTTYWhen(attr, .NOW) catch |err| {
             std.debug.print(
@@ -239,3 +228,17 @@ test "split" {
     try expect(x == 86);
     try expect(y == 1);
 }
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const Io = std.Io;
+const fs = std.fs;
+const File = Io.File;
+const Reader = File.Reader;
+const Writer = File.Writer;
+const Cord = @import("draw.zig").Cord;
+const custom_syscalls = @import("syscalls.zig");
+const pid_t = std.posix.pid_t;
+const fd_t = std.posix.fd_t;
+const log = @import("log.zig");
+const TCSA = std.os.linux.TCSA;

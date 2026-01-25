@@ -1,6 +1,4 @@
-const std = @import("std");
-
-pub const Log = @This();
+const Log = @This();
 
 pub const Level = enum(u4) {
     panic = 0,
@@ -32,10 +30,10 @@ pub fn hshLogFn(
         else => "[ NOS ] ",
     };
 
-    std.debug.lockStdErr();
-    defer std.debug.unlockStdErr();
-    const stderr = std.io.getStdErr().writer();
-    stderr.print(prefix ++ format, args) catch return;
+    var b: [256]u8 = undefined;
+    const stderr = std.debug.lockStderr(&b).terminal();
+    defer std.debug.unlockStderr();
+    stderr.writer.print(prefix ++ format, args) catch return;
 }
 
 pub fn err(comptime format: []const u8, args: anytype) void {
@@ -65,3 +63,5 @@ pub fn dump(args: anytype) void {
 pub fn dumpstr(args: anytype) void {
     hshLogFn(.critical, .default, "{s}\n", .{args});
 }
+
+const std = @import("std");

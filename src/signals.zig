@@ -1,9 +1,5 @@
-const std = @import("std");
-const Allocator = std.mem.Allocator;
-const Queue = std.DoublyLinkedList;
-const HSH = @import("hsh.zig").HSH;
-const log = @import("log");
-const jobs = @import("jobs.zig");
+var buffer: [30]Signal = undefined;
+var queue: std.ArrayList(Signal) = .initBuffer(&buffer);
 
 const Self = @This();
 
@@ -14,7 +10,7 @@ const cust_siginfo = extern struct {
 };
 
 pub const Signal = struct {
-    signal: c_int,
+    signal: std.os.linux.SIG,
     info: std.posix.siginfo_t,
 };
 
@@ -32,13 +28,7 @@ var flags: struct {
     winch: bool = true,
 } = .{};
 
-var root_alloc: Allocator = undefined;
-var alloc: Allocator = undefined;
-var fba: std.heap.FixedBufferAllocator = undefined;
-var fbuffer: []u8 = undefined;
-var queue: Queue(Signal) = Queue(Signal){};
-
-export fn sig_cb(sig: c_int, info: *const std.posix.siginfo_t, _: ?*const anyopaque) callconv(.C) void {
+export fn sig_cb(sig: std.os.linux.SIG, info: *const std.posix.siginfo_t, _: ?*const anyopaque) callconv(.c) void {
     log.trace(
         \\
         \\ ===================
@@ -51,43 +41,24 @@ export fn sig_cb(sig: c_int, info: *const std.posix.siginfo_t, _: ?*const anyopa
     switch (sig) {
         std.posix.SIG.INT => flags.int +|= 1,
         std.posix.SIG.WINCH => flags.winch = true,
-        else => {
-            const sigp = alloc.create(Queue(Signal).Node) catch {
-                std.debug.print(
-                    "ERROR: unable to allocate memory for incoming signal {}\n",
-                    .{sig},
-                );
-                unreachable;
-            };
-            sigp.* = Queue(Signal).Node{
-                .data = Signal{ .signal = sig, .info = info.* },
-            };
-            queue.append(sigp);
-        },
+        else => queue.appendBounded(Signal{ .signal = sig, .info = info.* }) catch unreachable,
     }
 }
 
-pub fn get() ?Queue(Signal).Node {
+pub fn get() ?Signal {
     if (queue.pop()) |node| {
-        defer alloc.destroy(node);
-        return node.*;
+        return node;
     }
     return null;
 }
 
-/// TODO change init to accept a GP allocator, and wrap *that* with arena
 pub fn init(a: Allocator) !void {
-    // Using an arena allocator here to try to solve the deadlock when "freeing"
-    // heap space inside a signal.
-    root_alloc = a;
-    fbuffer = try a.alloc(u8, @sizeOf(Queue(Signal).Node) * 20);
-    fba = std.heap.FixedBufferAllocator.init(fbuffer);
-    alloc = fba.allocator();
+    _ = a;
 
     const SA = std.posix.SA;
     // zsh blocks and unblocks winch signals during most processing, collecting
     // them only when needed. It's likely something we should do as well
-    const wanted = [_]u6{
+    const wanted = [_]std.posix.SIG{
         std.posix.SIG.HUP,
         std.posix.SIG.INT,
         std.posix.SIG.USR1,
@@ -104,19 +75,19 @@ pub fn init(a: Allocator) !void {
     for (wanted) |sig| {
         std.posix.sigaction(sig, &std.posix.Sigaction{
             .handler = .{ .sigaction = sig_cb },
-            .mask = std.posix.empty_sigset,
+            .mask = std.posix.sigemptyset(),
             .flags = SA.SIGINFO | SA.RESTART,
         }, null);
     }
 
-    const ignored = [_]u6{
+    const ignored = [_]std.posix.SIG{
         std.posix.SIG.TTIN,
         std.posix.SIG.TTOU,
     };
     for (ignored) |sig| {
         std.posix.sigaction(sig, &std.posix.Sigaction{
             .handler = .{ .handler = std.posix.SIG.IGN },
-            .mask = std.posix.empty_sigset,
+            .mask = std.posix.sigemptyset(),
             .flags = SA.RESTART,
         }, null);
     }
@@ -127,7 +98,7 @@ pub const SigEvent = enum {
     clear,
 };
 
-pub fn do(hsh: *HSH) SigEvent {
+pub fn do(hsh: *Hsh) SigEvent {
     while (flags.int > 0) {
         flags.int -|= 1;
         // TODO do something
@@ -140,13 +111,13 @@ pub fn do(hsh: *HSH) SigEvent {
     }
 
     while (get()) |node| {
-        var sig = node.data;
+        var sig = node;
         const pid = sig.info.fields.common.first.piduid.pid;
         switch (sig.signal) {
             std.posix.SIG.INT => unreachable,
             std.posix.SIG.WINCH => unreachable,
             std.posix.SIG.CHLD => {
-                const child = jobs.get(pid) catch {
+                const child = hsh.jobs.getPtr(pid) catch {
                     log.warn("Unknown child on {} {}\n", .{ sig.info.code, pid });
                     continue;
                 };
@@ -175,7 +146,7 @@ pub fn do(hsh: *HSH) SigEvent {
             },
             std.posix.SIG.TSTP => {
                 if (pid != 0) {
-                    const child = jobs.get(pid) catch {
+                    const child = hsh.jobs.getPtr(pid) catch {
                         log.warn("Unknown child on {} {}\n", .{ sig.info.code, pid });
                         return .none;
                     };
@@ -188,7 +159,7 @@ pub fn do(hsh: *HSH) SigEvent {
                 hsh.waiting = false;
             },
             std.posix.SIG.USR1 => {
-                _ = jobs.haltActive() catch @panic("Signal unable to pause job");
+                _ = hsh.jobs.haltActive() catch @panic("Signal unable to pause job");
                 hsh.tty.setRaw() catch unreachable;
                 log.err("Assuming control of TTY!\n", .{});
             },
@@ -201,7 +172,7 @@ pub fn do(hsh: *HSH) SigEvent {
             },
             else => {
                 log.err("Unknown signal {} => ({})\n", .{ sig.signal, sig.info });
-                log.err(" dump = {}\n", .{std.fmt.fmtSliceHexUpper(std.mem.asBytes(&sig.info))});
+                log.err(" dump = {x}\n", .{std.mem.asBytes(&sig.info)});
                 log.err("pid = {}", .{sig.info.fields.common.first.piduid.pid});
                 log.err("uid = {}", .{sig.info.fields.common.first.piduid.uid});
                 log.err("\n", .{});
@@ -217,18 +188,20 @@ pub fn do(hsh: *HSH) SigEvent {
 }
 
 pub fn block() void {
-    var sigset: std.posix.sigset_t = .{0} ** 32;
+    var sigset: std.posix.sigset_t = .{0};
     std.os.linux.sigaddset(&sigset, std.posix.SIG.CHLD);
     _ = std.os.linux.sigprocmask(std.posix.SIG.BLOCK, &sigset, null);
 }
 
 pub fn unblock() void {
-    var sigset: std.posix.sigset_t = .{0} ** 32;
+    var sigset: std.posix.sigset_t = .{0};
     std.os.linux.sigaddset(&sigset, std.posix.SIG.CHLD);
     _ = std.os.linux.sigprocmask(std.posix.SIG.UNBLOCK, &sigset, null);
 }
 
-pub fn raze() void {
-    fba.reset();
-    root_alloc.free(fbuffer);
-}
+pub fn raze() void {}
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const Hsh = @import("hsh.zig");
+const log = @import("log.zig");

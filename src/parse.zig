@@ -1,17 +1,3 @@
-const std = @import("std");
-const log = @import("log");
-const Allocator = mem.Allocator;
-const ArrayList = std.ArrayList;
-const mem = std.mem;
-const Tokenizer = @import("tokenizer.zig");
-const Token = @import("token.zig");
-const TokenIterator = Token.Iterator;
-const Builtins = @import("builtins.zig");
-const Aliases = Builtins.Aliases;
-const Variables = @import("variables.zig");
-const fs = @import("fs.zig");
-const exec = @import("exec.zig");
-
 pub const Error = error{
     Unknown,
     Memory,
@@ -162,11 +148,11 @@ pub const ParsedIterator = struct {
     }
 
     fn resolveAlias(self: *Self, token: Token) Error![]Token {
-        var tokens = ArrayList(Token).init(self.alloc);
+        var tokens = ArrayList.init(self.alloc);
         for (self.aliases) |res| {
             if (std.mem.eql(u8, token.cannon(), res)) {
-                try tokens.append(token);
-                return tokens.toOwnedSlice();
+                try tokens.append(self.alloc, token);
+                return tokens.toOwnedSlice(self.alloc);
             }
         }
 
@@ -175,52 +161,52 @@ pub const ParsedIterator = struct {
         const aliases = try self.resolveAlias(a_itr.first().*);
         defer self.alloc.free(aliases);
         for (aliases) |stkn| {
-            try tokens.append(stkn);
+            try tokens.append(self.alloc, stkn);
         }
 
         while (a_itr.next()) |stkn| {
             if (stkn.kind == .ws) continue;
-            try tokens.append(stkn.*);
+            try tokens.append(self.alloc, stkn.*);
         }
-        return try tokens.toOwnedSlice();
+        return try tokens.toOwnedSlice(self.alloc);
     }
 
     fn resolve(self: *Self, t: Token) Error![]Token {
         if (self.t_index == 0) return self.resolveAlias(t);
 
-        var tokens = ArrayList(Token).init(self.alloc);
+        var tokens = ArrayList.init(self.alloc);
         var local = t;
 
         // TODO hack while I refactor next() to concat tokens
         if (t.kind == .ws) {
             //try tokens.append(t);
-            return try tokens.toOwnedSlice();
+            return try tokens.toOwnedSlice(self.alloc);
         }
 
         if (local.kind == .quote and local.subtoken == '\'') {
-            try tokens.append(local);
-            return try tokens.toOwnedSlice();
+            try tokens.append(self.alloc, local);
+            return try tokens.toOwnedSlice(self.alloc);
         }
 
         if (std.mem.indexOf(u8, local.cannon(), "$") != null or local.kind == .vari) {
-            const owned = try self.resolveDollar(local);
-            try tokens.append(Token{ .str = "", .resolved = owned });
+            const owned = try self.resolveDollar(undefined, local);
+            try tokens.append(self.alloc, .{ .str = "", .resolved = owned });
         } else if (std.mem.indexOf(u8, local.cannon(), "*")) |_| {
             const real = try Parser.single(self.alloc, local);
             defer if (real.resolved) |r| self.alloc.free(r);
             const globs = try self.resolveGlob(real);
             defer self.alloc.free(globs);
-            for (globs) |glob| try tokens.append(glob);
+            for (globs) |glob| try tokens.append(self.alloc, glob);
         } else {
             const real = try Parser.single(self.alloc, local);
-            try tokens.append(real);
+            try tokens.append(self.alloc, real);
         }
-        return try tokens.toOwnedSlice();
+        return try tokens.toOwnedSlice(self.alloc);
     }
 
-    fn resolveDollar(self: *Self, token: Token) ![]u8 {
+    fn resolveDollar(self: *Self, h: *Hsh, token: Token) ![]u8 {
         var skip: usize = 0;
-        var list = std.ArrayList(u8).init(self.alloc);
+        var list = std.array_list.Managed.init(self.alloc);
         for (token.str, 0..) |c, i| {
             if (skip > 0) {
                 skip -|= 1;
@@ -231,34 +217,34 @@ pub const ParsedIterator = struct {
                     var res: Token = undefined;
                     if (token.str[i + 1] == '(') {
                         res = Token.cmdsub(token.str[i..]) catch {
-                            try list.append(c);
+                            try list.append(self.alloc, c);
                             continue;
                         };
                     } else {
                         res = Token.vari(token.str[i..]) catch {
-                            try list.append(c);
+                            try list.append(self.alloc, c);
                             continue;
                         };
                     }
                     skip = res.str.len - 1;
-                    const resolved = Parser.single(self.alloc, res) catch continue;
+                    const resolved = Parser.single(h, self.alloc, res) catch continue;
                     if (resolved.resolved) |str| {
-                        try list.appendSlice(str);
+                        try list.appendSlice(self.alloc, str);
                         self.alloc.free(str);
                     } else {
-                        try list.appendSlice(resolved.cannon());
+                        try list.appendSlice(self.alloc, resolved.cannon());
                     }
                 },
-                else => try list.append(c),
+                else => try list.append(self.alloc, c),
             }
         }
-        return try list.toOwnedSlice();
+        return try list.toOwnedSlice(self.alloc);
     }
 
     fn resolveGlob(self: *Self, token: Token) ![]Token {
         if (std.mem.indexOf(u8, token.cannon(), "*")) |_| {} else unreachable;
 
-        var tokens = ArrayList(Token).init(self.alloc);
+        var tokens = ArrayList.init(self.alloc);
         if (std.mem.indexOf(u8, token.cannon(), "/")) |_| {
             var bitr = std.mem.splitBackwardsAny(u8, token.cannon(), "/");
             const glob = bitr.first();
@@ -272,7 +258,7 @@ pub const ParsedIterator = struct {
                         continue;
                     }
                     const path = try std.mem.join(self.alloc, "/", &[2][]const u8{ dir, name });
-                    try tokens.append(Token{ .str = "", .resolved = path });
+                    try tokens.append(self.alloc, .{ .str = "", .resolved = path });
                 }
                 self.alloc.free(names);
             } else |e| {
@@ -290,7 +276,7 @@ pub const ParsedIterator = struct {
                         self.alloc.free(name);
                         continue;
                     }
-                    try tokens.append(Token{ .str = "", .resolved = name });
+                    try tokens.append(self.alloc, .{ .str = "", .resolved = name });
                 }
                 self.alloc.free(names);
             } else |e| {
@@ -300,7 +286,7 @@ pub const ParsedIterator = struct {
                 }
             }
         }
-        return try tokens.toOwnedSlice();
+        return try tokens.toOwnedSlice(self.alloc);
     }
 
     /// Resets the iterator to the initial slice.
@@ -346,7 +332,7 @@ pub const Parser = struct {
         };
     }
 
-    pub fn single(a: Allocator, token: Token) Error!Token {
+    pub fn single(h: *Hsh, a: Allocator, token: Token) Error!Token {
         if (token.str.len == 0) return token;
 
         var local = token;
@@ -356,8 +342,8 @@ pub const Parser = struct {
                 if (mem.indexOfScalar(u8, token.str, '\\')) |_| {} else return token;
 
                 var i: usize = 0;
-                var backing = ArrayList(u8).init(a);
-                backing.appendSlice(token.cannon()) catch return Error.Memory;
+                var backing = ArrayList.init(a);
+                backing.appendSlice(a, token.cannon()) catch return Error.Memory;
                 while (i + 1 < backing.items.len) : (i += 1) {
                     if (backing.items[i] == '\\') {
                         if (mem.indexOfAny(u8, backing.items[i + 1 .. i + 2], &needle)) |_| {
@@ -365,7 +351,7 @@ pub const Parser = struct {
                         }
                     }
                 }
-                local.resolved = backing.toOwnedSlice() catch return Error.Memory;
+                local.resolved = backing.toOwnedSlice(a) catch return Error.Memory;
                 return local;
             },
             .vari => {
@@ -376,7 +362,7 @@ pub const Parser = struct {
             },
             .subp => {
                 if (token.parsed) return token;
-                return try subcmd(a, token);
+                return try subcmd(h, a, token);
             },
             else => {
                 switch (token.str[0]) {
@@ -393,7 +379,7 @@ pub const Parser = struct {
     }
 
     fn alias(token: Token) Error![]const u8 {
-        if (Aliases.find(token.cannon())) |a| {
+        if (Alias.find(token.cannon())) |a| {
             return a.value;
         }
         return Error.Empty;
@@ -430,12 +416,12 @@ pub const Parser = struct {
         else
             std.fs.cwd().openDir(d, .{ .iterate = true }) catch return Error.Unknown;
         defer dir.close();
-        return fs.globAt(a, dir, str) catch @panic("this error not implemented");
+        return Fs.globAt(a, dir, str) catch @panic("this error not implemented");
     }
 
     /// Caller owns memory for both list of names, and each name
     fn glob(a: Allocator, str: []const u8) Error![][]u8 {
-        return fs.globCwd(a, str) catch @panic("this error not implemented");
+        return Fs.globCwd(a, str) catch @panic("this error not implemented");
     }
 
     fn variable(a: Allocator, tkn: Token) Error!Token {
@@ -469,7 +455,7 @@ pub const Parser = struct {
         return local;
     }
 
-    fn subcmd(a: Allocator, tkn: Token) Error!Token {
+    fn subcmd(h: *Hsh, a: Allocator, tkn: Token) Error!Token {
         var local = tkn;
         const cmd = tkn.str[2 .. tkn.str.len - 1];
         std.debug.assert(tkn.str[0] == '$');
@@ -478,15 +464,15 @@ pub const Parser = struct {
         var itr = TokenIterator{ .raw = cmd };
         const argv_t = itr.toSlice(a) catch return Error.Memory;
         defer a.free(argv_t);
-        var list = ArrayList([]const u8).init(a);
+        var list = ArrayList([]const u8){};
         for (argv_t) |t| {
-            list.append(t.cannon()) catch return Error.Memory;
+            list.append(a, t.cannon()) catch return Error.Memory;
         }
-        const argv = list.toOwnedSlice() catch return Error.Memory;
+        const argv = list.toOwnedSlice(a) catch return Error.Memory;
         defer a.free(argv);
         local.parsed = true;
 
-        const out = exec.child(a, argv) catch {
+        const out = exec.child(h, argv, a) catch {
             local.resolved = a.dupe(u8, local.str) catch return Error.Memory;
             return local;
         };
@@ -574,10 +560,10 @@ test "iterator alias is builtin" {
 
 test "iterator aliased" {
     var a = std.testing.allocator;
-    Aliases.init(a);
-    var als = &Aliases.aliases;
-    defer Aliases.raze(a);
-    try als.append(Aliases.Alias{
+    Alias.init();
+    var als = &Alias.aliases;
+    defer Alias.raze(a);
+    try als.append(a, .{
         .name = a.dupe(u8, "la") catch unreachable,
         .value = a.dupe(u8, "ls -la") catch unreachable,
     });
@@ -603,10 +589,10 @@ test "iterator aliased" {
 
 test "iterator aliased self" {
     var a = std.testing.allocator;
-    Aliases.init(a);
-    var als = &Aliases.aliases;
-    defer Aliases.raze(a);
-    try als.append(Aliases.Alias{
+    Alias.init();
+    var als = &Alias.aliases;
+    defer Alias.raze(a);
+    try als.append(a, .{
         .name = a.dupe(u8, "ls") catch unreachable,
         .value = a.dupe(u8, "ls -la") catch unreachable,
     });
@@ -633,15 +619,15 @@ test "iterator aliased self" {
 
 test "iterator aliased recurse" {
     var a = std.testing.allocator;
-    Aliases.init(a);
-    var als = &Aliases.aliases;
-    defer Aliases.raze(a);
-    try als.append(Aliases.Alias{
+    Alias.init();
+    var als = &Alias.aliases;
+    defer Alias.raze(a);
+    try als.append(a, .{
         .name = a.dupe(u8, "la") catch unreachable,
         .value = a.dupe(u8, "ls -la") catch unreachable,
     });
 
-    try als.append(Aliases.Alias{
+    try als.append(a, .{
         .name = a.dupe(u8, "ls") catch unreachable,
         .value = a.dupe(u8, "ls --color=auto") catch unreachable,
     });
@@ -704,7 +690,7 @@ test "parse vars existing" {
     };
 
     Variables.init(a);
-    defer Variables.raze();
+    defer Variables.raze(a);
 
     try Variables.put("string", "correct");
 
@@ -735,9 +721,9 @@ test "parse vars existing with white space" {
     };
 
     Variables.init(a);
-    defer Variables.raze();
+    defer Variables.raze(a);
 
-    try Variables.put("string", "correct");
+    try Variables.put("string", "correct", a);
 
     try eqlStr("correct", Variables.get("string").?);
 
@@ -765,9 +751,9 @@ test "parse vars existing braces" {
     };
 
     Variables.init(a);
-    defer Variables.raze();
+    defer Variables.raze(a);
 
-    try Variables.put("string", "value");
+    try Variables.put("string", "value", a);
 
     try eqlStr("value", Variables.get("string").?);
 
@@ -797,8 +783,8 @@ test "parse vars existing braces inline" {
     };
 
     Variables.init(a);
-    defer Variables.raze();
-    try Variables.put("string", "value");
+    defer Variables.raze(a);
+    try Variables.put("string", "value", a);
 
     try eqlStr("value", Variables.get("string").?);
 
@@ -828,8 +814,8 @@ test "parse vars existing braces inline both" {
     };
 
     Variables.init(a);
-    defer Variables.raze();
-    try Variables.put("string", "value");
+    defer Variables.raze(a);
+    try Variables.put("string", "value", a);
 
     try eqlStr("value", Variables.get("string").?);
 
@@ -934,8 +920,8 @@ test "parse path ~" {
     };
 
     Variables.init(a);
-    defer Variables.raze();
-    try Variables.put("HOME", "/home/user");
+    defer Variables.raze(a);
+    try Variables.put("HOME", "/home/user", a);
 
     const slice = try ti.toSlice(a);
     defer a.free(slice);
@@ -965,8 +951,8 @@ test "parse path ~/" {
     };
 
     Variables.init(a);
-    defer Variables.raze();
-    try Variables.put("HOME", "/home/user");
+    defer Variables.raze(a);
+    try Variables.put("HOME", "/home/user", a);
 
     const slice = try ti.toSlice(a);
     defer a.free(slice);
@@ -996,8 +982,8 @@ test "parse path ~/place" {
     };
 
     Variables.init(a);
-    defer Variables.raze();
-    try Variables.put("HOME", "/home/user");
+    defer Variables.raze(a);
+    try Variables.put("HOME", "/home/user", a);
 
     const slice = try ti.toSlice(a);
     defer a.free(slice);
@@ -1027,8 +1013,8 @@ test "parse path /~/otherplace" {
     };
 
     Variables.init(a);
-    defer Variables.raze();
-    try Variables.put("HOME", "/home/user");
+    defer Variables.raze(a);
+    try Variables.put("HOME", "/home/user", a);
 
     const slice = try ti.toSlice(a);
     defer a.free(slice);
@@ -1053,14 +1039,6 @@ test "parse path /~/otherplace" {
 test "glob" {
     var a = std.testing.allocator;
 
-    var oldcwd = std.fs.cwd();
-    const basecwd = try oldcwd.realpathAlloc(a, ".");
-    defer {
-        var dir = std.fs.openDirAbsolute(basecwd, .{}) catch unreachable;
-        dir.setAsCwd() catch {};
-        a.free(basecwd);
-    }
-
     var tmpCwd = std.testing.tmpDir(.{ .iterate = true });
     defer tmpCwd.cleanup();
     try tmpCwd.dir.setAsCwd();
@@ -1072,7 +1050,7 @@ test "glob" {
     _ = try tmpCwd.dir.createFile("ya-wai", .{});
     var di = tmpCwd.dir.iterate();
 
-    var names = std.ArrayList([]u8).init(a);
+    var names = std.array_list.Managed([]u8).init(a);
 
     while (try di.next()) |each| {
         if (each.name[0] == '.') continue;
@@ -1131,7 +1109,7 @@ test "glob ." {
     _ = try tmpCwd.dir.createFile("ya-wai", .{});
     var di = tmpCwd.dir.iterate();
 
-    var names = std.ArrayList([]u8).init(a);
+    var names = std.array_list.Managed([]u8).init(a);
 
     while (try di.next()) |each| {
         try names.append(try a.dupe(u8, each.name));
@@ -1173,7 +1151,7 @@ test "glob ~/*" {
     var a = std.testing.allocator;
 
     Variables.init(a);
-    defer Variables.raze();
+    defer Variables.raze(a);
 
     var tmpCwd = std.testing.tmpDir(.{ .iterate = true });
     defer tmpCwd.cleanup();
@@ -1182,10 +1160,10 @@ test "glob ~/*" {
 
     _ = try tmpCwd.dir.createFile("blerg", .{});
 
-    try Variables.put("HOME", baseCwd);
+    try Variables.put("HOME", baseCwd, a);
 
     var di = tmpCwd.dir.iterate();
-    var names = std.ArrayList([]u8).init(a);
+    var names = std.array_list.Managed([]u8).init(a);
 
     while (try di.next()) |each| {
         if (each.name[0] == '.') continue;
@@ -1291,3 +1269,18 @@ test "naughty strings parsed" {
     }
     try expectEql(count, 4);
 }
+
+const std = @import("std");
+const log = @import("log.zig");
+const Hsh = @import("hsh.zig");
+const Allocator = mem.Allocator;
+const ArrayList = std.array_list.Managed;
+const mem = std.mem;
+const Tokenizer = @import("tokenizer.zig");
+const Token = @import("token.zig");
+const TokenIterator = Token.Iterator;
+const Builtins = @import("builtins.zig");
+const Alias = Builtins.Alias;
+const Variables = @import("variables.zig");
+const Fs = @import("fs.zig");
+const exec = @import("exec.zig");

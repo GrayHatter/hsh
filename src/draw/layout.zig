@@ -1,10 +1,3 @@
-const std = @import("std");
-const Allocator = std.mem.Allocator;
-const Draw = @import("../draw.zig");
-const Cord = Draw.Cord;
-const Lexeme = Draw.Lexeme;
-const dupePadded = @import("../mem.zig").dupePadded;
-
 pub const Error = Draw.Error || error{
     ViewportFit,
     ItemCount,
@@ -160,8 +153,10 @@ pub fn tableLexeme(a: Allocator, items: []const Lexeme, wh: Cord) Error![][]Lexe
         row.* = try a.alloc(Lexeme, row_num);
         for (row.*, 0..) |*col, j| {
             const offset = i * stride + j;
-            col.char = try dupePadded(a, items[offset].char, colsz[j]);
+            col.char = try a.alloc(u8, colsz[j]);
             col.style = items[offset].style;
+            @memcpy(col.char[0..items[offset].char.len], items[offset].char);
+            @memset(col.char[items[offset].char.len..], ' ');
         }
     }
     return rows;
@@ -249,3 +244,9 @@ test "grid 3*4 + 1" {
     for (rows) |row| a.free(row);
     a.free(rows);
 }
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const Draw = @import("../draw.zig");
+const Cord = Draw.Cord;
+const Lexeme = Draw.Lexeme;

@@ -1,13 +1,4 @@
-const std = @import("std");
-const HSH = @import("../hsh.zig").HSH;
-const context = @import("../context.zig");
-const exec = @import("../exec.zig");
-const Error = context.Error;
-const Draw = context.Draw;
-const Lexeme = Draw.Lexeme;
-const LexTree = Draw.LexTree;
-
-const Self = @This();
+const Git = @This();
 
 pub const ctx: context.Ctx = .{
     .name = "git",
@@ -21,25 +12,29 @@ pub const ctx: context.Ctx = .{
 var buffer: [0x20]u8 = undefined;
 var next: []const u8 = undefined;
 
-fn init() Error!void {}
+fn init() error{InitFailed}!void {}
 
-fn fetch(_: *const HSH) Error!Lexeme {
+fn fetch(_: *const Hsh) Lexeme {
     return Lexeme{ .char = next };
 }
 
-fn update(h: *HSH) Error!void {
-    const result = exec.childZ(
-        h.alloc,
-        &[_:null]?[*:0]const u8{
-            "git",
-            "status",
-            "--porcelain",
-        },
-    ) catch unreachable;
+fn update(h: *Hsh, a: std.mem.Allocator) error{ OutOfMemory, UpdateFailed }!void {
+    const result = exec.childZ(h, &[_:null]?[*:0]const u8{
+        "git",
+        "status",
+        "--porcelain",
+    }, a) catch unreachable;
+
     for (result.stdout) |line| {
-        h.alloc.free(line);
+        a.free(line);
     }
-    next = std.fmt.bufPrint(&buffer, "{} changed files", .{result.stdout.len}) catch return Error.Memory;
+    next = std.fmt.bufPrint(&buffer, "{} changed files", .{result.stdout.len}) catch unreachable;
 }
 
-fn raze() void {}
+fn raze(_: std.mem.Allocator) void {}
+
+const std = @import("std");
+const Hsh = @import("../hsh.zig");
+const context = @import("../context.zig");
+const exec = @import("../exec.zig");
+const Lexeme = @import("../draw.zig").Lexeme;

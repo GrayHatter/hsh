@@ -1,15 +1,3 @@
-const std = @import("std");
-const Writer = std.fs.File.Writer;
-const Tokenizer = @import("tokenizer.zig").Tokenizer;
-const Draw = @import("draw.zig");
-const HSH = @import("hsh.zig").HSH;
-const Job = @import("jobs.zig").Job;
-const Feature = @import("hsh.zig").Features;
-const Lexeme = Draw.Lexeme;
-const LexTree = Draw.LexTree;
-const Drawable = Draw.Drawable;
-const Jobs = @import("jobs.zig");
-
 var si: usize = 0;
 
 pub const Prompt = @This();
@@ -38,7 +26,7 @@ fn spinner(s: Spinners) Lexeme {
     return .{ .char = s.spin(si) };
 }
 
-fn userTextMultiline(hsh: *HSH, tkn: *Tokenizer) !void {
+fn userTextMultiline(hsh: *Hsh, tkn: *Tokenizer) !void {
     const err = if (tkn.err_idx > 0) tkn.err_idx else tkn.raw.items.len;
     const good = tkn.raw.items[0..err];
     const bad = tkn.raw.items[err..];
@@ -50,7 +38,7 @@ fn userTextMultiline(hsh: *HSH, tkn: *Tokenizer) !void {
     });
 }
 
-fn userText(hsh: *HSH, good: []const u8, bad: []const u8) !void {
+fn userText(hsh: *Hsh, good: []const u8, bad: []const u8) !void {
     //if (std.mem.indexOf(u8, tkn.raw.items, "\n")) |_| return userTextMultiline(hsh, tkn);
 
     try Draw.draw(&hsh.draw, &[_]Lexeme{
@@ -69,17 +57,17 @@ fn prompt(d: *Draw.Drawable, u: ?[]const u8, cwd: []const u8) !void {
     });
 }
 
-pub fn draw(hsh: *HSH, line: []const u8) !void {
-    const bgjobs = Jobs.getBgSlice(hsh.alloc) catch unreachable;
-    defer hsh.alloc.free(bgjobs);
-    try jobsContext(hsh, bgjobs);
+pub fn draw(hsh: *Hsh, line: []const u8) !void {
+    //const bgjobs = Jobs.getBgSlice(hsh.alloc) catch unreachable;
+    //defer hsh.alloc.free(bgjobs);
+    //try jobsContext(hsh, bgjobs);
     //try ctxContext(hsh, try Context.fetch(hsh, .git));
 
-    try prompt(&hsh.draw, hsh.env.get("USER"), hsh.hfs.names.cwd_short);
+    try prompt(&hsh.draw, hsh.env.getPosix("USER"), hsh.fs.cwd_name);
     try userText(hsh, line, "");
 }
 
-fn jobsContext(hsh: *HSH, jobs: []*Job) !void {
+fn jobsContext(hsh: *Hsh, jobs: []*Job) !void {
     for (jobs) |j| {
         const lex = [_]Lexeme{
             .{ .char = "[ " },
@@ -93,12 +81,24 @@ fn jobsContext(hsh: *HSH, jobs: []*Job) !void {
     }
 }
 
-pub fn ctxContext(hsh: *HSH, word: Lexeme) !void {
-    try Draw.drawBefore(&hsh.draw, LexTree{
-        .siblings = &[_]Lexeme{
-            .{ .char = "[ " },
-            word,
-            .{ .char = " ]" },
-        },
-    });
-}
+//pub fn ctxContext(hsh: *Hsh, word: Lexeme) !void {
+//    try Draw.drawBefore(&hsh.draw, LexTree{
+//        .siblings = &[_]Lexeme{
+//            .{ .char = "[ " },
+//            word,
+//            .{ .char = " ]" },
+//        },
+//    });
+//}
+
+const std = @import("std");
+const Io = std.Io;
+const Writer = Io.Writer;
+const Tokenizer = @import("tokenizer.zig").Tokenizer;
+const Draw = @import("draw.zig");
+const Hsh = @import("hsh.zig");
+const Job = @import("jobs.zig").Job;
+const Feature = @import("hsh.zig").Features;
+const Lexeme = Draw.Lexeme;
+const Drawable = Draw.Drawable;
+const Jobs = @import("jobs.zig");

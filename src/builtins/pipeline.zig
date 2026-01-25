@@ -1,6 +1,5 @@
 const std = @import("std");
-const hsh = @import("../hsh.zig");
-const HSH = hsh.HSH;
+const Hsh = @import("../hsh.zig");
 const ParsedIterator = @import("../parse.zig").ParsedIterator;
 const bi = @import("../builtins.zig");
 const print = bi.print;
@@ -10,9 +9,7 @@ pub fn init() void {}
 
 pub fn raze() void {}
 
-fn file() !std.fs.File {}
-
-pub fn pipeline(h: *HSH, titr: *ParsedIterator) Err!u8 {
+pub fn pipeline(h: *Hsh, titr: *ParsedIterator) Err!u8 {
     _ = h;
     _ = titr;
     try print("pipeline is not yet implemented\n", .{});

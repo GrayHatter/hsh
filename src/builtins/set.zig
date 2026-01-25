@@ -1,29 +1,18 @@
-const std = @import("std");
-const hsh = @import("../hsh.zig");
-const HSH = hsh.HSH;
-const bi = @import("../builtins.zig");
-const print = bi.print;
-const Err = bi.Err;
-const Token = bi.Token;
-const ParsedIterator = bi.ParsedIterator;
-const State = bi.State;
-const Vars = bi.Variables;
-
 pub const Set = @This();
 
 pub const Context = struct {};
 
 pub const Opts = enum(u8) {
-    Export = 'a',
-    BgJob = 'b',
-    NoClobber = 'C',
-    ErrExit = 'e',
-    PathExpan = 'f',
-    HashAll = 'h',
-    NOPMode = 'n',
-    FailUnset = 'u',
-    Verbose = 'v', // "echo" stdin to stderr
-    Trace = 'x',
+    @"export" = 'a',
+    bgjob = 'b',
+    noclobber = 'C',
+    errexit = 'e',
+    pathexpan = 'f',
+    hashall = 'h',
+    nopmode = 'n',
+    failunset = 'u',
+    verbose = 'v', // "echo" stdin to stderr
+    trace = 'x',
 
     pub fn find(c: u8) Err!Opts {
         inline for (@typeInfo(Opts).@"enum".fields) |field| {
@@ -68,56 +57,50 @@ const PosixState = union(PosixOpts) {
 var context = Context{};
 
 pub fn init() void {
-    hsh.addState(State{
-        .name = "set",
-        .ctx = &context,
-        .api = &.{ .save = save },
-    }) catch unreachable;
-
-    enable(.NoClobber) catch unreachable;
+    enable(.noclobber) catch unreachable;
 }
 
-pub fn raze() void {
+pub fn raze(_: Allocator) void {
     return nop();
 }
 
-fn save(_: *HSH, _: *anyopaque) ?[][]const u8 {
-    return null;
+pub fn save(_: *Hsh, _: *std.Io.Writer) !void {
+    return;
 }
 
 fn nop() void {}
 
 fn enable(o: Opts) !void {
     switch (o) {
-        .Export => return nop(),
-        .BgJob => return nop(),
-        .NoClobber => try Vars.put("noclobber", "true"),
-        .ErrExit => return nop(),
-        .PathExpan => return nop(),
-        .HashAll => return nop(),
-        .NOPMode => return nop(),
-        .FailUnset => return nop(),
-        .Verbose => return nop(),
-        .Trace => return nop(),
+        .@"export" => return nop(),
+        .bgjob => return nop(),
+        .noclobber => try Vars.put("noclobber", "true"),
+        .errexit => return nop(),
+        .pathexpan => return nop(),
+        .hashall => return nop(),
+        .nopmode => return nop(),
+        .failunset => return nop(),
+        .verbose => return nop(),
+        .trace => return nop(),
     }
 }
 
 fn disable(o: Opts) !void {
     switch (o) {
-        .Export => return nop(),
-        .BgJob => return nop(),
-        .NoClobber => try Vars.put("noclobber", "false"),
-        .ErrExit => return nop(),
-        .PathExpan => return nop(),
-        .HashAll => return nop(),
-        .NOPMode => return nop(),
-        .FailUnset => return nop(),
-        .Verbose => return nop(),
-        .Trace => return nop(),
+        .@"export" => return nop(),
+        .bgjob => return nop(),
+        .noclobber => try Vars.put("noclobber", "false"),
+        .errexit => return nop(),
+        .pathexpan => return nop(),
+        .hashall => return nop(),
+        .nopmode => return nop(),
+        .failunset => return nop(),
+        .verbose => return nop(),
+        .trace => return nop(),
     }
 }
 
-fn special(_: std.mem.Allocator, _: *ParsedIterator) Err!u8 {
+fn special(_: *ParsedIterator, _: std.mem.Allocator) Err!u8 {
     return 0;
 }
 
@@ -133,7 +116,7 @@ fn posix(opt: []const u8, titr: *ParsedIterator) Err!u8 {
     return 0;
 }
 
-fn option(_: std.mem.Allocator, opt: []const u8, titr: *ParsedIterator) Err!u8 {
+fn option(opt: []const u8, titr: *ParsedIterator, _: Allocator) Err!u8 {
     _ = opt;
     _ = titr;
     return 0;
@@ -152,7 +135,7 @@ fn dump() Err!u8 {
     return 0;
 }
 
-fn setCore(a: std.mem.Allocator, pi: *ParsedIterator) Err!u8 {
+pub fn set(pi: *ParsedIterator, a: Allocator) Err!u8 {
     if (!std.mem.eql(u8, pi.first().cannon(), "set")) return Err.InvalidCommand;
 
     if (pi.next()) |arg| {
@@ -174,7 +157,7 @@ fn setCore(a: std.mem.Allocator, pi: *ParsedIterator) Err!u8 {
                 }
                 return posix(opt, pi);
             } else {
-                return option(a, arg.cannon(), pi);
+                return option(arg.cannon(), pi, a);
             }
         }
     } else {
@@ -182,15 +165,16 @@ fn setCore(a: std.mem.Allocator, pi: *ParsedIterator) Err!u8 {
     }
     return 0;
 }
-pub fn set(h: *HSH, titr: *ParsedIterator) Err!u8 {
-    return setCore(h.alloc, titr);
+
+pub fn call(_: *Hsh, titr: *ParsedIterator, a: Allocator, _: Io) Err!u8 {
+    return set(titr, a);
 }
 
 test "set" {
     const Parse = @import("../parse.zig");
     const a = std.testing.allocator;
     Vars.init(a);
-    defer Vars.raze();
+    defer Vars.raze(a);
 
     var ts = [_]Token{
         Token{ .kind = .word, .str = "set" },
@@ -201,7 +185,7 @@ test "set" {
     var p = try Parse.Parser.parse(a, &ts);
     defer p.raze();
 
-    _ = try setCore(a, &p);
+    _ = try set(&p, a);
 
     const nc = Vars.get("noclobber");
     try std.testing.expectEqualStrings("true", nc.?);
@@ -215,8 +199,19 @@ test "set" {
     p.raze();
     p = try Parse.Parser.parse(a, &ts);
 
-    _ = try setCore(a, &p);
+    _ = try set(&p, a);
 
     const ync = Vars.get("noclobber");
     try std.testing.expectEqualStrings("false", ync.?);
 }
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const Io = std.Io;
+const Hsh = @import("../hsh.zig");
+const bi = @import("../builtins.zig");
+const print = bi.print;
+const Err = bi.Err;
+const Token = bi.Token;
+const ParsedIterator = bi.ParsedIterator;
+const Vars = bi.Variables;
