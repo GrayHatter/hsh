@@ -131,6 +131,7 @@ test save {
     const slice = try itr.toSliceExec(a);
     defer a.free(slice);
     var pitr = try Parse.Parser.iterate(a, slice);
+    try pitr.resolveAll(a, io);
 
     defer pitr.raze(a);
     const res = call(undefined, &pitr, a, io);

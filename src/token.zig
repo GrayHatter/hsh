@@ -55,22 +55,14 @@ pub const Kind = union(enum) {
     nos: void,
     oper: OpKind,
     quote: void,
+    brace: void,
     resr: Reserved,
     subp: void,
     word: void,
 };
 
 pub fn make(str: []const u8, k: Kind) Token {
-    return Token{
-        .str = str,
-        .kind = k,
-    };
-}
-
-pub fn format(self: Token, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
-    // this is what net.zig does, so it's what I do
-    if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
-    try std.fmt.format(out, "Token({}){{{s}}}", .{ self.kind, self.str });
+    return .{ .str = str, .kind = k };
 }
 
 pub fn any(src: []const u8) Error!Token {
@@ -397,7 +389,7 @@ pub fn brace(src: []const u8, close: u8) Error!Token {
 
     return Token{
         .str = src[0..end],
-        .kind = .quote,
+        .kind = .brace,
         .subtoken = close,
     };
 }

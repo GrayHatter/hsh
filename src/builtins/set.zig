@@ -173,6 +173,7 @@ pub fn call(_: *Hsh, titr: *ParsedIterator, a: Allocator, _: Io) Err!u8 {
 test "set" {
     const Parse = @import("../parse.zig");
     const a = std.testing.allocator;
+    const io = std.testing.io;
     Vars.init(a);
     defer Vars.raze(a);
 
@@ -183,6 +184,7 @@ test "set" {
     };
 
     var p = try Parse.Parser.iterate(a, &ts);
+    try p.resolveAll(a, io);
     defer p.raze(a);
 
     _ = try set(&p, a);
@@ -198,6 +200,7 @@ test "set" {
 
     p.raze(a);
     p = try Parse.Parser.iterate(a, &ts);
+    try p.resolveAll(a, io);
 
     _ = try set(&p, a);
 

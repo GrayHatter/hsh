@@ -28,9 +28,28 @@ pub const Construct = enum {
     fmt_str,
 };
 
-pub const Parsed = struct {
-    str: []const u8,
-    construct: Construct = .word,
+pub const Parsed = union(Construct) {
+    alias: Base,
+    builtin: Base,
+    dollar: Base,
+    glob: Base,
+    io_mode: Base,
+    multi_glob: Base,
+    path: Base,
+    result_logic: Base,
+    subcommand: Base,
+    word: Base,
+    fmt_str: Base,
+
+    pub const Base = struct {
+        str: []const u8,
+    };
+
+    pub fn anyStr(p: Parsed) []const u8 {
+        return switch (p) {
+            inline else => |el| el.str,
+        };
+    }
 };
 
 pub const Resolved = struct {
@@ -80,7 +99,7 @@ pub const Iterator = struct {
                 continue;
             }
             defer self.t_index += 1;
-            self.resolve(token) catch unreachable;
+            self.parse(token) catch unreachable;
             return self.next();
         }
         return self.next();
@@ -92,10 +111,28 @@ pub const Iterator = struct {
         itr.aliases_len += 1;
     }
 
+    pub fn resolveAll(itr: *Iterator, a: Allocator, _: Io) !void {
+        while (itr.next()) |_| {}
+        for (itr.resolved.items) |*prsd| switch (prsd.*) {
+            .resolved => {},
+            .parsed => |pr| {
+                prsd.* = .{
+                    .resolved = switch (pr) {
+                        inline else => |el, t| .{
+                            .str = try a.dupe(u8, el.str),
+                            .construct = t,
+                        },
+                    },
+                };
+            },
+        };
+        itr.r_index = 0;
+    }
+
     fn resolveAlias(itr: *Iterator, token: Token) Error!void {
         for (itr.aliases[0..itr.aliases_len]) |res| {
             if (std.mem.eql(u8, token.str, res)) {
-                try itr.resolved.appendBounded(.{ .resolved = .{ .str = res } });
+                try itr.resolved.appendBounded(.{ .parsed = .{ .word = .{ .str = res } } });
                 return;
             }
         }
@@ -107,14 +144,12 @@ pub const Iterator = struct {
 
         while (sub_itr.next()) |stkn| {
             if (stkn.kind == .ws) continue;
-            try itr.resolved.appendBounded(.{ .resolved = .{ .str = stkn.str } });
+            try itr.resolved.appendBounded(.{ .parsed = .{ .word = .{ .str = stkn.str } } });
         }
     }
 
-    fn resolve(itr: *Iterator, t: Token) Error!void {
+    fn parse(itr: *Iterator, t: Token) Error!void {
         if (itr.t_index == 0) return itr.resolveAlias(t);
-
-        var local = t;
 
         // TODO hack while I refactor next() to concat tokens
         if (t.kind == .ws) {
@@ -122,33 +157,38 @@ pub const Iterator = struct {
             return;
         }
 
-        if (local.kind == .quote and local.subtoken == '\'') {
-            try itr.resolved.appendBounded(.{ .resolved = .{ .str = local.str } });
+        if (t.kind == .quote and t.subtoken == '\'') {
+            try itr.resolved.appendBounded(.{ .parsed = .{ .word = .{ .str = t.str } } });
             return;
         }
 
-        if (find(u8, local.str, "$") != null or local.kind == .vari) {
-            const owned = try itr.resolveDollar(local);
-            try itr.resolved.appendBounded(.{ .resolved = .{ .str = owned } });
-        } else if (find(u8, local.str, "*")) |_| {
-            switch (try Parser.single(local)) {
-                .resolved => unreachable,
-                .parsed => |real| try itr.resolveGlob(real.str),
-            }
+        if (t.kind == .vari) {
+            const dollar = try itr.parseDollar(t.str);
+            try itr.resolved.appendBounded(.{ .parsed = dollar });
+        } else if (find(u8, t.str, "$")) |idx| {
+            try itr.resolved.appendBounded(.{ .parsed = .{ .word = .{ .str = t.str[0..idx] } } });
+            const dollar = try itr.parseDollar(t.str[idx..]);
+            try itr.resolved.appendBounded(.{ .parsed = dollar });
+            try itr.parse(.make(t.str[idx + dollar.anyStr().len ..], t.kind));
+        } else if (find(u8, t.str, "*")) |_| {
+            try itr.resolveGlob(t.str);
         } else {
-            const real = try Parser.single(local);
+            const real = try Parser.single(t);
             try itr.resolved.appendBounded(real);
         }
     }
 
-    fn resolveDollar(_: *Iterator, token: Token) ![]u8 {
-        for (token.str) |c| {
-            switch (c) {
-                '$' => {
-                    unreachable;
-                },
-                else => unreachable,
-            }
+    fn parseDollar(_: *Iterator, str: []const u8) !Parsed {
+        std.debug.assert(str[0] == '$');
+        if (str.len == 0) return .{ .word = .{ .str = str } };
+        switch (str[1]) {
+            '(' => {
+                if (findScalar(u8, str, ')')) |idx| {
+                    return .{ .subcommand = .{ .str = str[0..idx] } };
+                }
+                return .{ .word = .{ .str = str } };
+            },
+            else => return .{ .word = .{ .str = str } },
         }
         return error.Unknown;
     }
@@ -202,13 +242,11 @@ pub const Iterator = struct {
         self.t_index = 0;
         self.r_index = 0;
         self.aliases_len = 0;
-        for (self.resolved.items) |*token| {
-            _ = token;
-            _ = a;
-            unreachable;
-            //token.raze(a);
-        }
-        self.resolved = .{};
+        for (self.resolved.items) |*prs| switch (prs.*) {
+            .parsed => {},
+            .resolved => |rs| a.free(rs.str),
+        };
+        self.resolved.clearAndFree(a);
     }
 };
 
@@ -236,6 +274,7 @@ pub const Parser = struct {
 
         switch (token.kind) {
             .quote => {
+                std.debug.print("{any}", .{token});
                 unreachable;
                 //var needle = [2]u8{ '\\', token.subtoken };
                 //if (mem.indexOfScalar(u8, token.str, '\\')) |_| {} else return token;
@@ -255,13 +294,13 @@ pub const Parser = struct {
             .vari => return try variable(token),
             .word, .path => return try word(token),
             .subp => {
-                if (token.parsed) return .{ .resolved = .{ .str = token.str } };
-                return .{ .parsed = .{ .str = token.str, .construct = .subcommand } };
+                if (token.parsed) return .{ .parsed = .{ .word = .{ .str = token.str } } };
+                return .{ .parsed = .{ .subcommand = .{ .str = token.str } } };
             },
             else => {
                 switch (token.str[0]) {
-                    '$' => return .{ .parsed = .{ .str = token.str, .construct = .dollar } },
-                    else => return .{ .parsed = .{ .str = token.str } },
+                    '$' => return .{ .parsed = .{ .dollar = .{ .str = token.str } } },
+                    else => return .{ .parsed = .{ .word = .{ .str = token.str } } },
                 }
             },
         }
@@ -282,14 +321,14 @@ pub const Parser = struct {
     fn word(t: Token) Error!Arg {
         if (findScalar(u8, t.str, '\\')) |_| {
             std.debug.assert(t.resolved == null);
-            return .{ .parsed = .{ .str = t.str, .construct = .fmt_str } };
+            return .{ .parsed = .{ .fmt_str = .{ .str = t.str } } };
         }
 
         if (t.str[0] == '~' or findScalar(u8, t.str, '/') != null) {
-            return .{ .parsed = .{ .str = t.str, .construct = .path } };
+            return .{ .parsed = .{ .path = .{ .str = t.str } } };
         }
 
-        return .{ .resolved = .{ .str = t.str } };
+        return .{ .parsed = .{ .word = .{ .str = t.str } } };
     }
 
     /// Caller owns memory for both list of names, and each name
@@ -402,17 +441,18 @@ test "breaking" {
     try eqlStr("ls -la", titr.next().?.resolved.?);
     try expectEql(titr.next(), null);
 
-    var pitr = try Parser.iterate(a, tokens);
-    defer pitr.raze(a);
+    var itr = try Parser.iterate(a, tokens);
+    try itr.resolveAll(a, undefined);
+    defer itr.raze(a);
 
     var count: usize = 0;
-    while (pitr.next()) |_| {
+    while (itr.next()) |_| {
         count += 1;
     }
     try expectEql(count, 2);
-    pitr.restart();
-    try eqlStr("alias", pitr.next().?.resolved.str);
-    try eqlStr("la=ls -la", pitr.next().?.resolved.str);
+    itr.restart();
+    try eqlStr("alias", itr.next().?.resolved.str);
+    try eqlStr("la=ls -la", itr.next().?.resolved.str);
 
     a.free(tokens);
 }
@@ -452,6 +492,7 @@ test "iterator aliased" {
     };
 
     var itr = try Parser.iterate(a, &ts);
+    try itr.resolveAll(a, undefined);
     defer itr.raze(a);
     var i: usize = 0;
     while (itr.next()) |_| {
@@ -481,6 +522,7 @@ test "iterator aliased self" {
     };
 
     var itr = try Parser.iterate(a, &ts);
+    try itr.resolveAll(a, undefined);
     defer itr.raze(a);
     var i: usize = 0;
     while (itr.next()) |_| {
@@ -516,6 +558,7 @@ test "iterator aliased recurse" {
     };
 
     var itr = try Parser.iterate(a, &ts);
+    try itr.resolveAll(a, undefined);
     defer itr.raze(a);
     var i: usize = 0;
     while (itr.next()) |_| {
@@ -543,6 +586,7 @@ test "parse vars" {
     };
 
     var itr = try Parser.iterate(a, &ts);
+    try itr.resolveAll(a, undefined);
     defer itr.raze(a);
     var i: usize = 0;
     while (itr.next()) |_| {
@@ -574,6 +618,7 @@ test "parse vars existing" {
     try eqlStr("correct", Variables.get("string").?);
 
     var itr = try Parser.iterate(a, &ts);
+    try itr.resolveAll(a, undefined);
     defer itr.raze(a);
     var i: usize = 0;
     while (itr.next()) |_| {
@@ -605,6 +650,7 @@ test "parse vars existing with white space" {
     try eqlStr("correct", Variables.get("string").?);
 
     var itr = try Parser.iterate(a, &ts);
+    try itr.resolveAll(a, undefined);
     defer itr.raze(a);
     var i: usize = 0;
     while (itr.next()) |_| {
@@ -637,6 +683,7 @@ test "parse vars existing braces" {
     const slice = try ti.toSlice(a);
     defer a.free(slice);
     var itr = try Parser.iterate(a, slice);
+    try itr.resolveAll(a, undefined);
     defer itr.raze(a);
     var i: usize = 0;
     while (itr.next()) |_| {
@@ -668,6 +715,7 @@ test "parse vars existing braces inline" {
     const slice = try ti.toSlice(a);
     defer a.free(slice);
     var itr = try Parser.iterate(a, slice);
+    try itr.resolveAll(a, undefined);
     defer itr.raze(a);
     var i: usize = 0;
     while (itr.next()) |_| {
@@ -699,6 +747,7 @@ test "parse vars existing braces inline both" {
     const slice = try ti.toSlice(a);
     defer a.free(slice);
     var itr = try Parser.iterate(a, slice);
+    try itr.resolveAll(a, undefined);
     defer itr.raze(a);
     var i: usize = 0;
     while (itr.next()) |_| {
@@ -726,6 +775,7 @@ test "parse dollar dollar bills y'all" {
     };
 
     var itr = try Parser.iterate(a, &tkns);
+    try itr.resolveAll(a, undefined);
     defer itr.raze(a);
 
     try std.testing.expect(std.mem.indexOf(u8, itr.next().?.resolved.str, "!") == null);
@@ -743,6 +793,7 @@ test "parse dollar dollar bills y'all" {
     };
 
     itr = try Parser.iterate(a, &tkns);
+    try itr.resolveAll(a, undefined);
     try std.testing.expect(std.mem.indexOf(u8, itr.next().?.resolved.str, "!") == null);
     try std.testing.expect(std.mem.indexOf(u8, itr.next().?.resolved.str, "!") != null);
     try std.testing.expect(std.mem.indexOf(u8, itr.next().?.resolved.str, "!") == null);
@@ -758,6 +809,7 @@ test "parse dollar dollar bills y'all" {
     };
 
     itr = try Parser.iterate(a, &tkns);
+    try itr.resolveAll(a, undefined);
     try std.testing.expect(std.mem.indexOf(u8, itr.next().?.resolved.str, "!") == null);
     try std.testing.expect(std.mem.indexOf(u8, itr.next().?.resolved.str, "!") == null);
     try std.testing.expect(std.mem.indexOf(u8, itr.next().?.resolved.str, "!") == null);
@@ -774,6 +826,7 @@ test "parse path" {
     const slice = try ti.toSlice(a);
     defer a.free(slice);
     var itr = try Parser.iterate(a, slice);
+    try itr.resolveAll(a, undefined);
     defer itr.raze(a);
 
     var i: usize = 0;
@@ -803,6 +856,7 @@ test "parse path ~" {
     const slice = try ti.toSlice(a);
     defer a.free(slice);
     var itr = try Parser.iterate(a, slice);
+    try itr.resolveAll(a, undefined);
     defer itr.raze(a);
 
     var i: usize = 0;
@@ -834,6 +888,7 @@ test "parse path ~/" {
     const slice = try ti.toSlice(a);
     defer a.free(slice);
     var itr = try Parser.iterate(a, slice);
+    try itr.resolveAll(a, undefined);
     defer itr.raze(a);
 
     var i: usize = 0;
@@ -865,6 +920,7 @@ test "parse path ~/place" {
     const slice = try ti.toSlice(a);
     defer a.free(slice);
     var itr = try Parser.iterate(a, slice);
+    try itr.resolveAll(a, undefined);
     defer itr.raze(a);
 
     var i: usize = 0;
@@ -896,6 +952,7 @@ test "parse path /~/otherplace" {
     const slice = try ti.toSlice(a);
     defer a.free(slice);
     var itr = try Parser.iterate(a, slice);
+    try itr.resolveAll(a, undefined);
     defer itr.raze(a);
 
     var i: usize = 0;
@@ -942,6 +999,7 @@ test "glob" {
     const slice = try ti.toSlice(a);
     defer a.free(slice);
     var itr = try Parser.iterate(a, slice);
+    try itr.resolveAll(a, undefined);
     defer itr.raze(a);
 
     var count: usize = 0;
@@ -992,6 +1050,7 @@ test "glob ." {
     const slice = try ti.toSlice(a);
     defer a.free(slice);
     var itr = try Parser.iterate(a, slice);
+    try itr.resolveAll(a, undefined);
     defer itr.raze(a);
 
     var count: usize = 0;
@@ -1053,6 +1112,7 @@ test "glob ~/*" {
     const slice = try ti.toSlice(a);
     defer a.free(slice);
     var itr = try Parser.iterate(a, slice);
+    try itr.resolveAll(a, undefined);
     defer itr.raze(a);
 
     var count: usize = 0;
@@ -1090,17 +1150,19 @@ test "escapes" {
 
     var slice = try t.toSlice(a);
     defer a.free(slice);
-    var pitr = try Parser.iterate(a, slice);
-    defer pitr.raze(a);
-    try eqlStr("one\\", pitr.next().?.resolved.str);
+    var itr = try Parser.iterate(a, slice);
+    try itr.resolveAll(a, undefined);
+    defer itr.raze(a);
+    try eqlStr("one\\", itr.next().?.resolved.str);
 
     a.free(slice);
-    pitr.raze(a);
+    itr.raze(a);
 
     t = TokenIterator{ .raw = "--inline=quoted\\ string" };
     slice = try t.toSlice(a);
-    pitr = try Parser.iterate(a, slice);
-    try eqlStr("--inline=quoted string", pitr.next().?.resolved.str);
+    itr = try Parser.iterate(a, slice);
+    try itr.resolveAll(a, undefined);
+    try eqlStr("--inline=quoted string", itr.next().?.resolved.str);
 }
 
 test "sub process" {
@@ -1130,6 +1192,7 @@ test "naughty strings parsed" {
     defer a.free(slice);
 
     var pitr = try Parser.iterate(a, slice);
+    try pitr.resolveAll(a, undefined);
     defer pitr.raze(a);
 
     var count: usize = 0;
@@ -1141,11 +1204,12 @@ test "naughty strings parsed" {
 }
 
 const std = @import("std");
-const log = @import("log.zig");
-const Hsh = @import("hsh.zig");
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
+const Io = std.Io;
 const mem = std.mem;
+const log = @import("log.zig");
+const Hsh = @import("hsh.zig");
 const Tokenizer = @import("tokenizer.zig");
 const Token = @import("token.zig");
 const TokenIterator = Token.Iterator;

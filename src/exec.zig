@@ -211,6 +211,8 @@ fn mkCallableStack(itr: *TokenIterator, a: Allocator, io: Io) Error![]CallableSt
             if (err == error.Empty) continue;
             return Error.Parse;
         };
+        try parsed.resolveAll(a, io);
+        defer parsed.raze(a);
         var io_mode: StdIo = StdIo{ .in = prev_stdout orelse STDIN_FD };
         const condition: ?Conditional = conditional_rule;
 
