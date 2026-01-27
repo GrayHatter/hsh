@@ -23,17 +23,17 @@ const Spinners = enum {
 fn spinner(s: Spinners) Lexeme {
     // TODO if >1 spinners are in use, this will double increment
     si += 1;
-    return .{ .char = s.spin(si) };
+    return .str(s.spin(si));
 }
 
 fn userTextMultiline(hsh: *Hsh, tkn: *Tokenizer) !void {
     const err = if (tkn.err_idx > 0) tkn.err_idx else tkn.raw.items.len;
     const good = tkn.raw.items[0..err];
     const bad = tkn.raw.items[err..];
-    try Draw.draw(&hsh.draw, .{
+    hsh.draw.draw(.{
         .siblings = &[_]Lexeme{
-            .{ .char = good },
-            .{ .char = bad, .style = .{ .bg = .red } },
+            .str(good),
+            .styled(bad, .{ .bg = .red }),
         },
     });
 }
@@ -41,19 +41,19 @@ fn userTextMultiline(hsh: *Hsh, tkn: *Tokenizer) !void {
 fn userText(hsh: *Hsh, good: []const u8, bad: []const u8) !void {
     //if (std.mem.indexOf(u8, tkn.raw.items, "\n")) |_| return userTextMultiline(hsh, tkn);
 
-    try Draw.draw(&hsh.draw, &[_]Lexeme{
-        .{ .char = good },
-        .{ .char = bad, .style = .{ .bg = .red } },
+    hsh.draw.draw(&[_]Lexeme{
+        .str(good),
+        .styled(bad, .{ .bg = .red }),
     });
 }
 
 fn prompt(d: *Draw.Drawable, u: ?[]const u8, cwd: []const u8) !void {
-    try Draw.draw(d, &[_]Lexeme{
-        .{ .char = u orelse "[username unknown]", .style = .{ .attr = .bold, .fg = .blue } },
-        .{ .char = "@" },
-        .{ .char = "host " },
-        .{ .char = cwd },
-        .{ .char = " $ " },
+    d.draw(&[_]Lexeme{
+        .styled(u orelse "[username unknown]", .{ .attr = .bold, .fg = .blue }),
+        .str("@"),
+        .str("host "),
+        .str(cwd),
+        .str(" $ "),
     });
 }
 
@@ -70,23 +70,23 @@ pub fn draw(hsh: *Hsh, line: []const u8) !void {
 fn jobsContext(hsh: *Hsh, jobs: []*Job) !void {
     for (jobs) |j| {
         const lex = [_]Lexeme{
-            .{ .char = "[ " },
-            if (j.status == .background) spinner(.dots2t3) else .{ .char = "Z" },
-            .{ .char = " " },
-            .{ .char = j.name orelse "Unknown Job" },
-            .{ .char = " ]" },
+            .str("[ "),
+            if (j.status == .background) .str(spinner(.dots2t3)) else .str("Z"),
+            .str(" "),
+            .str(j.name orelse "Unknown Job"),
+            .str(" ]"),
         };
 
-        try Draw.drawBefore(&hsh.draw, &lex);
+        Draw.drawBefore(&hsh.draw, &lex);
     }
 }
 
 //pub fn ctxContext(hsh: *Hsh, word: Lexeme) !void {
 //    try Draw.drawBefore(&hsh.draw, LexTree{
 //        .siblings = &[_]Lexeme{
-//            .{ .char = "[ " },
+//            .str("[ " },
 //            word,
-//            .{ .char = " ]" },
+//            .str(" ]" },
 //        },
 //    });
 //}

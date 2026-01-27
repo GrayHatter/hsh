@@ -232,7 +232,7 @@ pub fn interactive(input: Input, a: Allocator, io: Io) errors!Event {
             return error.io;
         } == 0) {
             if (input.spin) |spin| {
-                if (spin(input.hsh, a, io))
+                if (spin(input.hsh.?, a, io))
                     return error.signaled;
             }
             continue;

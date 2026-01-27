@@ -103,7 +103,7 @@ pub fn do(hsh: *Hsh) SigEvent {
         flags.int -|= 1;
         // TODO do something
         //hsh.tkn.reset();
-        _ = hsh.draw.write("^C\n\r") catch {};
+        hsh.draw.writer.writeAll("^C\n\r") catch {};
         //if (hsh.hist) |*hist| {
         //    hist.cnt = 0;
         //}

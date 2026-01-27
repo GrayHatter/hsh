@@ -1,27 +1,21 @@
-alloc: Allocator,
-tty: *Tty,
-hsh: *Hsh,
 cursor: u32 = 0,
 cursor_reposition: bool = true,
+writer: *Writer,
 before: DrawBuf = undefined,
 b: DrawBuf = undefined,
 right: DrawBuf = undefined,
 after: DrawBuf = undefined,
 term_size: Cord = .{},
 lines: u16 = 0,
+internal: []u8,
 
 pub const Layout = @import("draw/layout.zig");
-const DrawBuf = ArrayList(u8);
+
+const draw_buffer_size = 4096 * 4;
 
 pub const Cord = struct {
     x: isize = 0,
     y: isize = 0,
-};
-
-pub const Error = error{
-    Unknown,
-    OutOfMemory,
-    WriterIO,
 };
 
 const Layer = enum {
@@ -64,15 +58,23 @@ pub const Style = struct {
 };
 
 pub const Lexeme = struct {
-    char: []const u8,
+    bytes: []const u8,
     padding: ?Padding = null,
     style: ?Style = null,
 
     pub const Padding = struct {
-        char: u8 = ' ',
+        bytes: u8 = ' ',
         left: i32 = 0,
         right: i32 = 0,
     };
+
+    pub fn str(s: []const u8) Lexeme {
+        return .{ .bytes = s };
+    }
+
+    pub fn styled(s: []const u8, sty: Style) Lexeme {
+        return .{ .bytes = s, .style = sty };
+    }
 };
 
 var colorize: bool = true;
@@ -88,38 +90,32 @@ const Direction = enum {
 
 pub const Drawable = @This();
 
-pub fn init(a: Allocator, hsh: *Hsh) Error!Drawable {
+pub fn init(a: Allocator, hsh: *Hsh) !Drawable {
     colorize = hsh.enabled(Features.Colorize);
+    const buffer = try a.alloc(u8, draw_buffer_size);
     return .{
-        .alloc = a,
-        .tty = &hsh.tty,
-        .hsh = hsh,
-        .before = .{},
-        .b = .{},
-        .right = .{},
-        .after = .{},
+        .writer = &hsh.tty.out.interface,
+        .before = .initBuffer(buffer[0..][0 .. draw_buffer_size / 4]),
+        .b = .initBuffer(buffer[draw_buffer_size / 4 * 1 ..][0 .. draw_buffer_size / 4]),
+        .right = .initBuffer(buffer[draw_buffer_size / 4 * 2 ..][0 .. draw_buffer_size / 4]),
+        .after = .initBuffer(buffer[draw_buffer_size / 4 * 3 ..][0 .. draw_buffer_size / 4]),
+        .internal = buffer,
     };
 }
 
-pub fn key(d: *Drawable, c: u8) Error!void {
-    _ = d.tty.out.write(&[1]u8{c}) catch return Error.WriterIO;
+pub fn key(d: *Drawable, c: u8) !void {
+    try d.writer.writeByte(c);
 }
 
-pub fn write(d: *Drawable, out: []const u8) Error!usize {
-    return d.tty.out.write(out) catch Error.WriterIO;
-}
-
-pub fn move(_: *Drawable, comptime dir: Direction, count: u16) []const u8 {
-    if (count == 0) return "";
-    const fmt = comptime switch (dir) {
+pub fn move(d: *Drawable, comptime dir: Direction, width: u16) !void {
+    if (width == 0) return;
+    try d.writer.print(comptime switch (dir) {
         .Up => "\x1B[{}A",
         .Down => "\x1B[{}B",
         .Left => "\x1B[{}D",
         .Right => "\x1B[{}C",
         .Absolute => "\x1B[{}G",
-    };
-
-    return std.fmt.bufPrint(&movebuf, fmt, .{count}) catch return &movebuf; // #YOLO
+    }, .{width});
 }
 
 pub fn clear(d: *Drawable) void {
@@ -135,27 +131,24 @@ pub fn reset(d: *Drawable) void {
     d.cursor = 0;
 }
 
-pub fn raze(d: *Drawable) void {
-    d.before.clearAndFree();
-    d.after.clearAndFree();
-    d.right.clearAndFree();
-    d.b.clearAndFree();
+pub fn raze(d: *Drawable, a: Allocator) void {
+    a.free(d.internal);
 }
 
-fn setAttr(buf: *DrawBuf, attr: ?Attr) Error!void {
+fn setAttr(buf: *DrawBuf, attr: ?Attr) void {
     if (attr) |a| {
         switch (a) {
-            .bold => try buf.appendSlice("\x1B[1m"),
-            .dim => try buf.appendSlice("\x1B[2m"),
-            .reverse => try buf.appendSlice("\x1B[7m"),
-            .reverse_bold => try buf.appendSlice("\x1B[1m\x1B[7m"),
-            .reverse_dim => try buf.appendSlice("\x1B[2m\x1B[7m"),
-            else => try buf.appendSlice("\x1B[0m"),
+            .bold => buf.appendSliceBounded("\x1B[1m") catch unreachable,
+            .dim => buf.appendSliceBounded("\x1B[2m") catch unreachable,
+            .reverse => buf.appendSliceBounded("\x1B[7m") catch unreachable,
+            .reverse_bold => buf.appendSliceBounded("\x1B[1m\x1B[7m") catch unreachable,
+            .reverse_dim => buf.appendSliceBounded("\x1B[2m\x1B[7m") catch unreachable,
+            else => buf.appendSliceBounded("\x1B[0m") catch unreachable,
         }
     }
 }
 
-fn bgColor(buf: *DrawBuf, c: ?Color) Error!void {
+fn bgColor(buf: *DrawBuf, c: ?Color) void {
     if (c) |bg| {
         const color = switch (bg) {
             .red => "\x1B[41m",
@@ -163,11 +156,11 @@ fn bgColor(buf: *DrawBuf, c: ?Color) Error!void {
             .green => "\x1B[42m",
             else => "\x1B[39m",
         };
-        try buf.appendSlice(color);
+        buf.appendSliceBounded(color) catch unreachable;
     }
 }
 
-fn fgColor(buf: *DrawBuf, c: ?Color) Error!void {
+fn fgColor(buf: *DrawBuf, c: ?Color) void {
     if (c) |fg| {
         const color = switch (fg) {
             .red => "\x1B[31m",
@@ -175,133 +168,113 @@ fn fgColor(buf: *DrawBuf, c: ?Color) Error!void {
             .green => "\x1B[32m",
             else => "\x1B[39m",
         };
-        try buf.appendSlice(color);
+        buf.appendSliceBounded(color) catch unreachable;
     }
 }
 
-fn drawLexeme(buf: *DrawBuf, _: usize, _: usize, l: Lexeme) Error!void {
-    if (l.char.len == 0) return;
+fn drawLexeme(buf: *DrawBuf, _: usize, _: usize, l: Lexeme) void {
+    if (l.bytes.len == 0) return;
     if (colorize) {
         if (l.style) |style| {
-            try setAttr(buf, style.attr);
-            try fgColor(buf, style.fg);
-            try bgColor(buf, style.bg);
+            setAttr(buf, style.attr);
+            fgColor(buf, style.fg);
+            bgColor(buf, style.bg);
         }
     }
-    try buf.appendSlice(l.char);
+    buf.appendSliceBounded(l.bytes) catch unreachable;
     if (colorize and l.style != null) {
-        try bgColor(buf, .none);
-        try fgColor(buf, .none);
-        try setAttr(buf, .reset);
+        bgColor(buf, .none);
+        fgColor(buf, .none);
+        setAttr(buf, .reset);
     }
 }
 
-fn drawLexemeMany(buf: *DrawBuf, x: usize, y: usize, s: []const Lexeme) Error!void {
-    for (s) |sib| {
-        try drawLexeme(buf, x, y, sib);
-    }
+fn drawLexemeMany(buf: *DrawBuf, x: usize, y: usize, s: []const Lexeme) void {
+    for (s) |sib| drawLexeme(buf, x, y, sib);
 }
 
-fn drawLexemeTree(buf: *DrawBuf, x: usize, y: usize, t: []const []const Lexeme) Error!void {
-    for (t) |set| {
-        drawLexemeMany(buf, x, y, set);
-    }
+fn drawLexemeTree(buf: *DrawBuf, x: usize, y: usize, t: []const []const Lexeme) void {
+    for (t) |set| drawLexemeMany(buf, x, y, set);
 }
 
-fn countLines(buf: []const u8) u16 {
-    return @truncate(std.mem.count(u8, buf, "\n"));
+pub fn drawBefore(d: *Drawable, t: []const Lexeme) void {
+    drawLexemeMany(&d.before, 0, 0, t);
+    d.before.appendSliceBounded("\x1B[K") catch unreachable;
 }
 
-pub fn drawBefore(d: *Drawable, t: []const Lexeme) !void {
-    try drawLexemeMany(&d.before, 0, 0, t);
-    try d.before.appendSlice("\x1B[K");
+pub fn drawAfter(d: *Drawable, t: []const Lexeme) void {
+    d.after.appendBounded('\n') catch unreachable;
+    drawLexemeMany(&d.after, 0, 0, t);
 }
 
-pub fn drawAfter(d: *Drawable, t: []const Lexeme) !void {
-    try d.after.append('\n');
-    try drawLexemeMany(&d.after, 0, 0, t);
+pub fn drawRight(d: *Drawable, tree: []const Lexeme) void {
+    drawLexemeMany(&d.right, 0, 0, tree);
 }
 
-pub fn drawRight(d: *Drawable, tree: []const Lexeme) !void {
-    try drawLexemeMany(&d.right, 0, 0, tree);
-}
-
-pub fn draw(d: *Drawable, tree: []const Lexeme) !void {
-    try drawLexemeMany(&d.b, 0, 0, tree);
-}
-
-pub fn newline(d: *Drawable) void {
-    _ = d.write("\n\r") catch @panic("unable to write newline");
+pub fn draw(d: *Drawable, tree: []const Lexeme) void {
+    drawLexemeMany(&d.b, 0, 0, tree);
 }
 
 /// Renders the "prompt" line
 /// hsh is based around the idea of user keyboard-driven input, so plugin should
 /// provide the context, expecting not to know about, or touch the final user
 /// input line
-pub fn render(d: *Drawable) Error!void {
-    _ = try d.write("\r");
-    _ = try d.write(d.move(.Up, d.lines));
+pub fn render(d: *Drawable) error{WriteFailed}!void {
+    try d.writer.writeByte('\r');
+    try d.move(.Up, d.lines);
     d.lines = 0;
-    var cntx: usize = 0;
     // TODO vert position
 
     if (d.before.items.len > 0) {
-        cntx += try d.write(d.before.items);
-        _ = try d.write("\n");
-        d.lines += 1 + countLines(d.before.items);
+        try d.writer.writeAll(d.before.items);
+        try d.writer.writeByte('\n');
+        d.lines += @intCast(1 + count(u8, d.before.items, '\n'));
     }
 
     if (d.after.items.len > 0) {
-        cntx += try d.write(d.after.items);
-        const after_lines = countLines(d.after.items);
-        _ = try d.write("\x1B[K");
-        _ = try d.write(d.move(.Up, after_lines));
+        try d.writer.writeAll(d.after.items);
+        const after_lines = count(u8, d.after.items, '\n');
+        try d.writer.writeAll("\x1B[K");
+        try d.move(.Up, @intCast(after_lines));
     }
 
     if (d.right.items.len > 0) {
-        cntx += try d.write("\r\x1B[K");
+        try d.writer.writeAll("\r\x1B[K");
         // Assumes that movement becomes a nop once at term width
-        cntx += try d.write(d.move(.Absolute, @intCast(d.term_size.x)));
+        try d.move(.Absolute, @intCast(d.term_size.x));
         // printable [...] to give a blank buffer (I hate line wrapping)
         const printable = countPrintable(d.right.items);
-        cntx += try d.write(d.move(.Left, @intCast(printable)));
-        cntx += try d.write(d.right.items);
+        try d.move(.Left, @intCast(printable));
+        try d.writer.writeAll(d.right.items);
     }
 
-    if (cntx == 0) _ = try d.write("\r\x1B[K");
-    _ = try d.write("\r");
-    _ = try d.write(d.b.items);
-    _ = try d.write(d.move(.Left, @truncate(d.cursor)));
+    try d.writer.writeAll("\r\x1B[K");
+    try d.writer.writeByte('\r');
+    try d.writer.writeAll(d.b.items);
+    try d.move(.Left, @truncate(d.cursor));
     // TODO save backtrack line count?
-    d.lines += countLines(d.b.items);
+    d.lines += @intCast(count(u8, d.b.items, '\n'));
+    try d.writer.flush();
 }
 
 pub fn clearCtx(d: *Drawable) void {
-    _ = d.write(d.move(.Up, d.lines)) catch {};
-    _ = d.write("\r\x1B[J") catch {};
-    _ = d.write(d.b.items) catch {};
-    d.lines = countLines(d.b.items);
+    d.move(.Up, d.lines) catch {};
+    d.writer.writeAll("\r\x1B[J") catch {};
+    d.writer.writeAll(d.b.items) catch {};
+    d.lines = @intCast(count(u8, d.b.items, '\n'));
 }
 
 /// Any context before the prompt line should be cleared and replaced with the
 /// prompt before exec.
 pub fn clear_before_exec(_: *Drawable) void {}
 
-// TODO rm -rf
-/// feeling lazy, might delete later
-pub fn printAfter(d: *const Drawable, comptime c: []const u8, a: anytype) !void {
-    const w = d.tty.out;
-    _ = try w.write("\r\n");
-    _ = try w.print(c, a);
-    _ = try w.write("\x1B[K");
-    _ = try w.write("\x1B[A");
-    _ = try w.write("\r");
-}
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const Tty = @import("tty.zig");
 const ArrayList = std.ArrayList;
+const Writer = std.Io.Writer;
+const DrawBuf = ArrayList(u8);
+const Tty = @import("tty.zig");
 const Hsh = @import("hsh.zig");
 const Features = Hsh.Features;
 const countPrintable = Layout.countPrintable;
+const count = std.mem.countScalar;

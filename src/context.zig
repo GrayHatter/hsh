@@ -22,7 +22,7 @@ const Priority = enum {
 
 const Init = *const fn () error{InitFailed}!void;
 const Raze = *const fn (Allocator) void;
-const Update = *const fn (*Hsh, Allocator) error{ OutOfMemory, UpdateFailed }!void;
+const Update = *const fn (*Hsh, Allocator, Io) error{ OutOfMemory, UpdateFailed }!void;
 const Fetch = *const fn (*const Hsh) Lexeme;
 
 pub const Ctx = struct {
@@ -53,26 +53,29 @@ pub fn raze(a: Allocator) void {
     a_contexts.clearAndFree(a);
 }
 
+var git_flavored = [1]Flavor{.git};
 pub fn available(hsh: *const Hsh) ![]Flavor {
-    return if (hsh.pid > 0)
-        [_]Flavor{.git}
-    else
-        &.{};
+    return if (hsh.pid > 0) &git_flavored else &.{};
 }
 
-pub fn update(h: *Hsh, requested: []const Flavor) !void {
+pub fn update(requested: []const Flavor, h: *Hsh, a: Allocator, io: Io) !void {
     for (requested) |r| {
-        try a_contexts.items[@intFromEnum(r)].update(h);
+        try a_contexts.items[@intFromEnum(r)].update(h, a, io);
     }
 }
 
 pub fn fetch(h: *const Hsh, c: Flavor) Lexeme {
-    return try a_contexts.items[@intFromEnum(c)].fetch(h);
+    return a_contexts.items[@intFromEnum(c)].fetch(h);
+}
+
+test {
+    _ = &std.testing.refAllDecls(@This());
 }
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const Io = std.Io;
 const Hsh = @import("hsh.zig");
 const Draw = @import("draw.zig");
 const Lexeme = Draw.Lexeme;

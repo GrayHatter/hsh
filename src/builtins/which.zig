@@ -1,30 +1,28 @@
 // I know, but I'm not writing the api right now :/
 var path: [2048]u8 = undefined;
 
-fn executable(str: []const u8) ?[]const u8 {
-    var fba = std.heap.FixedBufferAllocator.init(&path);
-    const a = fba.allocator();
-    return Exec.makeAbsExecutable(a, str) catch return null;
+fn executable(str: []const u8, a: Allocator, io: Io) ?[]const u8 {
+    return Exec.makeAbsExecutable(str, a, io) catch return null;
 }
 
 /// TODO implement real version
-pub fn call(_: *Hsh, itr: *ParsedIterator, _: Allocator, _: Io) bi.Err!u8 {
-    defer itr.raze();
-    const w = itr.first().cannon();
+pub fn call(_: *Hsh, itr: *ParsedIterator, a: Allocator, io: Io) bi.Err!u8 {
+    defer itr.raze(a);
+    const w = itr.first().resolved.str;
     std.debug.assert(std.mem.eql(u8, "which", w));
-    var cannon = (itr.next() orelse return 2).cannon();
-    if (bi.Alias.find(cannon)) |a| {
-        try bi.print("{s} is aliased to {s}\n", .{ cannon, a.value });
+    var cannon = (itr.next() orelse return 2).resolved.str;
+    if (bi.Alias.find(cannon)) |al| {
+        try bi.print("{s} is aliased to {s}\n", .{ cannon, al.value });
         // TODO whitespace != [space]
-        const mi = std.mem.indexOf(u8, a.value, " ");
-        if (mi) |i| cannon = a.value[0..i];
+        const mi = std.mem.indexOf(u8, al.value, " ");
+        if (mi) |i| cannon = al.value[0..i];
     }
 
     if (bi.exists(cannon)) {
         try bi.print("{s} is a builtin\n", .{cannon});
         return 0;
     }
-    if (executable(cannon)) |exe| {
+    if (executable(cannon, a, io)) |exe| {
         try bi.print("{s}\n", .{exe});
         return 0;
     }
@@ -42,5 +40,5 @@ const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const bi = @import("../builtins.zig");
 const Hsh = @import("../hsh.zig");
-const ParsedIterator = @import("../parse.zig").ParsedIterator;
+const ParsedIterator = @import("../parse.zig").Iterator;
 const Exec = @import("../exec.zig");

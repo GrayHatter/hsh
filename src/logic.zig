@@ -1,12 +1,3 @@
-const std = @import("std");
-const log = @import("log.zig");
-const Allocator = std.mem.Allocator;
-const Token = @import("token.zig");
-const Tokenizer = @import("tokenizer.zig");
-const exec_ = @import("exec.zig");
-
-const Hsh = @import("hsh.zig");
-
 const Error = Token.Error || error{
     OutOfMemory,
     ExecFailure,
@@ -40,13 +31,13 @@ pub const Reserved = enum {
     }
 };
 
-fn execBody(a: Allocator, h: *Hsh, body: []const u8) !void {
+fn execBody(body: []const u8, h: *Hsh, a: Allocator, io: Io) !void {
     var tzr = Tokenizer.init(a);
     defer tzr.raze();
     for (body) |b| {
         tzr.consumec(b) catch |err| {
             if (err == Tokenizer.Error.Exec) {
-                try exec_.exec(h, tzr.raw.items);
+                try exec_.exec(tzr.raw.items, h, a, io);
                 tzr.reset();
             }
         };
@@ -144,7 +135,7 @@ const If = struct {
                 }
             },
             else => {
-                log.warn("Invalid logic {s} isn't understood here\n", .{word.cannon()});
+                log.warn("Invalid logic {s} isn't understood here\n", .{word.str});
                 return Error.InvalidLogic;
             },
         }
@@ -169,10 +160,10 @@ const If = struct {
         return mkIf(a, str);
     }
 
-    fn execClause(self: *If) Error!bool {
+    fn execClause(self: *If, h: *Hsh, a: Allocator, io: Io) Error!bool {
         const clause = self.clause orelse return Error.InvalidLogic;
         log.debug("testing logic clasue \n    {s}\n", .{clause});
-        const child = exec_.childParsed(self.alloc, clause) catch |err| {
+        const child = exec_.childParsed(clause, h, a, io) catch |err| {
             log.err("Unexpected error ({}) when attempting to run logic\n", .{err});
             return Error.ExecFailure;
         };
@@ -185,9 +176,9 @@ const If = struct {
 
     /// If null logic completed successfully, if an If pointer is returned
     /// caller should call exec on the returned pointer.
-    pub fn exec(self: *If, h: *Hsh) Error!?*If {
-        if (self.execClause() catch return null) {
-            execBody(self.alloc, h, self.body.?) catch |err| {
+    pub fn exec(self: *If, h: *Hsh, a: Allocator, io: Io) Error!?*If {
+        if (self.execClause(h, a, io) catch return null) {
+            execBody(self.body.?, h, a, io) catch |err| {
                 log.err(
                     "Unexpected error ({}) when attempting to run logic main body\n",
                     .{err},
@@ -197,7 +188,7 @@ const If = struct {
             if (self.elif) |elif| {
                 switch (elif.*) {
                     .elses => |elses| {
-                        execBody(self.alloc, h, elses) catch |err| {
+                        execBody(elses, h, a, io) catch |err| {
                             log.err(
                                 "Unexpected error ({}) when attempting to run logic else body\n",
                                 .{err},
@@ -310,10 +301,10 @@ pub const Logicizer = struct {
     }
 
     /// This API may not exist soon... feeling brave?
-    pub fn exec(self: *Logicizer, h: *Hsh) Error!?*Logicizer {
+    pub fn exec(self: *Logicizer, h: *Hsh, a: Allocator, io: Io) Error!?*Logicizer {
         switch (self.current) {
             .if_ => |*if_| {
-                if (if_.exec(h)) |exec_if| {
+                if (if_.exec(h, a, io)) |exec_if| {
                     if (exec_if) |ex| {
                         self.current = .{ .elif_ = ex };
                         return self;
@@ -322,7 +313,7 @@ pub const Logicizer = struct {
                 } else |err| return err;
             },
             .elif_ => |elif_| {
-                if (elif_.exec(h)) |exec_if| {
+                if (elif_.exec(h, a, io)) |exec_if| {
                     if (exec_if) |ex| {
                         self.current = .{ .elif_ = ex };
                         return self;
@@ -467,3 +458,13 @@ test "while" {
     const hope_echo = try Token.any(while_block.body.?[ws.str.len..]);
     try std.testing.expectEqualStrings("echo", hope_echo.str);
 }
+
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const Io = std.Io;
+const Token = @import("token.zig");
+const Tokenizer = @import("tokenizer.zig");
+const exec_ = @import("exec.zig");
+const log = @import("log.zig");
+
+const Hsh = @import("hsh.zig");

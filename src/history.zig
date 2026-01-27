@@ -3,6 +3,13 @@ file: ?std.Io.File,
 
 const History = @This();
 
+pub fn init(f: ?std.Io.File) History {
+    return .{
+        .file = f,
+        .seen_list = .{},
+    };
+}
+
 fn seenAdd(self: *History, seen: []const u8) void {
     if (self.seen_list) |*sl| {
         const dupe = self.alloc.?.dupe(u8, seen) catch unreachable;
@@ -26,13 +33,6 @@ fn seenExists(self: *History, this: []const u8) bool {
         }
     }
     return false;
-}
-
-pub fn init(f: ?std.Io.File) History {
-    return .{
-        .file = f,
-        .seen_list = .{},
-    };
 }
 
 pub fn atTop(self: *History) bool {

@@ -1,7 +1,8 @@
-pub const Error = Draw.Error || error{
+pub const Error = error{
     ViewportFit,
     ItemCount,
     LayoutUnable,
+    OutOfMemory,
 };
 
 /// TODO unicode support when?
@@ -39,7 +40,7 @@ fn countPrintableMany(bufs: []const []const u8) u32 {
 fn countLexems(lexs: []const Lexeme) u32 {
     var total: u32 = 0;
     for (lexs) |lex| {
-        total += countPrintable(lex.char) + 1;
+        total += countPrintable(lex.bytes) + 1;
     }
     return total;
 }
@@ -57,7 +58,7 @@ fn maxWidth(items: []const []const u8) u32 {
 fn maxWidthLexem(lexs: []const Lexeme) u32 {
     var max: u32 = 0;
     for (lexs) |lex| {
-        const len: u32 = countPrintable(lex.char);
+        const len: u32 = countPrintable(lex.bytes);
         max = @max(max, len);
     }
     return max + 1;
@@ -88,7 +89,7 @@ pub fn grid(a: Allocator, items: []const []const u8, wh: Cord) Error![][]Lexeme 
         for (row.*) |*col| {
             const char = items[i];
             col.* = Lexeme{
-                .char = char,
+                .bytes = char,
                 .padding = .{ .right = @intCast(largest - countPrintable(char)) },
             };
             i += 1;
@@ -126,7 +127,7 @@ pub fn tableSize(a: Allocator, items: []const Lexeme, wh: Cord) Error![]u16 {
             const current = items[row * cols .. @min((row + 1) * cols, items.len)];
             for (0..cols) |c| {
                 if (row * cols + c >= items.len) break;
-                colsize[c] = @max(colsize[c], countPrintable(current[c].char) + 2);
+                colsize[c] = @max(colsize[c], countPrintable(current[c].bytes) + 2);
                 // padding of 2 feels more comfortable
             }
             if (sum(colsize) > wh.x) continue :first;
@@ -153,10 +154,11 @@ pub fn tableLexeme(a: Allocator, items: []const Lexeme, wh: Cord) Error![][]Lexe
         row.* = try a.alloc(Lexeme, row_num);
         for (row.*, 0..) |*col, j| {
             const offset = i * stride + j;
-            col.char = try a.alloc(u8, colsz[j]);
+            const bytes = try a.alloc(u8, colsz[j]);
+            col.bytes = bytes;
             col.style = items[offset].style;
-            @memcpy(col.char[0..items[offset].char.len], items[offset].char);
-            @memset(col.char[items[offset].char.len..], ' ');
+            @memcpy(bytes[0..items[offset].bytes.len], items[offset].bytes);
+            @memset(bytes[items[offset].bytes.len..], ' ');
         }
     }
     return rows;
@@ -168,7 +170,7 @@ pub fn tableChar(a: Allocator, items: []const []const u8, wh: Cord) Error![][]Le
     defer a.free(lexes);
 
     for (items, lexes) |i, *l| {
-        l.*.char = i;
+        l.bytes = i;
     }
 
     return tableLexeme(a, lexes, wh);
@@ -208,7 +210,7 @@ test "table" {
         //std.debug.print("  row {any}\n", .{row});
         for (row) |col| {
             //std.debug.print("    sib {s}\n", .{sib.char});
-            a.free(col.char);
+            a.free(col.bytes);
         }
     }
 

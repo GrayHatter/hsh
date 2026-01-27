@@ -158,6 +158,21 @@ pub fn haltActive(j: Jobs) Error!usize {
     return count;
 }
 
+pub fn getBgPtr(j: Jobs) ?*Job {
+    for (j.jobs.items) |*job| {
+        switch (job.status) {
+            .background,
+            .waiting,
+            .paused,
+            => {
+                return job;
+            },
+            else => continue,
+        }
+    }
+    return null;
+}
+
 pub fn getBg(j: Jobs) ?*const Job {
     for (j.jobs.items) |*job| {
         switch (job.status) {
@@ -165,7 +180,7 @@ pub fn getBg(j: Jobs) ?*const Job {
             .waiting,
             .paused,
             => {
-                return j;
+                return job;
             },
             else => continue,
         }
@@ -221,13 +236,13 @@ else
 pub fn waitForFg(j: *Jobs) void {
     while (j.getFg()) |fg| {
         log.debug("Waiting on {}\n", .{fg.pid});
-        _ = waitFor(fg.pid) catch {
+        _ = j.waitFor(fg.pid) catch {
             // Debug because jobs aren't created in some exec cases (which? ¯\_(ツ)_/¯)
             log.debug(
                 "waitFor didn't find child \"{s}\" {}\n",
                 .{ fg.name orelse "Unknown Job", fg.pid },
             );
-            (j.get(fg.pid) catch unreachable).status = .unknown;
+            (j.getPtr(fg.pid) catch unreachable).status = .unknown;
         };
     }
 }
@@ -261,6 +276,10 @@ pub fn waitFor(j: *Jobs, jid: std.posix.pid_t) !*const Job {
         }
     } else log.debug("search != found {} did get {} \n", .{ jid, s.pid });
     return Error.JobNotFound;
+}
+
+test {
+    _ = &std.testing.refAllDecls(@This());
 }
 
 const std = @import("std");

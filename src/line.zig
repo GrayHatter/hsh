@@ -8,7 +8,7 @@ mode: union(enum) {
     scripted: void,
     external_editor: []u8,
 },
-history: History = undefined,
+//history: History = undefined,
 history_position: ?usize = null,
 history_search: ?[]const u8 = null,
 completion: Complete.CompSet,
@@ -34,7 +34,7 @@ pub fn init(hsh: *Hsh, a: Allocator, options: Options) !Line {
         .tkn = Tokenizer.init(a),
         .completion = Complete.init(a),
         .options = options,
-        .history = History.init(hsh.fs.history.?.file),
+        //.history = History.init(hsh.fs.history.?.file),
         .mode = if (options.interactive) .{ .interactive = {} } else .{ .scripted = {} },
         .text = try a.alloc(u8, 0),
     };
@@ -117,7 +117,7 @@ fn core(line: *Line, a: Allocator, io: Io) !Action {
                     .newline => return .exec,
                     .end_of_text => return .exec,
                     .delete_word => _ = try line.tkn.dropWord(),
-                    .tab => try line.complete(),
+                    .tab => try line.complete(a, io),
                     else => |els| log.warn("unknown {}\n", .{els}),
                 }
                 line.hsh.draw.clear();
@@ -136,14 +136,14 @@ fn core(line: *Line, a: Allocator, io: Io) !Action {
 pub fn do(line: *Line, a: Allocator, io: Io) ![]u8 {
     while (true) {
         return switch (try line.core(a, io)) {
-            .external => try line.externEditorRead(),
+            .external => try line.externEditorRead(io),
             .empty => continue,
             .exec => {
                 if (line.peek().len > 0) {
                     return try line.dupeText();
                 }
 
-                line.hsh.draw.newline();
+                try line.hsh.draw.writer.writeByte('\n');
                 line.hsh.draw.clear();
                 try Prompt.draw(line.hsh, line.peek());
                 try line.hsh.draw.render();
@@ -165,68 +165,73 @@ pub fn externEditor(line: *Line, io: Io) ![]u8 {
     return try std.fmt.allocPrint("$EDITOR {}", .{line.mode.external_editor});
 }
 
-pub fn externEditorRead(line: *Line) ![]u8 {
+pub fn externEditorRead(line: *Line, io: Io) ![]u8 {
     const tmp = line.mode.external_editor;
     defer line.mode = .{ .interactive = {} };
     defer line.alloc.free(tmp);
-    defer std.posix.unlink(tmp) catch unreachable;
+    defer unreachable;
 
-    var file = Fs.openFile(tmp, false) orelse return error.io;
-    defer file.close();
-    line.text = file.reader().readAllAlloc(line.alloc, 4096) catch unreachable;
+    var file = Fs.openFile(tmp, io, .create) orelse return error.io;
+    defer file.close(io);
+    var reader = file.reader(io, &.{});
+
+    line.text = reader.interface.allocRemaining(line.alloc, .limited(4096)) catch unreachable;
     return line.text;
 }
 
 fn findHistory(line: *Line, dr: enum { up, down }) void {
-    var history = line.history;
-    var tkn = &line.tkn;
+    _ = line;
+    _ = dr;
+    return;
+    //var history = line.history;
+    //var tkn = &line.tkn;
 
-    switch (dr) {
-        .up => {
-            if (line.history_position) |pos| {
-                _ = history.readAtFiltered(pos, line.history_search.?, tkn.lineReplaceHistory());
-                line.history_position.? = pos + 1;
-            } else {
-                line.history_position = 0;
-                if (tkn.raw.items.len == 0) {
-                    if (tkn.prev_exec) |prvexe| {
-                        tkn.raw = prvexe;
-                        tkn.idx = tkn.raw.items.len;
-                        tkn.prev_exec = null;
-                        return;
-                    }
-                    line.history_search = line.alloc.dupe(u8, "") catch @panic("OOM");
-                } else if (line.history_search == null) {
-                    if (tkn.user_data == true) {
-                        log.warn("clobbered userdata\n", .{});
-                    }
-                    line.history_search = line.alloc.dupe(u8, line.tkn.raw.items) catch @panic("OOM");
-                }
-                _ = history.readAtFiltered(0, line.history_search.?, tkn.lineReplaceHistory());
-            }
-            line.tkn.move(.end);
-            return;
-        },
-        .down => {
-            if (line.history_position) |pos| {
-                if (pos == 0) {
-                    tkn.reset();
-                    log.warn("todo restore userdata\n", .{});
-                    tkn.reset();
-                    line.history_position = null;
-                    tkn.move(.end);
-                } else {
-                    line.history_position.? -|= 1;
-                    _ = history.readAtFiltered(pos, line.history_search.?, tkn.lineReplaceHistory());
-                    //tkn.reset();
-                    //tkn.consumes(&line.usr_line) catch unreachable;
-                    tkn.move(.end);
-                }
-            }
+    //switch (dr) {
+    //    .up => {
+    //        if (line.history_position) |pos| {
+    //            _ = history.readAtFiltered(pos, line.history_search.?, tkn.lineReplaceHistory());
+    //            line.history_position.? = pos + 1;
+    //        } else {
+    //            line.history_position = 0;
+    //            if (tkn.raw.items.len == 0) {
+    //                if (tkn.prev_exec) |prvexe| {
+    //                    tkn.raw = prvexe;
+    //                    tkn.idx = tkn.raw.items.len;
+    //                    tkn.prev_exec = null;
+    //                    return;
+    //                }
+    //                line.history_search = line.alloc.dupe(u8, "") catch @panic("OOM");
+    //            } else if (line.history_search == null) {
+    //                if (tkn.user_data == true) {
+    //                    log.warn("clobbered userdata\n", .{});
+    //                }
+    //                line.history_search = line.alloc.dupe(u8, line.tkn.raw.items) catch @panic("OOM");
+    //            }
+    //            _ = history.readAtFiltered(0, line.history_search.?, tkn.lineReplaceHistory());
+    //        }
+    //        line.tkn.move(.end);
+    //        return;
+    //    },
+    //    .down => {
+    //        if (line.history_position) |pos| {
+    //            if (pos == 0) {
+    //                tkn.reset();
+    //                log.warn("todo restore userdata\n", .{});
+    //                tkn.reset();
+    //                line.history_position = null;
+    //                tkn.move(.end);
+    //            } else {
+    //                line.history_position.? -|= 1;
+    //                _ = history.readAtFiltered(pos, line.history_search.?, tkn.lineReplaceHistory());
+    //                //tkn.reset();
+    //                //tkn.consumes(&line.usr_line) catch unreachable;
+    //                tkn.move(.end);
+    //            }
+    //        }
 
-            return;
-        },
-    }
+    //        return;
+    //    },
+    //}
 }
 
 const CompState = union(enum) {
@@ -238,12 +243,12 @@ const CompState = union(enum) {
     done: void,
 };
 
-fn complete(line: *Line) !void {
+fn complete(line: *Line, a: Allocator, io: Io) !void {
     const cmplt: *Complete.CompSet = &line.completion;
     sw: switch (CompState{ .start = {} }) {
         .pending => unreachable,
         .start => {
-            try Complete.complete(cmplt, line.hsh, &line.tkn);
+            try Complete.complete(cmplt, line.hsh, &line.tkn, io);
             continue :sw .{ .redraw = {} };
         },
         .typing => |ks| {
@@ -274,7 +279,7 @@ fn complete(line: *Line) !void {
                             continue :sw .{ .redraw = {} };
                         },
                         else => {
-                            try Complete.complete(cmplt, line.hsh, &line.tkn);
+                            try Complete.complete(cmplt, line.hsh, &line.tkn, io);
 
                             if (cmplt.count() == 0) {
                                 try line.tkn.consumec(c);
@@ -353,7 +358,7 @@ fn complete(line: *Line) !void {
             };
             for (cmplt.draw_cache) |grp| {
                 for (grp orelse continue) |row| {
-                    try line.hsh.draw.drawAfter(row);
+                    line.hsh.draw.drawAfter(row);
                 }
             }
             try Prompt.draw(line.hsh, line.peek());
@@ -361,7 +366,7 @@ fn complete(line: *Line) !void {
             continue :sw .{ .read = {} };
         },
         .read => {
-            const chr = line.input.interactive() catch |err| switch (err) {
+            const chr = line.input.interactive(a, io) catch |err| switch (err) {
                 error.signaled => continue :sw .{ .typing = .{ .control = .{ .c = .esc } } },
                 else => return err,
             };
@@ -384,10 +389,9 @@ const Tokenizer = @import("tokenizer.zig");
 const Fs = @import("fs.zig");
 const Hsh = @import("hsh.zig");
 const Complete = @import("completion.zig");
-const History = @import("history.zig");
+//const History = @import("history.zig");
 const Input = @import("input.zig");
 const Keys = @import("keys.zig");
 const Prompt = @import("prompt.zig");
 
 const Draw = @import("draw.zig");
-const printAfter = Draw.printAfter;

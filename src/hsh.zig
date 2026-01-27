@@ -82,18 +82,19 @@ fn readFromRC(hsh: *Hsh, a: Allocator, io: Io) !void {
             var titr = Token.Iterator{ .raw = line };
             const tokens = titr.toSlice(a) catch return error.Memory;
             defer a.free(tokens);
-            var pitr = Parser.parse(a, tokens) catch continue;
+            var pitr = Parser.iterate(a, tokens) catch continue;
+            // defer free pitr.resolved
 
-            if (!shellbuiltin.exists(pitr.first().cannon())) {
+            if (!shellbuiltin.exists(pitr.first().resolved.str)) {
                 log.warn("Unknown rc line \n    {s}\n", .{line});
                 continue;
             }
 
-            const bi_func = shellbuiltin.strExec(titr.first().cannon());
+            const bi_func = shellbuiltin.strExec(titr.first().str);
             _ = bi_func(hsh, &pitr, a, io) catch |err| {
                 log.err("rc parse error {}\n", .{err});
             };
-            pitr.raze();
+            pitr.raze(a);
         } else |err| {
             if (err != Error.EOF) {
                 log.err("error {}\n", .{err});
@@ -156,7 +157,7 @@ pub fn init(env: Environ, a: Allocator, io: Io) Error!Hsh {
     Variables.init(a);
     // builtins that wish to save data depend on this being available
 
-    shellbuiltin.init(io);
+    shellbuiltin.init(a, io);
     try Context.init(a);
     try readFromRC(&hsh, a, io);
     Variables.load(env, a) catch return error.Memory;

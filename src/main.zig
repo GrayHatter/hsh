@@ -115,7 +115,7 @@ pub fn main(init: std.process.Init) !void {
     hsh.tty.pwnTTY();
 
     hsh.draw = Drawable.init(a, &hsh) catch unreachable;
-    defer hsh.draw.raze();
+    defer hsh.draw.raze(a);
     hsh.draw.term_size = hsh.tty.geom() catch unreachable;
 
     var inerr = false;
@@ -126,21 +126,21 @@ pub fn main(init: std.process.Init) !void {
                 std.debug.print("\n goodbye :) \n", .{});
                 break;
             }
-            defer hsh.alloc.free(str);
+            defer a.free(str);
             std.debug.assert(str.len != 0);
 
             //var itr = hsh.tkn.iterator();
-            hsh.draw.newline();
-            Exec.exec(&hsh, str) catch |err| switch (err) {
+            try hsh.draw.writer.writeByte('\n');
+            Exec.exec(str, &hsh, a, io) catch |err| switch (err) {
                 error.ExeNotFound => {
-                    const first = Exec.execFromInput(&hsh, str) catch @panic("memory");
-                    defer hsh.alloc.free(first);
+                    const first = Exec.execFromInput(str, a, io) catch @panic("memory");
+                    defer a.free(first);
                     const tree = [_]Draw.Lexeme{
-                        .{ .char = "[ Unable to find ", .style = .{ .attr = .bold, .fg = .red } },
-                        .{ .char = first, .style = .{ .attr = .bold, .fg = .red } },
-                        .{ .char = " ]", .style = .{ .attr = .bold, .fg = .red } },
+                        .styled("[ Unable to find ", .{ .attr = .bold, .fg = .red }),
+                        .styled(first, .{ .attr = .bold, .fg = .red }),
+                        .styled(" ]", .{ .attr = .bold, .fg = .red }),
                     };
-                    try Draw.drawAfter(&hsh.draw, tree[0..]);
+                    Draw.drawAfter(&hsh.draw, tree[0..]);
                     try Draw.render(&hsh.draw);
                 },
                 error.StdIOError => {
@@ -203,11 +203,9 @@ const Draw = @import("draw.zig");
 const Drawable = Draw.Drawable;
 const prompt = @import("prompt.zig");
 const jobsContext = @import("prompt.zig").jobsContext;
-const ctxContext = @import("prompt.zig").ctxContext;
 const Context = @import("context.zig");
 const Hsh = @import("hsh.zig");
 const Exec = @import("exec.zig");
 const Signals = @import("signals.zig");
-const History = @import("history.zig");
 const Jobs = @import("jobs.zig");
 const Line = @import("line.zig");

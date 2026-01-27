@@ -41,19 +41,17 @@ fn printAll() Err!u8 {
     return 0;
 }
 
-pub fn call(h: *Hsh, pitr: *ParsedIterator, a: Allocator, _: Io) Err!u8 {
+pub fn call(_: *Hsh, pitr: *ParsedIterator, a: Allocator, _: Io) Err!u8 {
     const expt = pitr.first();
-    std.debug.assert(eql(u8, expt.cannon(), "export"));
+    std.debug.assert(eql(u8, expt.resolved.str, "export"));
 
-    const name = pitr.next();
-    if (name == null or eql(u8, name.?.cannon(), "-p")) {
-        return printAll();
-    }
+    const name = pitr.next() orelse return printAll();
+    if (eql(u8, name.resolved.str, "-p")) return printAll();
 
-    if (findScalar(u8, name.?.cannon(), '=')) |idx| {
-        const key = name.?.cannon()[0..idx];
-        const value = name.?.cannon()[idx + 1 ..];
-        Variables.put(key, value) catch {
+    if (findScalar(u8, name.resolved.str, '=')) |idx| {
+        const key = name.resolved.str[0..idx];
+        const value = name.resolved.str[idx + 1 ..];
+        Variables.put(key, value, a) catch {
             log.err("Unable to save variable", .{});
             return 1;
         };
@@ -64,7 +62,7 @@ pub fn call(h: *Hsh, pitr: *ParsedIterator, a: Allocator, _: Io) Err!u8 {
         return 0;
     } else {
         // no = in the string, so it needs to already exist within variables.
-        const key = h.alloc.dupe(u8, name.?.cannon()) catch return Err.Memory;
+        const key = try a.dupe(u8, name.resolved.str);
         const value = Variables.get(key) orelse {
             log.err("Attempted to export an non-existant name\n", .{});
             return 1;
@@ -84,7 +82,7 @@ pub fn unexport(_: *Hsh, _: *ParsedIterator) Err!u8 {
 }
 
 fn add(k: []const u8, v: []const u8, a: Allocator) !void {
-    return try export_list.append(try .new(a, k, v));
+    return try export_list.append(a, try .new(a, k, v));
 }
 
 const std = @import("std");
@@ -98,7 +96,7 @@ const findScalar = std.mem.findScalar;
 const Hsh = @import("../hsh.zig");
 const bi = @import("../builtins.zig");
 const Err = bi.Err;
-const ParsedIterator = @import("../parse.zig").ParsedIterator;
+const ParsedIterator = @import("../parse.zig").Iterator;
 const print = bi.print;
 const log = @import("../log.zig");
 const Variables = @import("../variables.zig");

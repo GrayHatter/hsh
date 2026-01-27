@@ -152,14 +152,17 @@ pub fn cd(fs: *Fs, trgt: []const u8, a: Allocator, io: Io) !void {
     fs.cwd.close(io);
     fs.cwd = next;
     a.free(fs.cwd_name);
-    fs.cwd_name = try fs.cwd.realPathFileAlloc(io, a);
+    fs.cwd_name = try fs.cwd.realPathFileAlloc(io, ".", a);
 }
 
 pub fn mktemp(data: ?[]const u8, a: Allocator, io: Io) ![]u8 {
-    rand.init();
+    var bytes: [7]u8 = undefined;
+    io.random(&bytes);
+    for (&bytes) |*b| {
+        b.* = std.ascii.letters[b.* % std.ascii.letters.len];
+    }
 
-    var name = try a.dupe(u8, "/tmp/.hsh_txt________");
-    try rand.string(name[14..]);
+    const name = try a.dupe(u8, "/tmp/.hsh_txt" ++ bytes);
 
     const file = Dir.createFileAbsolute(io, name, .{}) catch {
         return error.System;
@@ -170,7 +173,7 @@ pub fn mktemp(data: ?[]const u8, a: Allocator, io: Io) ![]u8 {
         if (d.len > 0) {
             var w = file.writer(io, &.{});
             w.interface.writeAll(d) catch return error.Other;
-            file.sync() catch return error.Other;
+            file.sync(io) catch return error.Other;
         }
     }
 
@@ -205,7 +208,7 @@ pub fn writeFile(name: []const u8, io: Io, comptime cr: CreateRule) ?File {
 }
 
 pub fn openFileAt(dir: Dir, name: []const u8, io: Io, comptime cr: CreateRule) ?File {
-    return fileAt(dir, name, io, cr, .read_onl, false);
+    return fileAt(dir, name, io, cr, .read_only, false);
 }
 
 pub fn openFile(name: []const u8, io: Io, comptime cr: CreateRule) ?File {
@@ -213,20 +216,20 @@ pub fn openFile(name: []const u8, io: Io, comptime cr: CreateRule) ?File {
 }
 
 pub fn create(name: []const u8, io: Io) ?File {
-    return fileAt(Dir.cwd(), name, io, .create, false, false);
+    return fileAt(Dir.cwd(), name, io, .create, .read_only, false);
 }
 
 pub fn reCreate(name: []const u8, io: Io) ?File {
-    return fileAt(Dir.cwd(), name, io, .create, false, true);
+    return fileAt(Dir.cwd(), name, io, .create, .read_only, true);
 }
 
-pub fn globCwd(a: Allocator, search: []const u8) ![][]u8 {
-    var dir = try Dir.cwd().openDir(".", .{ .iterate = true });
-    defer dir.close();
-    return globAt(a, dir, search);
+pub fn globCwd(search: []const u8, a: Allocator, io: Io) ![][]u8 {
+    var dir = try Dir.cwd().openDir(io, ".", .{ .iterate = true });
+    defer dir.close(io);
+    return globAt(dir, search, a, io);
 }
 
-pub fn globAt(a: Allocator, dir: Dir, search: []const u8) ![][]u8 {
+pub fn globAt(dir: Dir, search: []const u8, a: Allocator, io: Io) ![][]u8 {
     // TODO multi space glob
     std.debug.assert(std.mem.count(u8, search, "*") == 1);
     var split = std.mem.splitScalar(u8, search, '*');
@@ -239,7 +242,7 @@ pub fn globAt(a: Allocator, dir: Dir, search: []const u8) ![][]u8 {
 
     // TODO leaks if error in the middle of iteration
     var count: usize = 0;
-    while (try itr.next()) |entry| {
+    while (try itr.next(io)) |entry| {
         if (!std.mem.startsWith(u8, entry.name, before)) continue;
         if (!std.mem.endsWith(u8, entry.name, after)) continue;
         names[count] = try a.dupe(u8, entry.name);
@@ -282,23 +285,21 @@ fn findPath(fs: *Fs, name: []const u8, a: Allocator, io: Io, comptime cr: Create
     return error.Missing;
 }
 
-pub fn openFileStdout(name: []const u8, append: bool) !File {
+pub fn openFileStdout(name: []const u8, io: Io, append: bool) !File {
     if (append) {
-        var file = openFile(name, true) orelse unreachable;
-        file.seekFromEnd(0) catch unreachable;
-        return file;
+        return openFile(name, io, .create) orelse unreachable;
     }
 
     // TODO don't use string here
     if (vars.get("noclobber")) |noclobber| {
         if (eql(u8, noclobber, "true")) {
-            if (Io.Dir.cwd().openFile(name, .{ .mode = .read_only })) |file| {
-                file.close();
+            if (Io.Dir.cwd().openFile(io, name, .{ .mode = .read_only })) |file| {
+                file.close(io);
                 return error.NoClobber;
             } else |err| {
                 switch (err) {
                     File.OpenError.FileNotFound => {
-                        if (openFile(name, true)) |file| {
+                        if (openFile(name, io, .create)) |file| {
                             return file;
                         }
                     },
@@ -309,7 +310,7 @@ pub fn openFileStdout(name: []const u8, append: bool) !File {
         }
     }
 
-    if (reCreate(name)) |file| {
+    if (reCreate(name, io)) |file| {
         return file;
     }
     unreachable;
@@ -331,6 +332,7 @@ fn openHistFile(fs: *Fs, a: Allocator, io: Io) !Named.File {
 }
 
 test "fs" {
+    _ = std.testing.refAllDecls(@This());
     if (true) return error.SkipZigTest;
     const a = std.testing.allocator;
     var env = try std.process.getEnvMap(a);
@@ -356,7 +358,6 @@ const eql = std.mem.eql;
 const log = @import("log.zig");
 const INotify = @import("inotify.zig");
 const Hsh = @import("hsh.zig");
-const rand = @import("random.zig");
 const vars = @import("variables.zig");
 const allocPrint = std.fmt.allocPrint;
 const linux = std.os.linux;

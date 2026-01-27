@@ -73,17 +73,6 @@ pub fn format(self: Token, comptime fmt: []const u8, _: std.fmt.FormatOptions, o
     try std.fmt.format(out, "Token({}){{{s}}}", .{ self.kind, self.str });
 }
 
-pub fn cannon(self: Token) []const u8 {
-    if (self.resolved) |r| return r;
-
-    return switch (self.kind) {
-        .quote => return self.str[1 .. self.str.len - 1],
-        .io, .vari, .path => return self.substr orelse self.str,
-        .comment => return self.str[0..0],
-        else => self.str,
-    };
-}
-
 pub fn any(src: []const u8) Error!Token {
     return switch (src[0]) {
         '\'', '"' => group(src),
@@ -556,37 +545,38 @@ pub const Iterator = struct {
 
 const expect = std.testing.expect;
 const expectEql = std.testing.expectEqual;
+const expectEqualStrings = std.testing.expectEqualStrings;
 test "quotes" {
     var t = try Token.group("\"\"");
     try expectEql(t.str.len, 2);
-    try expectEql(t.cannon().len, 0);
+    try expectEql(t.str.len, 0);
 
     t = try Token.group("\"a\"");
     try expectEql(t.str.len, 3);
-    try expectEql(t.cannon().len, 1);
-    try expect(std.mem.eql(u8, t.str, "\"a\""));
-    try expect(std.mem.eql(u8, t.cannon(), "a"));
+    try expectEql(t.str.len, 1);
+    try expectEqualStrings(t.str, "\"a\"");
+    try expectEqualStrings(t.str, "a");
 
     var terr = Token.group("\"this is invalid");
     try std.testing.expectError(Error.OpenGroup, terr);
 
     t = try Token.group("\"this is some text\" more text");
     try expectEql(t.str.len, 19);
-    try expectEql(t.cannon().len, 17);
-    try expect(std.mem.eql(u8, t.str, "\"this is some text\""));
-    try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
+    try expectEql(t.str.len, 17);
+    try expectEqualStrings(t.str, "\"this is some text\"");
+    try expectEqualStrings(t.str, "this is some text");
 
     t = try Token.group("`this is some text` more text");
     try expectEql(t.str.len, 19);
-    try expectEql(t.cannon().len, 17);
-    try expect(std.mem.eql(u8, t.str, "`this is some text`"));
-    try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
+    try expectEql(t.str.len, 17);
+    try expectEqualStrings(t.str, "`this is some text`");
+    try expectEqualStrings(t.str, "this is some text");
 
     t = try Token.group("\"this is some text\" more text");
     try expectEql(t.str.len, 19);
-    try expectEql(t.cannon().len, 17);
-    try expect(std.mem.eql(u8, t.str, "\"this is some text\""));
-    try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
+    try expectEql(t.str.len, 17);
+    try expectEqualStrings(t.str, "\"this is some text\"");
+    try expectEqualStrings(t.str, "this is some text");
 
     terr = Token.group(
         \\"this is some text\" more text
@@ -595,21 +585,21 @@ test "quotes" {
 
     t = try Token.group("\"this is some text\\\" more text\"");
     try expectEql(t.str.len, 31);
-    try expectEql(t.cannon().len, 29);
-    try expect(std.mem.eql(u8, t.str, "\"this is some text\\\" more text\""));
-    try expect(std.mem.eql(u8, t.cannon(), "this is some text\\\" more text"));
+    try expectEql(t.str.len, 29);
+    try expectEqualStrings(t.str, "\"this is some text\\\" more text\"");
+    try expectEqualStrings(t.str, "this is some text\\\" more text");
 
     t = try Token.group("\"this is some text\\\\\" more text\"");
     try expectEql(t.str.len, 21);
-    try expectEql(t.cannon().len, 19);
-    try expect(std.mem.eql(u8, t.str, "\"this is some text\\\\\""));
-    try expect(std.mem.eql(u8, t.cannon(), "this is some text\\\\"));
+    try expectEql(t.str.len, 19);
+    try expectEqualStrings(t.str, "\"this is some text\\\\\"");
+    try expectEqualStrings(t.str, "this is some text\\\\");
 
     t = try Token.group("'this is some text' more text");
     try expectEql(t.str.len, 19);
-    try expectEql(t.cannon().len, 17);
-    try expect(std.mem.eql(u8, t.str, "'this is some text'"));
-    try expect(std.mem.eql(u8, t.cannon(), "this is some text"));
+    try expectEql(t.str.len, 17);
+    try expectEqualStrings(t.str, "'this is some text'");
+    try expectEqualStrings(t.str, "this is some text");
 }
 
 test "path" {
