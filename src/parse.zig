@@ -115,15 +115,17 @@ pub const Iterator = struct {
         while (itr.next()) |_| {}
         for (itr.resolved.items) |*prsd| switch (prsd.*) {
             .resolved => {},
-            .parsed => |pr| {
-                prsd.* = .{
-                    .resolved = switch (pr) {
-                        inline else => |el, t| .{
-                            .str = try a.dupe(u8, el.str),
-                            .construct = t,
-                        },
-                    },
-                };
+            .parsed => |pr| switch (pr) {
+                .path => |path| {
+                    log.err("path {s}\n", .{path.str});
+                    prsd.* = try Parser.path(path.str, a);
+                },
+                inline else => |el, t| {
+                    prsd.* = .{ .resolved = .{
+                        .str = try a.dupe(u8, el.str),
+                        .construct = t,
+                    } };
+                },
             },
         };
         itr.r_index = 0;
@@ -131,13 +133,13 @@ pub const Iterator = struct {
 
     fn resolveAlias(itr: *Iterator, token: Token) Error!void {
         for (itr.aliases[0..itr.aliases_len]) |res| {
-            if (std.mem.eql(u8, token.str, res)) {
+            if (eql(u8, token.str, res)) {
                 try itr.resolved.appendBounded(.{ .parsed = .{ .word = .{ .str = res } } });
                 return;
             }
         }
-
         itr.aliasedAdd(token.str);
+
         var sub_itr: TokenIterator = .{ .raw = Parser.alias(token) catch token.str };
         const sub_first = sub_itr.first().*;
         try itr.resolveAlias(sub_first);
@@ -255,13 +257,7 @@ pub const Parser = struct {
 
     pub fn iterate(a: Allocator, tokens: []Token) !Iterator {
         var start: usize = 0;
-        for (tokens) |t| {
-            if (t.kind == .ws) {
-                start += 1;
-            } else {
-                break;
-            }
-        }
+        while (tokens[start].kind == .ws) : (start += 1) {}
         if (tokens[start..].len == 0) return error.Empty;
         return .{
             .resolved = try .initCapacity(a, 300),
@@ -312,10 +308,7 @@ pub const Parser = struct {
     }
 
     fn alias(token: Token) Error![]const u8 {
-        if (Alias.find(token.str)) |a| {
-            return a.value;
-        }
-        return Error.Empty;
+        return (Alias.find(token.str) orelse return Error.Empty).value;
     }
 
     fn word(t: Token) Error!Arg {
@@ -350,24 +343,24 @@ pub const Parser = struct {
         return if (Variables.get(tkn.str)) |v| .{ .resolved = .{ .str = v } } else .empty;
     }
 
-    fn path(a: Allocator, t: Token) Error!Token {
-        var local = t;
-        local.kind = .path;
-        if (local.str[0] == '~') {
+    fn path(str: []const u8, a: Allocator) !Arg {
+        if (str[0] == '~' and (str.len == 1 or str[1] == '/')) {
+            var list: ArrayList(u8) = .{};
             if (Variables.get("HOME")) |v| {
-                var list: ArrayList(u8) = undefined;
-                if (local.resolved) |r| {
-                    list = ArrayList(u8).fromOwnedSlice(a, r);
-                } else {
-                    list = ArrayList(u8).init(a);
-                    list.appendSlice(local.str) catch return Error.Memory;
-                }
-
-                list.replaceRange(0, 1, v) catch return Error.Memory;
-                local.resolved = list.toOwnedSlice() catch return Error.Memory;
+                try list.appendSlice(a, v);
+                try list.appendSlice(a, str[1..]);
+            } else {
+                try list.appendSlice(a, str);
             }
+            return .{ .resolved = .{
+                .str = try list.toOwnedSlice(a),
+                .construct = .path,
+            } };
         }
-        return local;
+        return .{ .resolved = .{
+            .str = try a.dupe(u8, str),
+            .construct = .path,
+        } };
     }
 
     fn subcmd(h: *Hsh, a: Allocator, tkn: Token) Error!Token {
@@ -478,12 +471,12 @@ test "iterator alias is builtin" {
 test "iterator aliased" {
     var a = std.testing.allocator;
     Alias.init();
-    var als = &Alias.aliases;
     defer Alias.raze(a);
-    try als.append(a, .{
-        .name = a.dupe(u8, "la") catch unreachable,
-        .value = a.dupe(u8, "ls -la") catch unreachable,
-    });
+    Alias.testingAdd(
+        a.dupe(u8, "la") catch unreachable,
+        a.dupe(u8, "ls -la") catch unreachable,
+        a,
+    );
 
     var ts = [_]Token{
         Token{ .kind = .word, .str = "la" },
@@ -507,13 +500,14 @@ test "iterator aliased" {
 
 test "iterator aliased self" {
     var a = std.testing.allocator;
+
     Alias.init();
-    var als = &Alias.aliases;
     defer Alias.raze(a);
-    try als.append(a, .{
-        .name = a.dupe(u8, "ls") catch unreachable,
-        .value = a.dupe(u8, "ls -la") catch unreachable,
-    });
+    Alias.testingAdd(
+        a.dupe(u8, "la") catch unreachable,
+        a.dupe(u8, "ls -la") catch unreachable,
+        a,
+    );
 
     var ts = [_]Token{
         Token{ .kind = .word, .str = "ls" },
@@ -539,17 +533,18 @@ test "iterator aliased self" {
 test "iterator aliased recurse" {
     var a = std.testing.allocator;
     Alias.init();
-    var als = &Alias.aliases;
     defer Alias.raze(a);
-    try als.append(a, .{
-        .name = a.dupe(u8, "la") catch unreachable,
-        .value = a.dupe(u8, "ls -la") catch unreachable,
-    });
+    Alias.testingAdd(
+        a.dupe(u8, "la") catch unreachable,
+        a.dupe(u8, "ls -la") catch unreachable,
+        a,
+    );
 
-    try als.append(a, .{
-        .name = a.dupe(u8, "ls") catch unreachable,
-        .value = a.dupe(u8, "ls --color=auto") catch unreachable,
-    });
+    Alias.testingAdd(
+        a.dupe(u8, "ls") catch unreachable,
+        a.dupe(u8, "ls --color=auto") catch unreachable,
+        a,
+    );
 
     var ts = [_]Token{
         Token{ .kind = .word, .str = "la" },
