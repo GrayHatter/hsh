@@ -158,21 +158,24 @@ fn mkBuiltin(parsed: ParsedIterator, a: Allocator) Error!Builtin {
 
 /// Caller owns memory of argv, and the open fds
 fn mkBinary(itr: *ParsedIterator, a: Allocator, io: Io) Error!Binary {
-    var argv = ArrayListManaged(?ARG).init(a);
-    defer itr.raze(a);
+    var argv: ArrayList(?ARG) = .{};
+    errdefer argv.deinit(a);
+    errdefer for (argv.items) |arg| {
+        a.free(std.mem.span(arg.?));
+    };
 
-    const exeZ: ?ARG = makeExeZ(itr.first().resolved.str, a, io) catch |e| {
+    try argv.append(a, makeExeZ(itr.first().resolved.str, a, io) catch |e| {
         log.warn("path missing {s}\n", .{itr.first().resolved.str});
         return e;
-    };
-    try argv.append(exeZ);
+    });
 
     while (itr.next()) |t| {
-        try argv.append(try a.dupeZ(u8, t.resolved.str));
+        try argv.append(a, try a.dupeZ(u8, t.resolved.str));
     }
+
     return Binary{
-        .arg = exeZ.?,
-        .argv = try argv.toOwnedSliceSentinel(null),
+        .arg = argv.items[0].?,
+        .argv = try argv.toOwnedSliceSentinel(a, null),
     };
 }
 
@@ -181,7 +184,12 @@ fn mkLogic(a: Allocator, t: Token) !Logic {
 }
 
 fn mkCallableStack(itr: *TokenIterator, a: Allocator, io: Io) Error![]CallableStack {
-    var stack = ArrayListManaged(CallableStack).init(a);
+    var stack: ArrayList(CallableStack) = .{};
+    errdefer stack.deinit(a);
+    errdefer for (stack.items) |stk| switch (stk.callable) {
+        .exec => |b| for (b.argv) |argZ| if (argZ) |arg| a.free(std.mem.span(arg)),
+        else => unreachable,
+    };
     var prev_stdout: ?fd_t = null;
     var conditional_rule: ?Conditional = null;
 
@@ -194,7 +202,7 @@ fn mkCallableStack(itr: *TokenIterator, a: Allocator, io: Io) Error![]CallableSt
         // TEMP HACK (wanna take bets on how long this temp hack lives?
         if (peek.kind == .logic) {
             log.warn("Hack in use\n", .{});
-            try stack.append(CallableStack{
+            try stack.append(a, .{
                 .callable = .{ .logic = mkLogic(a, peek.*) catch |err| {
                     log.err("Unable to make logic {}\n", .{err});
                     return Error.Unknown;
@@ -202,17 +210,15 @@ fn mkCallableStack(itr: *TokenIterator, a: Allocator, io: Io) Error![]CallableSt
                 .stdio = StdIo{ .in = STDIN_FD },
                 .conditional = null,
             });
-            return try stack.toOwnedSlice();
+            return try stack.toOwnedSlice(a);
         }
 
         const eslice = itr.toSliceExec(a) catch unreachable;
-        errdefer a.free(eslice);
-        var parsed = Parser.iterate(a, eslice) catch |err| {
-            if (err == error.Empty) continue;
-            return Error.Parse;
-        };
+        defer a.free(eslice);
+        var parsed = Parser.iterate(a, eslice) catch unreachable;
         try parsed.resolveAll(a, io);
         defer parsed.raze(a);
+
         var io_mode: StdIo = StdIo{ .in = prev_stdout orelse STDIN_FD };
         const condition: ?Conditional = conditional_rule;
 
@@ -225,15 +231,9 @@ fn mkCallableStack(itr: *TokenIterator, a: Allocator, io: Io) Error![]CallableSt
                     io_mode.out = pipe[1];
                     prev_stdout = pipe[0];
                 },
-                .Fail => {
-                    conditional_rule = .Failure;
-                },
-                .Success => {
-                    conditional_rule = .Success;
-                },
-                .Next => {
-                    conditional_rule = .After;
-                },
+                .Fail => conditional_rule = .Failure,
+                .Success => conditional_rule = .Success,
+                .Next => conditional_rule = .After,
                 .Background => {},
             }
         }
@@ -268,38 +268,24 @@ fn mkCallableStack(itr: *TokenIterator, a: Allocator, io: Io) Error![]CallableSt
             }
         }
 
-        var stk: CallableStack = undefined;
-        for (eslice) |s| log.debug("exe slice {}\n", .{s});
+        for (eslice) |s| log.err("exe slice {}\n", .{s});
         const exe_str = parsed.first().resolved.str;
-        if (bi.exists(exe_str)) {
-            stk = CallableStack{
-                .callable = .{ .builtin = try mkBuiltin(parsed, a) },
-                .stdio = io_mode,
-                .conditional = condition,
-            };
-        } else {
-            if (mkBinary(&parsed, a, io)) |bin| {
-                stk = CallableStack{
-                    .callable = .{ .exec = bin },
-                    .stdio = io_mode,
-                    .conditional = condition,
-                };
-            } else |e| {
-                if (bi.existsOptional(exe_str)) {
-                    stk = CallableStack{
-                        .callable = .{ .builtin = try mkBuiltin(parsed, a) },
-                        .stdio = io_mode,
-                        .conditional = condition,
-                    };
-                } else {
-                    return e;
-                }
-            }
-        }
-        try stack.append(stk);
-        a.free(eslice);
+        const stk: CallableStack = if (bi.exists(exe_str)) .{
+            .callable = .{ .builtin = try mkBuiltin(parsed, a) },
+            .stdio = io_mode,
+            .conditional = condition,
+        } else if (mkBinary(&parsed, a, io)) |bin| .{
+            .callable = .{ .exec = bin },
+            .stdio = io_mode,
+            .conditional = condition,
+        } else |err| if (bi.existsOptional(exe_str)) .{
+            .callable = .{ .builtin = try mkBuiltin(parsed, a) },
+            .stdio = io_mode,
+            .conditional = condition,
+        } else return err;
+        try stack.append(a, stk);
     }
-    return try stack.toOwnedSlice();
+    return try stack.toOwnedSlice(a);
 }
 
 fn execBuiltin(b: *Builtin, h: *Hsh, a: Allocator, io: Io) Error!u8 {
