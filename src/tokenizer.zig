@@ -437,7 +437,6 @@ test "quotes tokened" {
 
     try expectEql("this is some text\\\" more text".len, tokens[0].str.len);
     try expectEql(tokens[0].str.len, 29);
-    try expect(!tokens[0].parsed);
     try expectEqualStrings(tokens[0].str, "this is some text\\\" more text");
     a.free(tokens);
 }
@@ -821,6 +820,10 @@ test "token < file" {
     ti.skip();
     var in_file = ti.next().?;
     try std.testing.expect(in_file.kind == .io);
+    try expectEqualStrings("<", in_file.str);
+    ti.skip();
+    in_file = ti.next().?;
+    try std.testing.expect(in_file.kind == .word);
     try expectEqualStrings("file.txt", in_file.str);
 }
 
@@ -856,7 +859,7 @@ test "token &&" {
     ti.skip();
     try expectEqualStrings("&&", n.str);
     try std.testing.expect(n.kind == .oper);
-    try std.testing.expect(n.kind.oper == .Success);
+    try std.testing.expect(n.kind.oper == .success);
     ti.skip();
     try expectEqualStrings("success", ti.next().?.str);
 }
@@ -877,7 +880,7 @@ test "token ||" {
     const n = ti.next().?;
     try expectEqualStrings("||", n.str);
     try std.testing.expect(n.kind == .oper);
-    try std.testing.expect(n.kind.oper == .Fail);
+    try std.testing.expect(n.kind.oper == .fail);
     ti.skip();
     try expectEqualStrings("fail", ti.next().?.str);
 }
@@ -885,47 +888,47 @@ test "token ||" {
 test "token vari" {
     var t = try Token.vari("$string");
 
-    try expectEqualStrings("string", t.str);
+    try expectEqualStrings("$string", t.str);
 }
 
 test "token vari words" {
     var t = try Token.vari("$string ");
-    try expectEqualStrings("string", t.str);
+    try expectEqualStrings("$string", t.str);
 
     t = try Token.vari("$string993");
-    try expectEqualStrings("string993", t.str);
+    try expectEqualStrings("$string993", t.str);
 
     t = try Token.vari("$string 993");
-    try expectEqualStrings("string", t.str);
+    try expectEqualStrings("$string", t.str);
 
     t = try Token.vari("$string{} 993");
-    try expectEqualStrings("string", t.str);
+    try expectEqualStrings("$string", t.str);
 
     t = try Token.vari("$string+");
-    try expectEqualStrings("string", t.str);
+    try expectEqualStrings("$string", t.str);
 
     t = try Token.vari("$string:");
-    try expectEqualStrings("string", t.str);
+    try expectEqualStrings("$string", t.str);
 
     t = try Token.vari("$string~");
-    try expectEqualStrings("string", t.str);
+    try expectEqualStrings("$string", t.str);
 
     t = try Token.vari("$string-");
-    try expectEqualStrings("string", t.str);
+    try expectEqualStrings("$string", t.str);
 }
 
 test "token vari braces" {
     var t = try Token.any("$STRING");
-    try expectEqualStrings("STRING", t.str);
+    try expectEqualStrings("$STRING", t.str);
 
     t = try Token.any("${STRING}");
-    try expectEqualStrings("STRING", t.str);
+    try expectEqualStrings("${STRING}", t.str);
 
     t = try Token.any("${STRING}extra");
-    try expectEqualStrings("STRING", t.str);
+    try expectEqualStrings("${STRING}", t.str);
 
     t = try Token.any("${STR_ING}extra");
-    try expectEqualStrings("STR_ING", t.str);
+    try expectEqualStrings("${STR_ING}", t.str);
 
     var itr = Token.Iterator{ .raw = "${STR_ING}extra" };
     var count: usize = 0;
@@ -936,7 +939,7 @@ test "token vari braces" {
 test "dollar posix" {
     var t = try Token.any("$!");
     try expect(t.kind == .vari);
-    try expectEqualStrings("!", t.str);
+    try expectEqualStrings("$!", t.str);
 }
 
 test "all execs" {
@@ -1055,7 +1058,7 @@ test "inline quotes" {
 
     var itr = Token.Iterator{ .raw = "--inline='quoted string'" };
     try expectEqualStrings("--inline=", itr.next().?.str);
-    try expectEqualStrings("quoted string", itr.next().?.str);
+    try expectEqualStrings("'quoted string'", itr.next().?.str);
 }
 
 test "escapes" {
@@ -1124,14 +1127,13 @@ test "comment" {
     var tk = try Token.any("# comment");
 
     try std.testing.expectEqualStrings("# comment", tk.str);
-    try std.testing.expectEqualStrings("", tk.str);
 
     var itr = Token.Iterator{ .raw = " echo #comment" };
 
     itr.skip();
     try std.testing.expectEqualStrings("echo", itr.next().?.str);
     itr.skip();
-    try std.testing.expectEqualStrings("", itr.next().?.str);
+    try std.testing.expectEqualStrings("#comment", itr.next().?.str);
     try std.testing.expect(null == itr.next());
 
     itr = Token.Iterator{ .raw = " echo #comment\ncd home" };
@@ -1139,7 +1141,8 @@ test "comment" {
     itr.skip();
     try std.testing.expectEqualStrings("echo", itr.next().?.str);
     itr.skip();
-    try std.testing.expectEqualStrings("", itr.next().?.str);
+    try std.testing.expectEqualStrings("#comment", itr.next().?.str);
+    itr.skip();
     try std.testing.expectEqualStrings("cd", itr.next().?.str);
     itr.skip();
     try std.testing.expectEqualStrings("home", itr.next().?.str);

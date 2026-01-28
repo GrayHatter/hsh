@@ -42,9 +42,9 @@ const Logic = struct {
 };
 
 const Conditional = enum {
-    Success,
-    Failure,
-    After,
+    success,
+    failure,
+    after,
 };
 
 const CallableStack = struct {
@@ -119,14 +119,10 @@ pub fn makeAbsExecutable(str: []const u8, a: Allocator, io: Io) Error![]u8 {
     } else if (std.mem.indexOf(u8, str, "/")) |_| {
         if (!validPath(str, io)) return Error.ExeNotFound;
         var cwd: [2048]u8 = undefined;
-        return try std.mem.join(
-            a,
-            "/",
-            &[2][]const u8{
-                cwd[0 .. std.Io.Dir.cwd().realPath(io, &cwd) catch return Error.NotFound],
-                str,
-            },
-        );
+        var cwd_fd = std.Io.Dir.cwd().openDir(io, ".", .{ .iterate = true }) catch return error.Unknown;
+        log.err("path abs {}\n", .{cwd_fd});
+        const length = cwd_fd.realPath(io, &cwd) catch return Error.NotFound;
+        return try std.mem.join(a, "/", &[2][]const u8{ cwd[0..length], str });
     }
 
     var next: []u8 = "";
@@ -225,16 +221,16 @@ fn mkCallableStack(itr: *TokenIterator, a: Allocator, io: Io) Error![]CallableSt
         // peek is now the exec operator because of how the iterator works :<
         if (peek.kind == .oper) {
             switch (peek.kind.oper) {
-                .Pipe => {
+                .pipe => {
                     const pipe = system.pipe2(.{}) catch return Error.OSErr;
                     io_mode.pipe = true;
                     io_mode.out = pipe[1];
                     prev_stdout = pipe[0];
                 },
-                .Fail => conditional_rule = .Failure,
-                .Success => conditional_rule = .Success,
-                .Next => conditional_rule = .After,
-                .Background => {},
+                .fail => conditional_rule = .failure,
+                .success => conditional_rule = .success,
+                .next => conditional_rule = .after,
+                .background => {},
             }
         }
 
@@ -406,13 +402,13 @@ pub fn exec(input: []const u8, h: *Hsh, a: Allocator, io: Io) Error!void {
             if (fpid == 0) unreachable;
             const waited_job = h.jobs.waitFor(fpid) catch @panic("job doesn't exist");
             switch (cond) {
-                .After => {},
-                .Failure => {
+                .after => {},
+                .failure => {
                     if (waited_job.exit_code) |ec| {
                         if (ec == 0) continue;
                     }
                 },
-                .Success => {
+                .success => {
                     if (waited_job.exit_code) |ec| {
                         if (ec != 0) continue;
                     }

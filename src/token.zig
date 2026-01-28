@@ -1,13 +1,10 @@
 str: []const u8,
 kind: Kind = .nos,
-parsed: bool = false,
-subtoken: u8 = 0,
-// I hate this but I've spent too much time on this already #YOLO
 resolved: ?[]u8 = null,
-substr: ?[]const u8 = null,
 
 const Token = @This();
 
+pub const Reserved = @import("logic.zig").Reserved;
 pub const BREAKING_TOKENS = " \t\n\"\\'`${|><#;}";
 const BSLH = '\\';
 
@@ -20,11 +17,11 @@ pub const IOKind = enum {
 };
 
 pub const OpKind = enum {
-    Pipe,
-    Next,
-    Success,
-    Fail,
-    Background,
+    pipe,
+    next,
+    success,
+    fail,
+    background,
 };
 
 pub const Error = error{
@@ -50,12 +47,13 @@ pub const Kind = union(enum) {
 
     // new types
     err: void,
+    escp: u8,
     io: IOKind,
     logic: Logic,
     nos: void,
     oper: OpKind,
-    quote: void,
-    brace: void,
+    quote: u8,
+    brace: u8,
     resr: Reserved,
     subp: void,
     word: void,
@@ -104,25 +102,24 @@ fn ioredir(src: []const u8) Error!Token {
     }
     while (src[i] == ' ' or src[i] == '\t') : (i += 1) {}
     const target = (try word(src[i..])).str;
-    t.substr = target;
     t.str = src[0 .. i + target.len];
     return t;
 }
 
 fn execOp(src: []const u8) Error!Token {
     switch (src[0]) {
-        ';' => return Token.make(src[0..1], .{ .oper = .Next }),
+        ';' => return Token.make(src[0..1], .{ .oper = .next }),
         '&' => {
             if (src.len > 1 and src[1] == '&') {
-                return Token.make(src[0..2], .{ .oper = .Success });
+                return Token.make(src[0..2], .{ .oper = .success });
             }
-            return Token.make(src[0..1], .{ .oper = .Background });
+            return Token.make(src[0..1], .{ .oper = .background });
         },
         '|' => {
             if (src.len > 1 and src[1] == '|') {
-                return Token.make(src[0..2], .{ .oper = .Fail });
+                return Token.make(src[0..2], .{ .oper = .fail });
             }
-            return Token.make(src[0..1], .{ .oper = .Pipe });
+            return Token.make(src[0..1], .{ .oper = .pipe });
         },
         else => return Error.InvalidSrc,
     }
@@ -140,7 +137,7 @@ pub fn uAlphaNum(src: []const u8) Error!Token {
 
 pub fn comment(src: []const u8) Error!Token {
     if (std.mem.indexOf(u8, src, "\n")) |i| {
-        return Token.make(src[0 .. i + 1], .comment);
+        return Token.make(src[0..i], .comment);
     }
 
     return Token.make(src, .comment);
@@ -193,37 +190,26 @@ pub fn vari(src: []const u8) Error!Token {
     if (src[1] == '{') {
         if (src.len < 4) return Error.InvalidSrc;
         if (std.ascii.isDigit(src[2])) return Error.InvalidSrc;
-        if (std.mem.indexOf(u8, src, "}")) |end| {
+        if (findScalar(u8, src, '}')) |end| {
             var t = try uAlphaNum(src[2..end]);
-            t.substr = t.str;
-            t.str = src[0 .. t.str.len + 3];
-            t.kind = .vari;
-            return t;
+            return .make(src[0 .. t.str.len + 3], .vari);
         } else return Error.InvalidSrc;
     }
 
     if (std.ascii.isDigit(src[1])) return Error.InvalidSrc;
-    if (std.mem.indexOfAny(u8, src[1..2], "@*#?-$!0")) |_| {
-        var t = Token.make(src[0..2], .vari);
-        t.substr = src[1..2];
-        return t;
-    }
-    var t = try uAlphaNum(src[1..]);
-    t.substr = t.str;
-    t.str = src[0 .. t.str.len + 1];
-    t.kind = .vari;
+    const SPECIALS = "@*#?-$!0";
+    for (SPECIALS) |s| if (src[1] == s) return .make(src[0..2], .vari);
 
-    return t;
+    const wt = try uAlphaNum(src[1..]);
+    return .make(src[0 .. wt.str.len + 1], .vari);
 }
 
 // ASCII only :<
 pub fn word(src: []const u8) Error!Token {
     var end: usize = 0;
-    while (end < src.len) {
-        const s = src[end];
-        if (std.mem.indexOfScalar(u8, BREAKING_TOKENS, s)) |_| {
+    while (end < src.len) : (end += 1) {
+        if (findScalar(u8, BREAKING_TOKENS, src[end])) |_|
             break;
-        } else end += 1;
     }
 
     if (end <= 5) {
@@ -349,8 +335,7 @@ pub fn quote(src: []const u8, close: u8) Error!Token {
 
     return Token{
         .str = src[0..end],
-        .kind = .quote,
-        .subtoken = close,
+        .kind = .{ .quote = close },
     };
 }
 
@@ -389,8 +374,7 @@ pub fn brace(src: []const u8, close: u8) Error!Token {
 
     return Token{
         .str = src[0..end],
-        .kind = .brace,
-        .subtoken = close,
+        .kind = .{ .brace = close },
     };
 }
 
@@ -398,7 +382,7 @@ fn bkslsh(src: []const u8) Error!Token {
     std.debug.assert(src.len > 1);
     std.debug.assert(src[0] == '\\');
 
-    return Token.make(src[0..2], .word);
+    return .make(src[0..2], .{ .escp = src[1] });
 }
 
 fn space(src: []const u8) Error!Token {
@@ -541,13 +525,10 @@ const expectEqualStrings = std.testing.expectEqualStrings;
 test "quotes" {
     var t = try Token.group("\"\"");
     try expectEql(t.str.len, 2);
-    try expectEql(t.str.len, 0);
 
     t = try Token.group("\"a\"");
-    try expectEql(t.str.len, 3);
-    try expectEql(t.str.len, 1);
+    try expectEql(1, t.str.len);
     try expectEqualStrings(t.str, "\"a\"");
-    try expectEqualStrings(t.str, "a");
 
     var terr = Token.group("\"this is invalid");
     try std.testing.expectError(Error.OpenGroup, terr);
@@ -556,19 +537,14 @@ test "quotes" {
     try expectEql(t.str.len, 19);
     try expectEql(t.str.len, 17);
     try expectEqualStrings(t.str, "\"this is some text\"");
-    try expectEqualStrings(t.str, "this is some text");
 
     t = try Token.group("`this is some text` more text");
     try expectEql(t.str.len, 19);
-    try expectEql(t.str.len, 17);
     try expectEqualStrings(t.str, "`this is some text`");
-    try expectEqualStrings(t.str, "this is some text");
 
     t = try Token.group("\"this is some text\" more text");
     try expectEql(t.str.len, 19);
-    try expectEql(t.str.len, 17);
     try expectEqualStrings(t.str, "\"this is some text\"");
-    try expectEqualStrings(t.str, "this is some text");
 
     terr = Token.group(
         \\"this is some text\" more text
@@ -604,4 +580,5 @@ const log = @import("log.zig");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
-pub const Reserved = @import("logic.zig").Reserved;
+const findScalar = std.mem.findScalar;
+const findAny = std.mem.findAny;
