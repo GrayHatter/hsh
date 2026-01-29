@@ -38,25 +38,21 @@ pub const Error = error{
 pub const Logic = struct {};
 
 pub const Kind = union(enum) {
-    // legacy types, TODO REMOVE
-    ws: void,
-    path: void,
-    vari: void,
-
+    brace: u8,
     comment: void,
-
-    // new types
     err: void,
     escp: u8,
     io: IOKind,
     logic: Logic,
     nos: void,
     oper: OpKind,
+    path: void,
     quote: u8,
-    brace: u8,
     resr: Reserved,
     subp: void,
+    vari: void,
     word: void,
+    ws: void,
 
     pub fn continues(k: Kind) bool {
         return switch (k) {
@@ -152,7 +148,7 @@ pub fn comment(src: []const u8) Error!Token {
 
 pub fn dollar(src: []const u8) Error!Token {
     if (src.len <= 1) return Error.InvalidSrc;
-    std.debug.assert(src[0] == '$');
+    assert(src[0] == '$');
 
     switch (src[1]) {
         '{' => return vari(src),
@@ -162,8 +158,8 @@ pub fn dollar(src: []const u8) Error!Token {
 }
 
 pub fn cmdsub(src: []const u8) Error!Token {
-    std.debug.assert(src[0] == '$');
-    std.debug.assert(src[1] == '(');
+    assert(src[0] == '$');
+    assert(src[1] == '(');
     if (src.len <= 2) return Error.InvalidSrc;
 
     var offset: usize = 2;
@@ -192,7 +188,7 @@ pub fn cmdsub(src: []const u8) Error!Token {
 
 pub fn vari(src: []const u8) Error!Token {
     if (src.len <= 1) return Error.InvalidSrc;
-    std.debug.assert(src[0] == '$');
+    assert(src[0] == '$');
 
     if (src[1] == '{') {
         if (src.len < 4) return Error.InvalidSrc;
@@ -386,8 +382,8 @@ pub fn brace(src: []const u8, close: u8) Error!Token {
 }
 
 fn bkslsh(src: []const u8) Error!Token {
-    std.debug.assert(src.len > 1);
-    std.debug.assert(src[0] == '\\');
+    assert(src.len > 1);
+    assert(src[0] == '\\');
 
     return .make(src[0..2], .{ .escp = src[1] });
 }
@@ -402,9 +398,7 @@ fn space(src: []const u8) Error!Token {
 }
 
 fn path(src: []const u8) Error!Token {
-    var t = try word(src);
-    t.kind = .path;
-    return t;
+    return .make((try word(src)).str, .path);
 }
 
 pub const Iterator = struct {
@@ -464,8 +458,8 @@ pub const Iterator = struct {
     }
 
     // caller owns the memory, this will reset the index
-    pub fn toSlice(self: *Self, a: Allocator) ![]Token {
-        var list: ArrayList(Token) = .{};
+    pub fn toSlice(self: *Self, a: std.mem.Allocator) ![]Token {
+        var list: std.ArrayList(Token) = .{};
         self.index = 0;
         while (self.next()) |n| {
             try list.append(a, n);
@@ -478,8 +472,8 @@ pub const Iterator = struct {
     // Any calls to toSliceExec when current index is a command delemiter will
     // start at the following word slice.
     // calling this invalidates the previously returned pointer from next/peek
-    pub fn toSliceExec(self: *Self, a: Allocator) ![]Token {
-        var list: ArrayList(Token) = .{};
+    pub fn toSliceExec(self: *Self, a: std.mem.Allocator) ![]Token {
+        var list: std.ArrayList(Token) = .{};
         if (self.nextExec()) |n| {
             try list.append(a, n);
         } else if (self.next()) |n| {
@@ -493,7 +487,7 @@ pub const Iterator = struct {
         return list.toOwnedSlice(a);
     }
 
-    pub fn toSliceExecStr(self: *Self, a: Allocator) ![]const []const u8 {
+    pub fn toSliceExecStr(self: *Self, a: std.mem.Allocator) ![]const []const u8 {
         const tokens = try self.toSliceExec(a);
         const strs = try a.alloc([]u8, tokens.len);
         for (tokens, strs) |t, *s| {
@@ -565,8 +559,7 @@ test "path" {
 
 const std = @import("std");
 const log = @import("log.zig");
-const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const findScalar = std.mem.findScalar;
 const findAny = std.mem.findAny;
+const assert = std.debug.assert;
