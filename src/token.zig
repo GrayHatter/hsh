@@ -57,6 +57,13 @@ pub const Kind = union(enum) {
     resr: Reserved,
     subp: void,
     word: void,
+
+    pub fn continues(k: Kind) bool {
+        return switch (k) {
+            .ws, .oper => false,
+            else => true,
+        };
+    }
 };
 
 pub fn make(str: []const u8, k: Kind) Token {
@@ -403,39 +410,39 @@ fn path(src: []const u8) Error!Token {
 pub const Iterator = struct {
     raw: []const u8,
     index: ?usize = null,
-    token: Token = undefined,
 
     exec_index: ?usize = null,
 
     const Self = @This();
 
-    pub fn first(self: *Self) *const Token {
-        self.restart();
-        if (self.next()) |n| {
-            return n;
-        } else {
-            self.token = .{ .str = "" };
-            return &self.token;
-        }
-    }
-
-    pub fn next(self: *Self) ?*const Token {
+    pub fn peek(self: *Self) ?Token {
         if (self.index) |i| {
             if (i >= self.raw.len) {
                 return null;
             }
             if (any(self.raw[i..])) |t| {
-                self.token = t;
-                self.index = i + t.str.len;
-                return &self.token;
+                return t;
             } else |e| {
                 log.err("tokenizer error {}\n", .{e});
                 return null;
             }
         } else {
             self.index = 0;
-            return self.next();
+            return self.peek();
         }
+    }
+
+    pub fn first(self: *Self) Token {
+        self.restart();
+        return self.next().?;
+    }
+
+    pub fn next(self: *Self) ?Token {
+        if (self.peek()) |token| {
+            self.index.? += token.str.len;
+            return token;
+        }
+        return null;
     }
 
     pub fn skip(self: *Self) void {
@@ -444,30 +451,24 @@ pub const Iterator = struct {
 
     /// returns next until index reaches an executable boundary,
     /// returns null if index is at that boundary.
-    pub fn nextExec(self: *Self) ?*const Token {
+    pub fn nextExec(self: *Self) ?Token {
         if (self.exec_index) |_| {} else {
             self.exec_index = self.index;
         }
 
-        const t_ = self.next();
-        if (t_) |t| {
-            switch (t.kind) {
-                .oper => {
-                    self.index.? -= t.str.len;
-                    return null;
-                },
-                else => {},
-            }
+        const t = self.peek() orelse return null;
+        switch (t.kind) {
+            .oper => return null,
+            else => return self.next(),
         }
-        return t_;
     }
 
     // caller owns the memory, this will reset the index
     pub fn toSlice(self: *Self, a: Allocator) ![]Token {
-        var list = ArrayList(Token){};
+        var list: ArrayList(Token) = .{};
         self.index = 0;
         while (self.next()) |n| {
-            try list.append(a, n.*);
+            try list.append(a, n);
         }
         return list.toOwnedSlice(a);
     }
@@ -478,16 +479,16 @@ pub const Iterator = struct {
     // start at the following word slice.
     // calling this invalidates the previously returned pointer from next/peek
     pub fn toSliceExec(self: *Self, a: Allocator) ![]Token {
-        var list = ArrayList(Token){};
+        var list: ArrayList(Token) = .{};
         if (self.nextExec()) |n| {
-            try list.append(a, n.*);
+            try list.append(a, n);
         } else if (self.next()) |n| {
             if (n.kind != .oper) {
-                try list.append(a, n.*);
+                try list.append(a, n);
             }
         }
         while (self.nextExec()) |n| {
-            try list.append(a, n.*);
+            try list.append(a, n);
         }
         return list.toOwnedSlice(a);
     }
@@ -499,12 +500,6 @@ pub const Iterator = struct {
             s.* = @constCast(t.str);
         }
         return strs;
-    }
-
-    pub fn peek(self: *Self) ?*const Token {
-        const old = self.index;
-        defer self.index = old;
-        return self.next();
     }
 
     pub fn restart(self: *Self) void {
@@ -527,23 +522,22 @@ test "quotes" {
     try expectEql(t.str.len, 2);
 
     t = try Token.group("\"a\"");
-    try expectEql(1, t.str.len);
+    try expectEql(3, t.str.len);
     try expectEqualStrings(t.str, "\"a\"");
 
     var terr = Token.group("\"this is invalid");
     try std.testing.expectError(Error.OpenGroup, terr);
 
     t = try Token.group("\"this is some text\" more text");
-    try expectEql(t.str.len, 19);
-    try expectEql(t.str.len, 17);
+    try expectEql(19, t.str.len);
     try expectEqualStrings(t.str, "\"this is some text\"");
 
     t = try Token.group("`this is some text` more text");
-    try expectEql(t.str.len, 19);
+    try expectEql(19, t.str.len);
     try expectEqualStrings(t.str, "`this is some text`");
 
     t = try Token.group("\"this is some text\" more text");
-    try expectEql(t.str.len, 19);
+    try expectEql(19, t.str.len);
     try expectEqualStrings(t.str, "\"this is some text\"");
 
     terr = Token.group(
@@ -552,22 +546,16 @@ test "quotes" {
     try std.testing.expectError(Error.OpenGroup, terr);
 
     t = try Token.group("\"this is some text\\\" more text\"");
-    try expectEql(t.str.len, 31);
-    try expectEql(t.str.len, 29);
+    try expectEql(31, t.str.len);
     try expectEqualStrings(t.str, "\"this is some text\\\" more text\"");
-    try expectEqualStrings(t.str, "this is some text\\\" more text");
 
     t = try Token.group("\"this is some text\\\\\" more text\"");
-    try expectEql(t.str.len, 21);
-    try expectEql(t.str.len, 19);
+    try expectEql(21, t.str.len);
     try expectEqualStrings(t.str, "\"this is some text\\\\\"");
-    try expectEqualStrings(t.str, "this is some text\\\\");
 
     t = try Token.group("'this is some text' more text");
-    try expectEql(t.str.len, 19);
-    try expectEql(t.str.len, 17);
+    try expectEql(19, t.str.len);
     try expectEqualStrings(t.str, "'this is some text'");
-    try expectEqualStrings(t.str, "this is some text");
 }
 
 test "path" {

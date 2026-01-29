@@ -104,12 +104,17 @@ pub const Iterator = struct {
 
         while (itr.t_index < itr.tokens.len) {
             const token = itr.tokens[itr.t_index];
-            if (token.kind == .ws) {
-                itr.t_index += 1;
-                if (itr.r_index > 0)
-                    itr.resolved.items[itr.r_index - 1].parsed.discontinue();
-
-                continue;
+            switch (token.kind) {
+                .ws => {
+                    itr.t_index += 1;
+                    if (itr.r_index > 0)
+                        itr.resolved.items[itr.r_index - 1].parsed.discontinue();
+                    continue;
+                },
+                .oper => {
+                    if (itr.r_index > 0) itr.resolved.items[itr.r_index - 1].parsed.discontinue();
+                },
+                else => {},
             }
             itr.parse(token) catch unreachable;
 
@@ -147,16 +152,17 @@ pub const Iterator = struct {
         while (i < itr.resolved.items.len) {
             var current: *Arg = &itr.resolved.items[i];
             const continues = auto_continue or (current.* == .parsed and current.parsed.continues());
+            if (auto_continue) log.debug("auto continue \n", .{});
             if (current.* == .parsed) {
-                log.err("resolving '{s}' {} \n", .{ current.parsed.anyStr(), current });
+                log.debug("resolving '{s}' {} \n", .{ current.parsed.anyStr(), current });
             } else {
-                log.err("re-resolving '{s}' {} \n", .{ current.resolved.str, current });
+                log.debug("re-resolving '{s}' {} \n", .{ current.resolved.str, current });
             }
             try itr.resolveOne(current, a, io);
             if (continues and i + 1 < itr.resolved.items.len) {
                 var cont = itr.resolved.orderedRemove(i + 1);
                 auto_continue = cont.parsed.continues();
-                log.err("adding '{s}' {} \n", .{ cont.parsed.anyStr(), cont });
+                log.debug("adding '{s}' {} \n", .{ cont.parsed.anyStr(), cont });
                 try itr.resolveOne(&cont, a, io);
                 const str = try concat(a, u8, &[_][]const u8{ current.resolved.str, cont.resolved.str });
                 a.free(current.resolved.str);
@@ -179,15 +185,15 @@ pub const Iterator = struct {
                     arg.* = try Parser.path(path.str, a);
                 },
                 .dollar => |dollar| {
-                    log.err("dollar {s}\n", .{dollar.str});
+                    log.debug("dollar {s}\n", .{dollar.str});
                     arg.* = try Parser.variable(dollar.str, a);
-                    log.err("rlsv {s}\n", .{arg.resolved.str});
+                    log.debug("rlsv {s}\n", .{arg.resolved.str});
                 },
                 .io_mode => |mode| arg.* = .{
-                    .resolved = .{ .str = &.{}, .io = mode.mode },
+                    .resolved = .{ .str = &.{}, .construct = .io_mode, .io = mode.mode },
                 },
                 .op_mode => |mode| arg.* = .{
-                    .resolved = .{ .str = &.{}, .op = mode.mode },
+                    .resolved = .{ .str = &.{}, .construct = .op_mode, .op = mode.mode },
                 },
                 inline else => |el, t| {
                     arg.* = .{ .resolved = .{
@@ -200,6 +206,7 @@ pub const Iterator = struct {
     }
 
     fn resolveAlias(itr: *Iterator, token: Token) !void {
+        log.debug("called \n", .{});
         for (itr.aliases[0..itr.aliases_len]) |res| {
             if (eql(u8, token.str, res)) {
                 try itr.resolved.appendBounded(.{ .parsed = .{
@@ -208,16 +215,26 @@ pub const Iterator = struct {
                 return;
             }
         }
+
         itr.aliasedAdd(token.str);
 
-        var sub_itr: TokenIterator = .{ .raw = Parser.alias(token) catch token.str };
-        const sub_first = sub_itr.first().*;
+        var sub_itr: TokenIterator = .{ .raw = Parser.alias(token.str) catch {
+            try itr.resolved.appendBounded(.{ .parsed = .{
+                .word = .{ .str = token.str },
+            } });
+            return;
+        } };
+        const sub_first = sub_itr.first();
         try itr.resolveAlias(sub_first);
 
+        if (sub_itr.peek()) |pk| if (!pk.kind.continues())
+            itr.resolved.items[itr.resolved.items.len - 1].parsed.discontinue();
+
         while (sub_itr.next()) |stkn| {
+            const cont = if (sub_itr.peek()) |pk| !pk.kind.continues() else false;
             if (stkn.kind == .ws) continue;
             try itr.resolved.appendBounded(.{ .parsed = .{
-                .word = .{ .str = stkn.str },
+                .word = .{ .str = stkn.str, .continues = cont },
             } });
         }
     }
@@ -234,7 +251,7 @@ pub const Iterator = struct {
                 try itr.resolved.appendBounded(.{ .parsed = dollar });
             },
             .io => |io_m| {
-                std.debug.print("found io '{s}'\n", .{t.str});
+                log.debug("found io '{s}'\n", .{t.str});
                 switch (io_m) {
                     else => try itr.resolved.appendBounded(.{ .parsed = .{
                         .io_mode = .{ .mode = io_m },
@@ -244,10 +261,10 @@ pub const Iterator = struct {
 
             .logic => unreachable,
             .oper => |oper| {
-                std.debug.print("found opr '{s}'\n", .{t.str});
+                log.debug("found opr '{s}'\n", .{t.str});
                 switch (oper) {
                     .pipe => try itr.resolved.appendBounded(.{ .parsed = .{
-                        .op_mode = .{ .mode = oper },
+                        .op_mode = .{ .mode = oper, .continues = false },
                     } }),
                     else => unreachable,
                 }
@@ -310,13 +327,13 @@ pub const Iterator = struct {
         switch (str[1]) {
             '(' => {
                 if (findScalar(u8, str, ')')) |idx| {
-                    return .{ .subcommand = .{ .str = str[0..idx] } };
+                    return .{ .subcommand = .{ .str = str[0 .. idx + 1] } };
                 }
                 return .{ .word = .{ .str = str } };
             },
             '{' => {
                 if (findScalar(u8, str, '}')) |idx| {
-                    return .{ .subcommand = .{ .str = str[0..idx] } };
+                    return .{ .dollar = .{ .str = str[0 .. idx + 1] } };
                 }
                 return .{ .word = .{ .str = str } };
             },
@@ -455,8 +472,8 @@ pub const Parser = struct {
         return token;
     }
 
-    fn alias(token: Token) ![]const u8 {
-        return (Alias.find(token.str) orelse return error.Empty).value;
+    fn alias(str: []const u8) ![]const u8 {
+        return (Alias.find(str) orelse return error.Empty).value;
     }
 
     fn word(t: Token) !Arg {
@@ -498,16 +515,23 @@ pub const Parser = struct {
     }
 
     fn variable(str: []const u8, a: Allocator) !Arg {
-        return if (Variables.get(str[1..])) |v|
-            .{ .resolved = .{
-                .str = try a.dupe(u8, v),
-                .construct = .dollar,
-            } }
-        else
-            .{ .resolved = .{
+        switch (str[0]) {
+            '$' => {
+                const cut = if (str.len > 3 and str[1] == '{') str[2 .. str.len - 1] else str[1..];
+                if (Variables.get(cut)) |v| {
+                    return .{ .resolved = .{
+                        .str = try a.dupe(u8, v),
+                        .construct = .dollar,
+                    } };
+                } else {
+                    return .{ .resolved = .{ .str = &.{}, .construct = .dollar } };
+                }
+            },
+            else => return .{ .resolved = .{
                 .str = try a.dupe(u8, str),
                 .construct = .dollar,
-            } };
+            } },
+        }
     }
 
     fn path(str: []const u8, a: Allocator) !Arg {
@@ -560,10 +584,10 @@ pub const Parser = struct {
 };
 
 const expect = std.testing.expect;
-const expectEql = std.testing.expectEqual;
+const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;
 const eql = std.mem.eql;
-const eqlStr = std.testing.expectEqualStrings;
+const expectEqualStrings = std.testing.expectEqualStrings;
 
 test "iterator nows" {
     var a = std.testing.allocator;
@@ -573,15 +597,17 @@ test "iterator nows" {
     try t.consumes("\"this is some text\" more text");
     var itr = t.iterator();
     const ts = try itr.toSlice(a);
+    log.err("blerg {any}\n", .{ts});
     defer a.free(ts);
     var ptr = try Parser.iterate(a, ts);
+    try ptr.resolveAll(a, undefined);
     defer ptr.raze(a);
     var i: usize = 0;
-    while (ptr.next()) |_| {
-        //std.debug.print("{}\n", .{t_});
+    while (ptr.next()) |t_| {
+        log.debug("{}\n", .{t_});
         i += 1;
     }
-    try expectEql(i, 3);
+    try expectEqual(3, i);
 }
 
 test "breaking" {
@@ -592,14 +618,11 @@ test "breaking" {
     try t.consumes("alias la='ls -la'");
     var titr = t.iterator();
     const tokens = try titr.toSlice(a);
-    try expectEql(tokens.len, 4);
+    try expectEqual(tokens.len, 4);
 
-    titr.restart();
-    try eqlStr("alias", titr.next().?.resolved.?);
-    try eqlStr(" ", titr.next().?.resolved.?);
-    try eqlStr("la=", titr.next().?.resolved.?);
-    try eqlStr("ls -la", titr.next().?.resolved.?);
-    try expectEql(titr.next(), null);
+    try expectEqualStrings("alias", tokens[0].str);
+    try expectEqualStrings("la=", tokens[2].str);
+    try expectEqualStrings("'ls -la'", tokens[3].str);
 
     var itr = try Parser.iterate(a, tokens);
     try itr.resolveAll(a, undefined);
@@ -609,10 +632,10 @@ test "breaking" {
     while (itr.next()) |_| {
         count += 1;
     }
-    try expectEql(count, 2);
+    try expectEqual(count, 2);
     itr.restart();
-    try eqlStr("alias", itr.next().?.resolved.str);
-    try eqlStr("la=ls -la", itr.next().?.resolved.str);
+    try expectEqualStrings("alias", itr.next().?.resolved.str);
+    try expectEqualStrings("la=ls -la", itr.next().?.resolved.str);
 
     a.free(tokens);
 }
@@ -625,25 +648,17 @@ test "iterator alias is builtin" {
     };
 
     var itr = try Parser.iterate(a, &ts);
+    try itr.resolveAll(a, undefined);
     defer itr.raze(a);
-    var i: usize = 0;
-    while (itr.next()) |_| {
-        i += 1;
-    }
-    try expectEql(i, 1);
-    try std.testing.expectEqualStrings("alias", itr.first().resolved.str);
-    try expect(itr.next() == null);
+    try expectEqualStrings("alias", itr.first().resolved.str);
+    try expectEqual(null, itr.next());
 }
 
 test "iterator aliased" {
-    var a = std.testing.allocator;
+    const a = std.testing.allocator;
     Alias.init();
     defer Alias.raze(a);
-    Alias.testingAdd(
-        a.dupe(u8, "la") catch unreachable,
-        a.dupe(u8, "ls -la") catch unreachable,
-        a,
-    );
+    Alias.testingAdd("la", "ls -la", a);
 
     var ts = [_]Token{
         Token{ .kind = .word, .str = "la" },
@@ -654,11 +669,7 @@ test "iterator aliased" {
     var itr = try Parser.iterate(a, &ts);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
-    var i: usize = 0;
-    while (itr.next()) |_| {
-        i += 1;
-    }
-    try expectEql(i, 3);
+
     try expect(eql(u8, itr.first().resolved.str, "ls"));
     try expect(eql(u8, itr.next().?.resolved.str, "-la"));
     try expect(eql(u8, itr.next().?.resolved.str, "src"));
@@ -666,52 +677,11 @@ test "iterator aliased" {
 }
 
 test "iterator aliased self" {
-    var a = std.testing.allocator;
+    const a = std.testing.allocator;
 
     Alias.init();
     defer Alias.raze(a);
-    Alias.testingAdd(
-        a.dupe(u8, "la") catch unreachable,
-        a.dupe(u8, "ls -la") catch unreachable,
-        a,
-    );
-
-    var ts = [_]Token{
-        Token{ .kind = .word, .str = "ls" },
-        Token{ .kind = .ws, .str = " " },
-        Token{ .kind = .word, .str = "src" },
-    };
-
-    var itr = try Parser.iterate(a, &ts);
-    try itr.resolveAll(a, undefined);
-    defer itr.raze(a);
-    var i: usize = 0;
-    while (itr.next()) |_| {
-        //std.debug.print("{}\n", .{t_});
-        i += 1;
-    }
-    try expectEql(i, 3);
-    try expect(eql(u8, itr.first().resolved.str, "ls"));
-    try expect(eql(u8, itr.next().?.resolved.str, "-la"));
-    try std.testing.expectEqualStrings("src", itr.next().?.resolved.str);
-    try expect(itr.next() == null);
-}
-
-test "iterator aliased recurse" {
-    var a = std.testing.allocator;
-    Alias.init();
-    defer Alias.raze(a);
-    Alias.testingAdd(
-        a.dupe(u8, "la") catch unreachable,
-        a.dupe(u8, "ls -la") catch unreachable,
-        a,
-    );
-
-    Alias.testingAdd(
-        a.dupe(u8, "ls") catch unreachable,
-        a.dupe(u8, "ls --color=auto") catch unreachable,
-        a,
-    );
+    Alias.testingAdd("la", "ls -la", a);
 
     var ts = [_]Token{
         Token{ .kind = .word, .str = "la" },
@@ -722,18 +692,34 @@ test "iterator aliased recurse" {
     var itr = try Parser.iterate(a, &ts);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
-    var i: usize = 0;
-    while (itr.next()) |_| {
-        //std.debug.print("{}\n", .{t_});
-        i += 1;
-    }
-    try expectEql(i, 4);
+    try expectEqualStrings("ls", itr.first().resolved.str);
+    try expectEqualStrings("-la", itr.next().?.resolved.str);
+    try expectEqualStrings("src", itr.next().?.resolved.str);
+    try expectEqual(null, itr.next());
+}
+
+test "iterator aliased recurse" {
+    const a = std.testing.allocator;
+    Alias.init();
+    defer Alias.raze(a);
+    Alias.testingAdd("la", "ls -la", a);
+    Alias.testingAdd("ls", "ls --color=auto", a);
+
+    var ts = [_]Token{
+        Token{ .kind = .word, .str = "la" },
+        Token{ .kind = .ws, .str = " " },
+        Token{ .kind = .word, .str = "src" },
+    };
+
+    var itr = try Parser.iterate(a, &ts);
+    try itr.resolveAll(a, undefined);
+    defer itr.raze(a);
     const first = itr.first().resolved.str;
-    try expect(eql(u8, first, "ls"));
-    try expect(eql(u8, itr.next().?.resolved.str, "--color=auto"));
-    try expect(eql(u8, itr.next().?.resolved.str, "-la"));
-    try expect(eql(u8, itr.next().?.resolved.str, "src"));
-    try expect(itr.next() == null);
+    try expectEqualStrings("ls", first);
+    try expectEqualStrings("--color=auto", itr.next().?.resolved.str);
+    try expectEqualStrings("-la", itr.next().?.resolved.str);
+    try expectEqualStrings("src", itr.next().?.resolved.str);
+    try expectEqual(null, itr.next());
 }
 
 test "parse vars" {
@@ -755,11 +741,11 @@ test "parse vars" {
         //std.debug.print("{}\n", .{t_});
         i += 1;
     }
-    try expectEql(i, 3);
+    try expectEqual(i, 3);
     const first = itr.first().resolved.str;
-    try eqlStr("echo", first);
-    try eqlStr("", itr.next().?.resolved.str);
-    try eqlStr("blerg", itr.next().?.resolved.str);
+    try expectEqualStrings("echo", first);
+    try expectEqualStrings("", itr.next().?.resolved.str);
+    try expectEqualStrings("blerg", itr.next().?.resolved.str);
     try expect(itr.next() == null);
 }
 
@@ -777,7 +763,7 @@ test "parse vars existing" {
 
     try Variables.put("string", "correct", a);
 
-    try eqlStr("correct", Variables.get("string").?);
+    try expectEqualStrings("correct", Variables.get("string").?);
 
     var itr = try Parser.iterate(a, &ts);
     try itr.resolveAll(a, undefined);
@@ -787,9 +773,8 @@ test "parse vars existing" {
         if (true) std.debug.print("{s}\n", .{t_.resolved.str});
         i += 1;
     }
-    try expectEql(i, 3);
     const first = itr.first().resolved.str;
-    try eqlStr("echocorrectblerg", first);
+    try expectEqualStrings("echocorrectblerg", first);
     try expect(itr.next() == null);
 }
 
@@ -809,7 +794,7 @@ test "parse vars existing with white space" {
 
     try Variables.put("string", "correct", a);
 
-    try eqlStr("correct", Variables.get("string").?);
+    try expectEqualStrings("correct", Variables.get("string").?);
 
     var itr = try Parser.iterate(a, &ts);
     try itr.resolveAll(a, undefined);
@@ -819,12 +804,12 @@ test "parse vars existing with white space" {
         //std.debug.print("{}\n", .{t_});
         i += 1;
     }
-    try expectEql(i, 3);
+    try expectEqual(i, 3);
     const first = itr.first().resolved.str;
-    try eqlStr("echo", first);
+    try expectEqualStrings("echo", first);
     var tst = itr.next().?;
-    try eqlStr("correct", tst.resolved.str);
-    try eqlStr("blerg", itr.next().?.resolved.str);
+    try expectEqualStrings("correct", tst.resolved.str);
+    try expectEqualStrings("blerg", itr.next().?.resolved.str);
     try expect(itr.next() == null);
 }
 
@@ -840,7 +825,7 @@ test "parse vars existing braces" {
 
     try Variables.put("string", "value", a);
 
-    try eqlStr("value", Variables.get("string").?);
+    try expectEqualStrings("value", Variables.get("string").?);
 
     const slice = try ti.toSlice(a);
     defer a.free(slice);
@@ -852,12 +837,12 @@ test "parse vars existing braces" {
         //std.debug.print("{}\n", .{t});
         i += 1;
     }
-    try expectEql(i, 3);
+    try expectEqual(i, 3);
     const first = itr.first().resolved.str;
-    try eqlStr("echo", first);
+    try expectEqualStrings("echo", first);
 
-    try eqlStr("valueextra", itr.next().?.resolved.str);
-    try eqlStr("blerg", itr.next().?.resolved.str);
+    try expectEqualStrings("valueextra", itr.next().?.resolved.str);
+    try expectEqualStrings("blerg", itr.next().?.resolved.str);
     try expect(itr.next() == null);
 }
 
@@ -872,7 +857,7 @@ test "parse vars existing braces inline" {
     defer Variables.raze(a);
     try Variables.put("string", "value", a);
 
-    try eqlStr("value", Variables.get("string").?);
+    try expectEqualStrings("value", Variables.get("string").?);
 
     const slice = try ti.toSlice(a);
     defer a.free(slice);
@@ -884,12 +869,12 @@ test "parse vars existing braces inline" {
         //std.debug.print("{}\n", .{t});
         i += 1;
     }
-    try expectEql(i, 3);
+    try expectEqual(i, 3);
     const first = itr.first().resolved.str;
-    try eqlStr("echo", first);
+    try expectEqualStrings("echo", first);
 
-    try eqlStr("extravalue", itr.next().?.resolved.str);
-    try eqlStr("blerg", itr.next().?.resolved.str);
+    try expectEqualStrings("extravalue", itr.next().?.resolved.str);
+    try expectEqualStrings("blerg", itr.next().?.resolved.str);
     try expect(itr.next() == null);
 }
 
@@ -904,7 +889,7 @@ test "parse vars existing braces inline both" {
     defer Variables.raze(a);
     try Variables.put("string", "value", a);
 
-    try eqlStr("value", Variables.get("string").?);
+    try expectEqualStrings("value", Variables.get("string").?);
 
     const slice = try ti.toSlice(a);
     defer a.free(slice);
@@ -916,12 +901,12 @@ test "parse vars existing braces inline both" {
         //std.debug.print("{}\n", .{t});
         i += 1;
     }
-    try expectEql(i, 3);
+    try expectEqual(i, 3);
     const first = itr.first().resolved.str;
-    try eqlStr("echo", first);
+    try expectEqualStrings("echo", first);
 
-    try eqlStr("extravaluethingy", itr.next().?.resolved.str);
-    try eqlStr("blerg", itr.next().?.resolved.str);
+    try expectEqualStrings("extravaluethingy", itr.next().?.resolved.str);
+    try expectEqualStrings("blerg", itr.next().?.resolved.str);
     try expect(itr.next() == null);
 }
 
@@ -945,8 +930,9 @@ test "parse dollar dollar bills y'all" {
     //try std.testing.expect(std.mem.indexOf(u8, itr.next().?.resolved.str, "!") == null);
     //try std.testing.expect(std.mem.indexOf(u8, itr.next().?.resolved.str, "!") == null);
     //try std.testing.expect(itr.next() == null);
-    itr.raze(a);
+    //itr.raze(a);
 
+    itr.raze(a);
     tkns = [_]Token{
         Token.make("echo", .word),
         Token.make(" ", .ws),
@@ -962,8 +948,8 @@ test "parse dollar dollar bills y'all" {
     //try std.testing.expect(std.mem.indexOf(u8, itr.next().?.resolved.str, "!") != null);
     //try std.testing.expect(std.mem.indexOf(u8, itr.next().?.resolved.str, "!") == null);
     //try std.testing.expect(itr.next() == null);
-    itr.raze(a);
 
+    itr.raze(a);
     tkns = [_]Token{
         Token.make("echo", .word),
         Token.make(" ", .ws),
@@ -998,11 +984,11 @@ test "parse path" {
         //std.debug.print("{}\n", .{t});
         i += 1;
     }
-    try expectEql(i, 2);
+    try expectEqual(2, i);
     const first = itr.first().resolved.str;
-    try eqlStr("ls", first);
+    try expectEqualStrings("ls", first);
 
-    try eqlStr("~", itr.next().?.resolved.str);
+    try expectEqualStrings("~", itr.next().?.resolved.str);
     try expect(itr.next() == null);
 }
 
@@ -1028,13 +1014,13 @@ test "parse path ~" {
         //std.debug.print("{}\n", .{t_});
         i += 1;
     }
-    try expectEql(i, 2);
+    try expectEqual(2, i);
     const first = itr.first().resolved.str;
-    try eqlStr("ls", first);
+    try expectEqualStrings("ls", first);
 
     var thing = itr.next();
     //try std.testing.expect(thing.?.kind == .path);
-    try eqlStr("/home/user", thing.?.resolved.str);
+    try expectEqualStrings("/home/user", thing.?.resolved.str);
     try std.testing.expect(itr.next() == null);
 }
 
@@ -1060,12 +1046,12 @@ test "parse path ~/" {
         //std.debug.print("{}\n", .{t_});
         i += 1;
     }
-    try expectEql(i, 2);
+    try expectEqual(i, 2);
     const first = itr.first().resolved.str;
-    try eqlStr("ls", first);
+    try expectEqualStrings("ls", first);
 
     //try std.testing.expect(thing.?.kind == .path);
-    try eqlStr("/home/user/", itr.next().?.resolved.str);
+    try expectEqualStrings("/home/user/", itr.next().?.resolved.str);
     try std.testing.expectEqual(null, itr.next());
 }
 
@@ -1091,13 +1077,13 @@ test "parse path ~/place" {
         //std.debug.print("{}\n", .{t});
         i += 1;
     }
-    try expectEql(i, 2);
+    try expectEqual(i, 2);
     const first = itr.first().resolved.str;
-    try eqlStr("ls", first);
+    try expectEqualStrings("ls", first);
 
     var tst = itr.next();
     //try std.testing.expect(tst.?.kind == .path);
-    try eqlStr("/home/user/place", tst.?.resolved.str);
+    try expectEqualStrings("/home/user/place", tst.?.resolved.str);
     try std.testing.expect(itr.next() == null);
 }
 
@@ -1121,13 +1107,13 @@ test "parse path /~/otherplace" {
         //std.debug.print("{}\n", .{t});
         i += 1;
     }
-    try expectEql(i, 2);
+    try expectEqual(i, 2);
     const first = itr.first().resolved.str;
-    try eqlStr("ls", first);
+    try expectEqualStrings("ls", first);
 
     var tst = itr.next();
     //try std.testing.expect(tst.?.kind == .path);
-    try eqlStr("/~/otherplace", tst.?.resolved.str);
+    try expectEqualStrings("/~/otherplace", tst.?.resolved.str);
     try std.testing.expect(itr.next() == null);
 }
 
@@ -1266,15 +1252,11 @@ test "glob ~/*" {
         try names.append(try a.dupe(u8, each.name));
     }
     errdefer {
-        for (names.items) |each| {
-            a.free(each);
-        }
+        for (names.items) |each| a.free(each);
         names.clearAndFree();
     }
 
-    var ti = TokenIterator{
-        .raw = "echo ~/* ",
-    };
+    var ti = TokenIterator{ .raw = "echo ~/* " };
 
     const slice = try ti.toSlice(a);
     defer a.free(slice);
@@ -1285,10 +1267,9 @@ test "glob ~/*" {
     var count: usize = 0;
     while (itr.next()) |next| {
         count += 1;
-        //std.debug.print("loop {s} {any}\n", .{ next.resolved.str, next.kind });
-        _ = next;
+        log.debug("loop {s} {any}\n", .{ next.resolved.str, next.kind });
     }
-    try std.testing.expectEqual(@as(usize, names.items.len + 1), count);
+    try std.testing.expectEqual(names.items.len + 1, count);
 
     try std.testing.expectEqualStrings("echo", itr.first().resolved.str);
     found: while (itr.next()) |next| {
@@ -1338,7 +1319,7 @@ test "escapes 2" {
     var itr = try Parser.iterate(a, slice);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
-    try eqlStr("--inline=escaped string", itr.next().?.resolved.str);
+    try expectEqualStrings("--inline=escaped string", itr.next().?.resolved.str);
 }
 
 test "sub process" {
@@ -1370,12 +1351,19 @@ test "naughty strings parsed" {
     try pitr.resolveAll(a, undefined);
     defer pitr.raze(a);
 
-    var count: usize = 0;
-    while (pitr.next()) |t| {
-        if (false) log.err("{}\n", .{t});
-        count += 1;
-    }
-    try expectEql(count, 4);
+    //std.debug.print("debug {}\n", .{pitr.next().?});
+    //std.debug.print("debug {}\n", .{pitr.next().?});
+    //std.debug.print("debug {}\n", .{pitr.next().?});
+    //std.debug.print("debug {}\n", .{pitr.next().?});
+    //std.debug.print("debug {}\n", .{pitr.next().?});
+    //pitr.restart();
+
+    try std.testing.expectEqualStrings("thingy", pitr.next().?.resolved.str);
+    try std.testing.expectEqualStrings("(b.argv.next())", pitr.next().?.resolved.str);
+    try std.testing.expectEqual(.op_mode, pitr.next().?.resolved.construct);
+    try std.testing.expectEqualStrings("_", pitr.next().?.resolved.str);
+    try std.testing.expectEqual(.op_mode, pitr.next().?.resolved.construct);
+    try std.testing.expectEqualStrings("{}", pitr.next().?.resolved.str);
 }
 
 test "comment" {

@@ -511,7 +511,7 @@ fn findToken(tkns: *Tokenizer) TknPair {
     while (itr.next()) |t| {
         pair.count += 1;
         if (idx <= t.str.len) {
-            pair.t = t.*;
+            pair.t = t;
             pair.offset = idx;
             break;
         }

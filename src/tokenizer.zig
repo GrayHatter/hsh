@@ -375,7 +375,7 @@ test "quotes tokened" {
     var titr = t.iterator();
     var tokens = try titr.toSlice(a);
     try expectEql(t.raw.items.len, 2);
-    try expectEql(tokens.len, 1);
+    try expectEql(1, tokens.len);
 
     t.reset();
     try t.consumes("\"a\"");
@@ -384,8 +384,8 @@ test "quotes tokened" {
     tokens = try titr.toSlice(a);
     try expectEql(t.raw.items.len, 3);
     try expectEqualStrings(t.raw.items, "\"a\"");
-    try expectEql(tokens[0].str.len, 1);
-    try expectEqualStrings(tokens[0].str, "a");
+    try expectEql(3, tokens[0].str.len);
+    try expectEqualStrings("\"a\"", tokens[0].str);
 
     var terr = Token.group(
         \\"this is invalid
@@ -398,9 +398,8 @@ test "quotes tokened" {
     a.free(tokens);
     tokens = try titr.toSlice(a);
     try expectEql(t.raw.items.len, 29);
-    try expectEql(tokens[0].str.len, 17);
+    try expectEql(19, tokens[0].str.len);
     try expectEqualStrings(tokens[0].str, "\"this is some text\"");
-    try expectEqualStrings(tokens[0].str, "this is some text");
 
     t.reset();
     try t.consumes("`this is some text` more text");
@@ -408,9 +407,8 @@ test "quotes tokened" {
     a.free(tokens);
     tokens = try titr.toSlice(a);
     try expectEql(t.raw.items.len, 29);
-    try expectEql(tokens[0].str.len, 17);
+    try expectEql(19, tokens[0].str.len);
     try expectEqualStrings(tokens[0].str, "`this is some text`");
-    try expectEqualStrings(tokens[0].str, "this is some text");
 
     t.reset();
     try t.consumes("\"this is some text\" more text");
@@ -418,9 +416,8 @@ test "quotes tokened" {
     titr = t.iterator();
     tokens = try titr.toSlice(a);
     try expectEql(t.raw.items.len, 29);
-    try expectEql(tokens[0].str.len, 17);
+    try expectEql(19, tokens[0].str.len);
     try expectEqualStrings(tokens[0].str, "\"this is some text\"");
-    try expectEqualStrings(tokens[0].str, "this is some text");
 
     terr = Token.group(
         \\"this is some text\" more text
@@ -428,16 +425,22 @@ test "quotes tokened" {
     try expectError(TokenError.OpenGroup, terr);
 
     t.reset();
-    try t.consumes("\"this is some text\\\" more text\"");
+    try t.consumes(
+        \\"this is some text\" more text"
+    );
     a.free(tokens);
     titr = t.iterator();
     tokens = try titr.toSlice(a);
-    try expectEql(t.raw.items.len, 31);
-    try expectEqualStrings(tokens[0].str, "\"this is some text\\\" more text\"");
+    try expectEql(31, t.raw.items.len);
+    try expectEqualStrings(
+        \\"this is some text\" more text"
+    , tokens[0].str);
 
-    try expectEql("this is some text\\\" more text".len, tokens[0].str.len);
-    try expectEql(tokens[0].str.len, 29);
-    try expectEqualStrings(tokens[0].str, "this is some text\\\" more text");
+    try expectEql("\"this is some text\\\" more text\"".len, tokens[0].str.len);
+    try expectEql(31, tokens[0].str.len);
+    try expectEqualStrings(
+        \\"this is some text\" more text"
+    , tokens[0].str);
     a.free(tokens);
 }
 
@@ -547,10 +550,7 @@ test "breaking" {
 }
 
 test "tokeniterator 0" {
-    var ti = Token.Iterator{
-        .raw = "one two three",
-    };
-
+    var ti = Token.Iterator{ .raw = "one two three" };
     try expectEqualStrings("one", ti.first().str);
     _ = ti.skip();
     try expectEqualStrings("two", ti.next().?.str);
@@ -733,7 +733,7 @@ test "token > file" {
     try expectEqualStrings("ls", ti.first().str);
     ti.skip();
     var iot = ti.next().?;
-    try expectEqualStrings("file.txt", iot.str);
+    try expectEqualStrings("> file.txt", iot.str);
     try std.testing.expect(iot.kind.io == .Out);
 }
 
@@ -750,7 +750,7 @@ test "token > file extra ws" {
 
     try expectEqualStrings("ls", ti.first().str);
     ti.skip();
-    try expectEqualStrings("file.txt", ti.next().?.str);
+    try expectEqualStrings(">               file.txt", ti.next().?.str);
 }
 
 test "token > execSlice" {
@@ -759,15 +759,15 @@ test "token > execSlice" {
     };
 
     var len: usize = 0;
-    while (ti.nextExec()) |_| {
+    while (ti.nextExec()) |_|
         len += 1;
-    }
+
     try std.testing.expectEqual(len, 3);
 
     try expectEqualStrings("ls", ti.first().str);
     ti.skip();
     var iot = ti.next().?;
-    try expectEqualStrings("file.txt", iot.str);
+    try expectEqualStrings("> file.txt", iot.str);
     try std.testing.expect(iot.kind.io == .Out);
 
     ti.restart();
@@ -781,27 +781,26 @@ test "token > execSlice" {
 }
 
 test "token >> file" {
-    var ti = Token.Iterator{
-        .raw = "ls >> file.txt",
-    };
+    var ti = Token.Iterator{ .raw = "ls >> file.txt" };
 
     var len: usize = 0;
-    while (ti.next()) |_| {
-        len += 1;
-    }
+    while (ti.next()) |_| len += 1;
     try std.testing.expectEqual(len, 3);
 
     try expectEqualStrings("ls", ti.first().str);
     ti.skip();
     var iot = ti.next().?;
-    try expectEqualStrings("file.txt", iot.str);
-    try std.testing.expect(iot.kind.io == .Append);
-    ti = Token.Iterator{ .raw = "ls >>file.txt" };
+    try std.testing.expectEqual(.Append, iot.kind.io);
+    try expectEqualStrings(">> file.txt", iot.str);
+}
+
+test "token >>file" {
+    var ti = Token.Iterator{ .raw = "ls >>file.txt" };
     try expectEqualStrings("ls", ti.first().str);
     ti.skip();
-    iot = ti.next().?;
-    try expectEqualStrings("file.txt", iot.str);
-    try std.testing.expect(iot.kind.io == .Append);
+    const iot = ti.next().?;
+    try expectEqualStrings(">>file.txt", iot.str);
+    try std.testing.expectEqual(.Append, iot.kind.io);
 }
 
 test "token < file" {
@@ -818,13 +817,9 @@ test "token < file" {
     var ls = ti.first();
     try expectEqualStrings("ls", ls.str);
     ti.skip();
-    var in_file = ti.next().?;
+    const in_file = ti.next().?;
     try std.testing.expect(in_file.kind == .io);
-    try expectEqualStrings("<", in_file.str);
-    ti.skip();
-    in_file = ti.next().?;
-    try std.testing.expect(in_file.kind == .word);
-    try expectEqualStrings("file.txt", in_file.str);
+    try expectEqualStrings("< file.txt", in_file.str);
 }
 
 test "token < file extra ws" {
@@ -840,7 +835,7 @@ test "token < file extra ws" {
 
     try expectEqualStrings("ls", ti.first().str);
     ti.skip();
-    try expectEqualStrings("file.txt", ti.next().?.str);
+    try expectEqualStrings("<               file.txt", ti.next().?.str);
 }
 
 test "token &&" {
@@ -855,8 +850,8 @@ test "token &&" {
     try std.testing.expectEqual(len, 5);
 
     try expectEqualStrings("ls", ti.first().str);
-    const n = ti.next().?;
     ti.skip();
+    const n = ti.next().?;
     try expectEqualStrings("&&", n.str);
     try std.testing.expect(n.kind == .oper);
     try std.testing.expect(n.kind.oper == .success);
@@ -883,6 +878,18 @@ test "token ||" {
     try std.testing.expect(n.kind.oper == .fail);
     ti.skip();
     try expectEqualStrings("fail", ti.next().?.str);
+}
+
+test "token _|" {
+    const a = std.testing.allocator;
+    var ti = Token.Iterator{ .raw = "_|" };
+    const slice = try ti.toSlice(a);
+    defer a.free(slice);
+
+    try std.testing.expectEqual(2, slice.len);
+
+    try expectEqualStrings("_", slice[0].str);
+    try expectEqualStrings("|", slice[1].str);
 }
 
 test "token vari" {

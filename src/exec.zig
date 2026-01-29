@@ -199,7 +199,7 @@ fn mkCallableStack(itr: *TokenIterator, a: Allocator, io: Io) Error![]CallableSt
         if (peek.kind == .logic) {
             log.warn("Hack in use\n", .{});
             try stack.append(a, .{
-                .callable = .{ .logic = mkLogic(a, peek.*) catch |err| {
+                .callable = .{ .logic = mkLogic(a, peek) catch |err| {
                     log.err("Unable to make logic {}\n", .{err});
                     return Error.Unknown;
                 } },
@@ -264,7 +264,7 @@ fn mkCallableStack(itr: *TokenIterator, a: Allocator, io: Io) Error![]CallableSt
             }
         }
 
-        for (eslice) |s| log.err("exe slice {}\n", .{s});
+        for (eslice) |s| log.debug("exe slice {}\n", .{s});
         const exe_str = parsed.first().resolved.str;
         const stk: CallableStack = if (bi.exists(exe_str)) .{
             .callable = .{ .builtin = try mkBuiltin(parsed, a) },
@@ -566,15 +566,7 @@ test "mkstack" {
     var a = std.testing.allocator;
     const io = std.testing.io;
     paths = &[1]Fs.Named{.{ .dir = .{ .name = "/usr/bin", .dir = undefined } }};
-
-    var ti = TokenIterator{
-        .raw = "ls | sort",
-    };
-
-    var len: usize = 0;
-    while (ti.next()) |_| {
-        len += 1;
-    }
+    var ti = TokenIterator{ .raw = "ls | sort" };
 
     try std.testing.expectEqualStrings("ls", ti.first().str);
     ti.skip();
@@ -585,19 +577,13 @@ test "mkstack" {
     ti.restart();
     const stk = try mkCallableStack(&ti, a, io);
     try std.testing.expect(stk.len == 2);
-    for (stk) |*s| {
-        free(a, s);
-    }
+    for (stk) |*s| free(a, s);
     a.free(stk);
 
-    ti = TokenIterator{
-        .raw = "zig build && zig-out/bin/hsh",
-    };
+    ti = TokenIterator{ .raw = "zig build && zig-out/bin/hsh" };
     ti.restart();
     const stk2 = try mkCallableStack(&ti, a, io);
-    for (stk2) |*s| {
-        free(a, s);
-    }
+    for (stk2) |*s| free(a, s);
     a.free(stk2);
 
     try std.testing.expectEqualStrings("zig", ti.first().str);
