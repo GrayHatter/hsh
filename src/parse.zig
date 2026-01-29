@@ -473,7 +473,6 @@ pub const Resolver = struct {
 
     fn word(t: Token) !Arg {
         if (findScalar(u8, t.str, '\\')) |_| {
-            std.debug.assert(t.resolved == null);
             return .{ .parsed = .{ .fmt_str = .{ .str = t.str } } };
         }
 

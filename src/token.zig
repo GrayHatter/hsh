@@ -1,6 +1,5 @@
 str: []const u8,
 kind: Kind = .nos,
-resolved: ?[]u8 = null,
 
 const Token = @This();
 
@@ -287,7 +286,7 @@ pub fn func(src: []const u8) Error!Token {
     const t = try any(src[end..]);
     end += t.str.len;
 
-    return Token.make(src[0..end], .nos);
+    return .make(src[0..end], .nos);
 }
 
 pub fn oper(src: []const u8) Error!Token {
