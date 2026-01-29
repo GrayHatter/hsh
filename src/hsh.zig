@@ -82,7 +82,7 @@ fn readFromRC(hsh: *Hsh, a: Allocator, io: Io) !void {
             var titr = Token.Iterator{ .raw = line };
             const tokens = titr.toSlice(a) catch return error.Memory;
             defer a.free(tokens);
-            var pitr = Parser.iterate(a, tokens) catch continue;
+            var pitr = Resolver.iterate(a, tokens) catch continue;
             // defer free pitr.resolved
 
             if (!shellbuiltin.exists(pitr.first().resolved.str)) {
@@ -236,7 +236,7 @@ const Context = @import("context.zig");
 const Drawable = @import("draw.zig").Drawable;
 const INEvent = @import("inotify.zig").Event;
 const Line = @import("line.zig");
-const Parser = @import("parse.zig").Parser;
+const Resolver = @import("parse.zig").Resolver;
 const Signals = @import("signals.zig");
 const Tty = @import("tty.zig");
 const Token = @import("token.zig");

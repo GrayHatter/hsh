@@ -549,7 +549,7 @@ pub fn complete(cs: *CompSet, hsh: *Hsh, tks: *Tokenizer, io: Io) !void {
                     try completeDir(cs, dir, io);
                 },
                 .word, .path => {
-                    var t = try Parser.single(pair.t);
+                    var t = try Resolver.single(pair.t);
                     if (std.mem.indexOfScalar(u8, t.resolved.str, '/')) |_| {
                         try completePath(cs, t.resolved.str, io);
                     } else {
@@ -605,7 +605,7 @@ const Hsh = @import("hsh.zig");
 const Fs = @import("fs.zig");
 const Tokenizer = @import("tokenizer.zig");
 const Token = @import("token.zig");
-const Parser = @import("parse.zig").Parser;
+const Resolver = @import("parse.zig").Resolver;
 const Draw = @import("draw.zig");
 const Cord = Draw.Cord;
 const S = @import("strings.zig");

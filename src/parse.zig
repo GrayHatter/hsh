@@ -17,6 +17,7 @@ pub const Construct = enum {
     path,
     subcommand,
     word,
+    empty,
 };
 
 pub const Parsed = union(Construct) {
@@ -31,6 +32,7 @@ pub const Parsed = union(Construct) {
     path: Base,
     subcommand: Base,
     word: Base,
+    empty: void,
 
     pub const Base = struct {
         str: []const u8,
@@ -51,18 +53,21 @@ pub const Parsed = union(Construct) {
         return switch (p) {
             .io_mode => "",
             .op_mode => "",
+            .empty => &.{},
             inline else => |el| el.str,
         };
     }
 
     pub fn discontinue(p: *Parsed) void {
         switch (p.*) {
+            .empty => unreachable,
             inline else => |*el| el.continues = false,
         }
     }
 
     pub fn continues(p: Parsed) bool {
         return switch (p) {
+            .empty => unreachable,
             inline else => |el| el.continues,
         };
     }
@@ -159,6 +164,10 @@ pub const Iterator = struct {
                 log.debug("re-resolving '{s}' {} \n", .{ current.resolved.str, current });
             }
             try itr.resolveOne(current, a, io);
+            if (current.resolved.construct == .empty) {
+                _ = itr.resolved.orderedRemove(i);
+                continue;
+            }
             if (continues and i + 1 < itr.resolved.items.len) {
                 var cont = itr.resolved.orderedRemove(i + 1);
                 auto_continue = cont.parsed.continues();
@@ -176,17 +185,31 @@ pub const Iterator = struct {
         itr.r_index = 0;
     }
 
-    fn resolveOne(_: Iterator, arg: *Arg, a: Allocator, _: Io) !void {
+    fn resolveOne(itr: *Iterator, arg: *Arg, a: Allocator, io: Io) !void {
         switch (arg.*) {
             .resolved => {},
             .parsed => |pr| switch (pr) {
+                .glob => |glob| {
+                    const resolved = Resolver.glob(glob.str, a, io);
+                    defer a.free(resolved);
+                    if (resolved.len == 0) {
+                        arg.* = .{ .resolved = .{ .str = &.{}, .construct = .empty } };
+                        return;
+                    }
+                    arg.* = .{ .resolved = .{ .str = resolved[0], .construct = .path } };
+                    const idx: usize = arg - itr.resolved.items.ptr;
+                    for (resolved[1..], 1 + idx..) |rs, i| {
+                        try itr.resolved.insertBounded(i, .{ .resolved = .{ .str = rs, .construct = .path } });
+                    }
+                },
+
                 .path => |path| {
-                    log.err("path {s}\n", .{path.str});
-                    arg.* = try Parser.path(path.str, a);
+                    log.debug("path {s}\n", .{path.str});
+                    arg.* = try Resolver.path(path.str, a, io);
                 },
                 .dollar => |dollar| {
                     log.debug("dollar {s}\n", .{dollar.str});
-                    arg.* = try Parser.variable(dollar.str, a);
+                    arg.* = try Resolver.variable(dollar.str, a);
                     log.debug("rlsv {s}\n", .{arg.resolved.str});
                 },
                 .io_mode => |mode| arg.* = .{
@@ -195,6 +218,7 @@ pub const Iterator = struct {
                 .op_mode => |mode| arg.* = .{
                     .resolved = .{ .str = &.{}, .construct = .op_mode, .op = mode.mode },
                 },
+                .empty => unreachable,
                 inline else => |el, t| {
                     arg.* = .{ .resolved = .{
                         .str = try a.dupe(u8, el.str),
@@ -205,7 +229,7 @@ pub const Iterator = struct {
         }
     }
 
-    fn resolveAlias(itr: *Iterator, token: Token) !void {
+    fn parseAlias(itr: *Iterator, token: Token) !void {
         log.debug("called \n", .{});
         for (itr.aliases[0..itr.aliases_len]) |res| {
             if (eql(u8, token.str, res)) {
@@ -218,14 +242,14 @@ pub const Iterator = struct {
 
         itr.aliasedAdd(token.str);
 
-        var sub_itr: TokenIterator = .{ .raw = Parser.alias(token.str) catch {
+        var sub_itr: TokenIterator = .{ .raw = Resolver.alias(token.str) catch {
             try itr.resolved.appendBounded(.{ .parsed = .{
                 .word = .{ .str = token.str },
             } });
             return;
         } };
         const sub_first = sub_itr.first();
-        try itr.resolveAlias(sub_first);
+        try itr.parseAlias(sub_first);
 
         if (sub_itr.peek()) |pk| if (!pk.kind.continues())
             itr.resolved.items[itr.resolved.items.len - 1].parsed.discontinue();
@@ -240,7 +264,7 @@ pub const Iterator = struct {
     }
 
     fn parse(itr: *Iterator, t: Token) !void {
-        if (itr.t_index == 0 and t.kind == .word) return itr.resolveAlias(t);
+        if (itr.t_index == 0 and t.kind == .word) return itr.parseAlias(t);
 
         // TODO hack while I refactor next() to concat tokens
 
@@ -258,7 +282,6 @@ pub const Iterator = struct {
                     } }),
                 }
             },
-
             .logic => unreachable,
             .oper => |oper| {
                 log.debug("found opr '{s}'\n", .{t.str});
@@ -271,31 +294,26 @@ pub const Iterator = struct {
             },
             .subp => unreachable,
             .resr => unreachable,
-            .comment => {
-                //std.debug.print("found comment '{s}'\n", .{t.str});
-                //itr.t_index += 1;
-            },
-            .path => try itr.resolved.appendBounded(.{ .parsed = .{
-                .path = .{ .str = t.str },
-            } }),
-            .escp => try itr.resolved.appendBounded(.{ .parsed = .{
-                .word = .{
-                    .str = t.str[1..2],
-                },
-            } }),
+            .comment => {},
+            .path => try itr.resolved.appendBounded(
+                .{ .parsed = .{ .path = .{ .str = t.str } } },
+            ),
+            .escp => try itr.resolved.appendBounded(
+                .{ .parsed = .{ .word = .{ .str = t.str[1..2] } } },
+            ),
             .quote, .brace => |q| {
                 switch (q) {
-                    ')', '}', ']' => try itr.resolved.appendBounded(.{ .parsed = .{
-                        .word = .{ .str = t.str },
-                    } }),
+                    ')', '}', ']' => try itr.resolved.appendBounded(
+                        .{ .parsed = .{ .word = .{ .str = t.str } } },
+                    ),
 
-                    '"' => try itr.resolved.appendBounded(.{ .parsed = .{
-                        .word = .{ .str = t.str[1 .. t.str.len - 1] },
-                    } }),
+                    '"' => try itr.resolved.appendBounded(
+                        .{ .parsed = .{ .word = .{ .str = t.str[1 .. t.str.len - 1] } } },
+                    ),
 
-                    '\'' => try itr.resolved.appendBounded(.{ .parsed = .{
-                        .word = .{ .str = t.str[1 .. t.str.len - 1] },
-                    } }),
+                    '\'' => try itr.resolved.appendBounded(
+                        .{ .parsed = .{ .word = .{ .str = t.str[1 .. t.str.len - 1] } } },
+                    ),
 
                     else => unreachable,
                 }
@@ -309,9 +327,9 @@ pub const Iterator = struct {
                     try itr.resolved.appendBounded(.{ .parsed = dollar });
                     try itr.parse(.make(t.str[idx + dollar.anyStr().len ..], t.kind));
                 } else if (findScalar(u8, t.str, '*')) |_| {
-                    try itr.resolveGlob(t.str);
+                    try itr.parseGlob(t.str);
                 } else {
-                    const real = try Parser.single(t);
+                    const real = try Resolver.single(t);
                     try itr.resolved.appendBounded(real);
                 }
             },
@@ -342,7 +360,7 @@ pub const Iterator = struct {
         return error.Unknown;
     }
 
-    fn resolveGlob(itr: *Iterator, str: []const u8) !void {
+    fn parseGlob(itr: *Iterator, str: []const u8) !void {
         if (find(u8, str, "*")) |_| {} else unreachable;
 
         if (find(u8, str, "/")) |_| {
@@ -350,30 +368,20 @@ pub const Iterator = struct {
             //var bitr = std.mem.splitBackwardsAny(u8, str, "/");
             //const glob = bitr.first();
             //const dir = bitr.rest();
-            //if (Parser.globAt(itr.alloc, dir, glob)) |names| {
+            //if (Resolver.globAt(itr.alloc, dir, glob)) |names| {
             //    for (names) |name| {
             //        if (!startsWith(u8, str, ".") and startsWith(u8, name, ".")) {
             //            continue;
             //        }
             //        const path = try std.mem.join(itr.alloc, "/", &[2][]const u8{ dir, name });
-            try itr.resolved.appendBounded(.{ .parsed = .{ .path = .{
-                .str = str,
-                .continues = false,
-            } } });
-            //    }
-            //} else |e| {
-            //    if (e != Error.Empty) {
-            //        log.err("error resolving glob {}\n", .{e});
-            //        //unreachable;
-            //    }
-            //}
+            try itr.resolved.appendBounded(
+                .{ .parsed = .{ .glob = .{ .str = str, .continues = false } } },
+            );
         } else {
-            //unreachable;
-            try itr.resolved.appendBounded(.{ .parsed = .{ .path = .{
-                .str = str,
-                .continues = false,
-            } } });
-            //if (Parser.glob(str)) |names| {
+            try itr.resolved.appendBounded(
+                .{ .parsed = .{ .glob = .{ .str = str, .continues = false } } },
+            );
+            //if (Resolver.glob(str)) |names| {
             //    for (names) |name| {
             //        if (!startsWith(u8, str, ".") and startsWith(u8, name, ".")) {
             //            continue;
@@ -406,9 +414,7 @@ pub const Iterator = struct {
     }
 };
 
-pub const Parser = struct {
-    alloc: Allocator,
-
+pub const Resolver = struct {
     pub fn iterate(a: Allocator, tokens: []Token) !Iterator {
         var start: usize = 0;
         while (tokens[start].kind == .ws) : (start += 1) {}
@@ -445,31 +451,20 @@ pub const Parser = struct {
             .word, .path => return try word(token),
             .subp => {
                 return .{ .parsed = .{
-                    .subcommand = .{
-                        .str = token.str,
-                    },
+                    .subcommand = .{ .str = token.str },
                 } };
             },
             else => {
                 switch (token.str[0]) {
                     '$' => return .{ .parsed = .{
-                        .dollar = .{
-                            .str = token.str,
-                        },
+                        .dollar = .{ .str = token.str },
                     } },
                     else => return .{ .parsed = .{
-                        .word = .{
-                            .str = token.str,
-                        },
+                        .word = .{ .str = token.str },
                     } },
                 }
             },
         }
-    }
-
-    fn resolve(token: Token) !Token {
-        _ = try alias(token);
-        return token;
     }
 
     fn alias(str: []const u8) ![]const u8 {
@@ -479,24 +474,14 @@ pub const Parser = struct {
     fn word(t: Token) !Arg {
         if (findScalar(u8, t.str, '\\')) |_| {
             std.debug.assert(t.resolved == null);
-            return .{ .parsed = .{ .fmt_str = .{
-                .str = t.str,
-            } } };
+            return .{ .parsed = .{ .fmt_str = .{ .str = t.str } } };
         }
 
         if (t.str[0] == '~' or findScalar(u8, t.str, '/') != null) {
-            return .{ .parsed = .{
-                .path = .{
-                    .str = t.str,
-                },
-            } };
+            return .{ .parsed = .{ .path = .{ .str = t.str } } };
         }
 
-        return .{ .parsed = .{
-            .word = .{
-                .str = t.str,
-            },
-        } };
+        return .{ .parsed = .{ .word = .{ .str = t.str } } };
     }
 
     /// Caller owns memory for both list of names, and each name
@@ -510,8 +495,11 @@ pub const Parser = struct {
     }
 
     /// Caller owns memory for both list of names, and each name
-    fn glob(a: Allocator, str: []const u8) ![][]u8 {
-        return Fs.globCwd(a, str) catch @panic("this error not implemented");
+    fn glob(str: []const u8, a: Allocator, io: Io) [][]u8 {
+        return if (eql(u8, str, ".*"))
+            Fs.globCwd(str, .include_dot, a, io) catch @panic("this error not implemented")
+        else
+            Fs.globCwd(str, .default, a, io) catch @panic("this error not implemented");
     }
 
     fn variable(str: []const u8, a: Allocator) !Arg {
@@ -534,7 +522,7 @@ pub const Parser = struct {
         }
     }
 
-    fn path(str: []const u8, a: Allocator) !Arg {
+    fn path(str: []const u8, a: Allocator, _: Io) !Arg {
         if (str[0] == '~' and (str.len == 1 or str[1] == '/')) {
             var list: ArrayList(u8) = .{};
             if (Variables.get("HOME")) |v| {
@@ -586,8 +574,8 @@ pub const Parser = struct {
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;
-const eql = std.mem.eql;
 const expectEqualStrings = std.testing.expectEqualStrings;
+const expectEqualDeep = std.testing.expectEqualDeep;
 
 test "iterator nows" {
     var a = std.testing.allocator;
@@ -597,9 +585,8 @@ test "iterator nows" {
     try t.consumes("\"this is some text\" more text");
     var itr = t.iterator();
     const ts = try itr.toSlice(a);
-    log.err("blerg {any}\n", .{ts});
     defer a.free(ts);
-    var ptr = try Parser.iterate(a, ts);
+    var ptr = try Resolver.iterate(a, ts);
     try ptr.resolveAll(a, undefined);
     defer ptr.raze(a);
     var i: usize = 0;
@@ -624,7 +611,7 @@ test "breaking" {
     try expectEqualStrings("la=", tokens[2].str);
     try expectEqualStrings("'ls -la'", tokens[3].str);
 
-    var itr = try Parser.iterate(a, tokens);
+    var itr = try Resolver.iterate(a, tokens);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
 
@@ -644,10 +631,10 @@ test "iterator alias is builtin" {
     const a = std.testing.allocator;
 
     var ts = [_]Token{
-        Token{ .kind = .word, .str = "alias" },
+        .make("alias", .word),
     };
 
-    var itr = try Parser.iterate(a, &ts);
+    var itr = try Resolver.iterate(a, &ts);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
     try expectEqualStrings("alias", itr.first().resolved.str);
@@ -661,12 +648,12 @@ test "iterator aliased" {
     Alias.testingAdd("la", "ls -la", a);
 
     var ts = [_]Token{
-        Token{ .kind = .word, .str = "la" },
-        Token{ .kind = .ws, .str = " " },
-        Token{ .kind = .word, .str = "src" },
+        .make("la", .word),
+        .make(" ", .ws),
+        .make("src", .word),
     };
 
-    var itr = try Parser.iterate(a, &ts);
+    var itr = try Resolver.iterate(a, &ts);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
 
@@ -684,12 +671,12 @@ test "iterator aliased self" {
     Alias.testingAdd("la", "ls -la", a);
 
     var ts = [_]Token{
-        Token{ .kind = .word, .str = "la" },
-        Token{ .kind = .ws, .str = " " },
-        Token{ .kind = .word, .str = "src" },
+        .make("la", .word),
+        .make(" ", .ws),
+        .make("src", .word),
     };
 
-    var itr = try Parser.iterate(a, &ts);
+    var itr = try Resolver.iterate(a, &ts);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
     try expectEqualStrings("ls", itr.first().resolved.str);
@@ -706,12 +693,12 @@ test "iterator aliased recurse" {
     Alias.testingAdd("ls", "ls --color=auto", a);
 
     var ts = [_]Token{
-        Token{ .kind = .word, .str = "la" },
-        Token{ .kind = .ws, .str = " " },
-        Token{ .kind = .word, .str = "src" },
+        .make("la", .word),
+        .make(" ", .ws),
+        .make("src", .word),
     };
 
-    var itr = try Parser.iterate(a, &ts);
+    var itr = try Resolver.iterate(a, &ts);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
     const first = itr.first().resolved.str;
@@ -726,22 +713,16 @@ test "parse vars" {
     const a = std.testing.allocator;
 
     var ts = [5]Token{
-        try Token.any("echo"),
-        try Token.any(" "),
-        try Token.any("$string"),
-        try Token.any(" "),
-        try Token.any("blerg"),
+        try .any("echo"),
+        try .any(" "),
+        try .any("$string"),
+        try .any(" "),
+        try .any("blerg"),
     };
 
-    var itr = try Parser.iterate(a, &ts);
+    var itr = try Resolver.iterate(a, &ts);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
-    var i: usize = 0;
-    while (itr.next()) |_| {
-        //std.debug.print("{}\n", .{t_});
-        i += 1;
-    }
-    try expectEqual(i, 3);
     const first = itr.first().resolved.str;
     try expectEqualStrings("echo", first);
     try expectEqualStrings("", itr.next().?.resolved.str);
@@ -751,60 +732,42 @@ test "parse vars" {
 
 test "parse vars existing" {
     const a = std.testing.allocator;
+    Variables.init(a);
+    defer Variables.raze(a);
+    try Variables.put("string", "correct", a);
+    try expectEqualStrings("correct", Variables.get("string").?);
 
-    var ts = [3]Token{
+    var ts: [3]Token = .{
         try Token.any("echo"),
         try Token.any("$string"),
         try Token.any("blerg"),
     };
 
-    Variables.init(a);
-    defer Variables.raze(a);
-
-    try Variables.put("string", "correct", a);
-
-    try expectEqualStrings("correct", Variables.get("string").?);
-
-    var itr = try Parser.iterate(a, &ts);
+    var itr = try Resolver.iterate(a, &ts);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
-    var i: usize = 0;
-    while (itr.next()) |t_| {
-        if (true) std.debug.print("{s}\n", .{t_.resolved.str});
-        i += 1;
-    }
-    const first = itr.first().resolved.str;
-    try expectEqualStrings("echocorrectblerg", first);
-    try expect(itr.next() == null);
+    try expectEqualStrings("echocorrectblerg", itr.first().resolved.str);
+    try expectEqual(null, itr.next());
 }
 
 test "parse vars existing with white space" {
     const a = std.testing.allocator;
-
-    var ts = [5]Token{
-        try Token.any("echo"),
-        try Token.any(" "),
-        try Token.any("$string"),
-        try Token.any(" "),
-        try Token.any("blerg"),
-    };
-
     Variables.init(a);
     defer Variables.raze(a);
-
     try Variables.put("string", "correct", a);
-
     try expectEqualStrings("correct", Variables.get("string").?);
 
-    var itr = try Parser.iterate(a, &ts);
+    var ts = [5]Token{
+        try .any("echo"),
+        try .any(" "),
+        try .any("$string"),
+        try .any(" "),
+        try .any("blerg"),
+    };
+
+    var itr = try Resolver.iterate(a, &ts);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
-    var i: usize = 0;
-    while (itr.next()) |_| {
-        //std.debug.print("{}\n", .{t_});
-        i += 1;
-    }
-    try expectEqual(i, 3);
     const first = itr.first().resolved.str;
     try expectEqualStrings("echo", first);
     var tst = itr.next().?;
@@ -815,32 +778,19 @@ test "parse vars existing with white space" {
 
 test "parse vars existing braces" {
     var a = std.testing.allocator;
-
-    var ti = TokenIterator{
-        .raw = "echo ${string}extra blerg",
-    };
-
     Variables.init(a);
     defer Variables.raze(a);
-
     try Variables.put("string", "value", a);
-
     try expectEqualStrings("value", Variables.get("string").?);
 
+    var ti = TokenIterator{ .raw = "echo ${string}extra blerg" };
     const slice = try ti.toSlice(a);
     defer a.free(slice);
-    var itr = try Parser.iterate(a, slice);
+    var itr = try Resolver.iterate(a, slice);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
-    var i: usize = 0;
-    while (itr.next()) |_| {
-        //std.debug.print("{}\n", .{t});
-        i += 1;
-    }
-    try expectEqual(i, 3);
     const first = itr.first().resolved.str;
     try expectEqualStrings("echo", first);
-
     try expectEqualStrings("valueextra", itr.next().?.resolved.str);
     try expectEqualStrings("blerg", itr.next().?.resolved.str);
     try expect(itr.next() == null);
@@ -861,39 +811,28 @@ test "parse vars existing braces inline" {
 
     const slice = try ti.toSlice(a);
     defer a.free(slice);
-    var itr = try Parser.iterate(a, slice);
+    var itr = try Resolver.iterate(a, slice);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
-    var i: usize = 0;
-    while (itr.next()) |_| {
-        //std.debug.print("{}\n", .{t});
-        i += 1;
-    }
-    try expectEqual(i, 3);
     const first = itr.first().resolved.str;
     try expectEqualStrings("echo", first);
-
     try expectEqualStrings("extravalue", itr.next().?.resolved.str);
     try expectEqualStrings("blerg", itr.next().?.resolved.str);
-    try expect(itr.next() == null);
+    try expectEqual(null, itr.next());
 }
 
 test "parse vars existing braces inline both" {
     var a = std.testing.allocator;
-
-    var ti = TokenIterator{
-        .raw = "echo extra${string}thingy blerg",
-    };
-
     Variables.init(a);
     defer Variables.raze(a);
     try Variables.put("string", "value", a);
 
     try expectEqualStrings("value", Variables.get("string").?);
 
+    var ti = TokenIterator{ .raw = "echo extra${string}thingy blerg" };
     const slice = try ti.toSlice(a);
     defer a.free(slice);
-    var itr = try Parser.iterate(a, slice);
+    var itr = try Resolver.iterate(a, slice);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
     var i: usize = 0;
@@ -914,14 +853,14 @@ test "parse dollar dollar bills y'all" {
     const a = std.testing.allocator;
 
     var tkns = [_]Token{
-        Token.make("echo", .word),
-        Token.make(" ", .ws),
-        Token.make("$!", .vari),
-        Token.make(" ", .ws),
-        Token.make("other", .word),
+        .make("echo", .word),
+        .make(" ", .ws),
+        .make("$!", .vari),
+        .make(" ", .ws),
+        .make("other", .word),
     };
 
-    var itr = try Parser.iterate(a, &tkns);
+    var itr = try Resolver.iterate(a, &tkns);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
 
@@ -934,14 +873,14 @@ test "parse dollar dollar bills y'all" {
 
     itr.raze(a);
     tkns = [_]Token{
-        Token.make("echo", .word),
-        Token.make(" ", .ws),
-        try Token.quoteSingle("'$!'"),
-        Token.make(" ", .ws),
-        Token.make("other", .word),
+        .make("echo", .word),
+        .make(" ", .ws),
+        try .quoteSingle("'$!'"),
+        .make(" ", .ws),
+        .make("other", .word),
     };
 
-    itr = try Parser.iterate(a, &tkns);
+    itr = try Resolver.iterate(a, &tkns);
     try itr.resolveAll(a, undefined);
     // $! not supported yet
     //try std.testing.expect(std.mem.indexOf(u8, itr.next().?.resolved.str, "!") == null);
@@ -951,116 +890,84 @@ test "parse dollar dollar bills y'all" {
 
     itr.raze(a);
     tkns = [_]Token{
-        Token.make("echo", .word),
-        Token.make(" ", .ws),
-        try Token.quoteDouble("\"$!\""),
-        Token.make(" ", .ws),
-        Token.make("other", .word),
+        .make("echo", .word),
+        .make(" ", .ws),
+        try .quoteDouble("\"$!\""),
+        .make(" ", .ws),
+        .make("other", .word),
     };
 
-    itr = try Parser.iterate(a, &tkns);
+    itr = try Resolver.iterate(a, &tkns);
     try itr.resolveAll(a, undefined);
-    try std.testing.expectEqualStrings("echo", itr.next().?.resolved.str);
-    try std.testing.expectEqualStrings("$!", itr.next().?.resolved.str);
-    try std.testing.expectEqualStrings("other", itr.next().?.resolved.str);
-    try std.testing.expectEqual(null, itr.next());
+    try expectEqualStrings("echo", itr.next().?.resolved.str);
+    try expectEqualStrings("$!", itr.next().?.resolved.str);
+    try expectEqualStrings("other", itr.next().?.resolved.str);
+    try expectEqual(null, itr.next());
 }
 
 test "parse path" {
     var a = std.testing.allocator;
 
-    var ti = TokenIterator{
-        .raw = "ls ~",
-    };
-
+    var ti = TokenIterator{ .raw = "ls ~" };
     const slice = try ti.toSlice(a);
     defer a.free(slice);
-    var itr = try Parser.iterate(a, slice);
+    var itr = try Resolver.iterate(a, slice);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
 
-    var i: usize = 0;
-    while (itr.next()) |_| {
-        //std.debug.print("{}\n", .{t});
-        i += 1;
-    }
-    try expectEqual(2, i);
+    // Home is not set up, so don't resolve
     const first = itr.first().resolved.str;
     try expectEqualStrings("ls", first);
-
+    try expectEqual(.path, itr.peek().?.resolved.construct);
     try expectEqualStrings("~", itr.next().?.resolved.str);
     try expect(itr.next() == null);
 }
 
 test "parse path ~" {
     var a = std.testing.allocator;
-
-    var ti = TokenIterator{
-        .raw = "ls ~",
-    };
-
     Variables.init(a);
     defer Variables.raze(a);
     try Variables.put("HOME", "/home/user", a);
 
+    var ti = TokenIterator{ .raw = "ls ~" };
     const slice = try ti.toSlice(a);
     defer a.free(slice);
-    var itr = try Parser.iterate(a, slice);
+    var itr = try Resolver.iterate(a, slice);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
 
-    var i: usize = 0;
-    while (itr.next()) |_| {
-        //std.debug.print("{}\n", .{t_});
-        i += 1;
-    }
-    try expectEqual(2, i);
     const first = itr.first().resolved.str;
     try expectEqualStrings("ls", first);
-
-    var thing = itr.next();
-    //try std.testing.expect(thing.?.kind == .path);
-    try expectEqualStrings("/home/user", thing.?.resolved.str);
-    try std.testing.expect(itr.next() == null);
+    try expectEqual(.path, itr.peek().?.resolved.construct);
+    try expectEqualStrings("/home/user", itr.next().?.resolved.str);
+    try expect(itr.next() == null);
 }
 
 test "parse path ~/" {
     var a = std.testing.allocator;
-
-    var ti = TokenIterator{
-        .raw = "ls ~/",
-    };
-
     Variables.init(a);
     defer Variables.raze(a);
     try Variables.put("HOME", "/home/user", a);
 
+    var ti = TokenIterator{ .raw = "ls ~/" };
     const slice = try ti.toSlice(a);
     defer a.free(slice);
-    var itr = try Parser.iterate(a, slice);
+    var itr = try Resolver.iterate(a, slice);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
 
-    var i: usize = 0;
-    while (itr.next()) |_| {
-        //std.debug.print("{}\n", .{t_});
-        i += 1;
-    }
-    try expectEqual(i, 2);
     const first = itr.first().resolved.str;
     try expectEqualStrings("ls", first);
 
-    //try std.testing.expect(thing.?.kind == .path);
+    try expectEqual(.path, itr.peek().?.resolved.construct);
     try expectEqualStrings("/home/user/", itr.next().?.resolved.str);
-    try std.testing.expectEqual(null, itr.next());
+    try expectEqual(null, itr.next());
 }
 
 test "parse path ~/place" {
     var a = std.testing.allocator;
 
-    var ti = TokenIterator{
-        .raw = "ls ~/place",
-    };
+    var ti = TokenIterator{ .raw = "ls ~/place" };
 
     Variables.init(a);
     defer Variables.raze(a);
@@ -1068,23 +975,16 @@ test "parse path ~/place" {
 
     const slice = try ti.toSlice(a);
     defer a.free(slice);
-    var itr = try Parser.iterate(a, slice);
+    var itr = try Resolver.iterate(a, slice);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
 
-    var i: usize = 0;
-    while (itr.next()) |_| {
-        //std.debug.print("{}\n", .{t});
-        i += 1;
-    }
-    try expectEqual(i, 2);
     const first = itr.first().resolved.str;
     try expectEqualStrings("ls", first);
 
-    var tst = itr.next();
-    //try std.testing.expect(tst.?.kind == .path);
-    try expectEqualStrings("/home/user/place", tst.?.resolved.str);
-    try std.testing.expect(itr.next() == null);
+    try expectEqual(.path, itr.peek().?.resolved.construct);
+    try expectEqualStrings("/home/user/place", itr.next().?.resolved.str);
+    try expectEqual(null, itr.next());
 }
 
 test "parse path /~/otherplace" {
@@ -1098,30 +998,20 @@ test "parse path /~/otherplace" {
     defer a.free(slice);
     try std.testing.expectEqual(3, slice.len);
 
-    var itr = try Parser.iterate(a, slice);
+    var itr = try Resolver.iterate(a, slice);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
 
-    var i: usize = 0;
-    while (itr.next()) |_| {
-        //std.debug.print("{}\n", .{t});
-        i += 1;
-    }
-    try expectEqual(i, 2);
-    const first = itr.first().resolved.str;
-    try expectEqualStrings("ls", first);
+    try expectEqualStrings("ls", itr.first().resolved.str);
 
-    var tst = itr.next();
-    //try std.testing.expect(tst.?.kind == .path);
-    try expectEqualStrings("/~/otherplace", tst.?.resolved.str);
-    try std.testing.expect(itr.next() == null);
+    try expectEqual(.path, itr.peek().?.resolved.construct);
+    try expectEqualStrings("/~/otherplace", itr.next().?.resolved.str);
+    try expectEqual(null, itr.next());
 }
 
 test "glob" {
     var a = std.testing.allocator;
     const io = std.testing.io;
-
-    if (true) return error.SkipZigTest;
 
     var tmpCwd = std.testing.tmpDir(.{ .iterate = true });
     defer tmpCwd.cleanup();
@@ -1132,52 +1022,48 @@ test "glob" {
     _ = try tmpCwd.dir.createFile(io, "no_wai", .{});
     _ = try tmpCwd.dir.createFile(io, "ya-wai", .{});
     var di = tmpCwd.dir.iterate();
+    const olddir = try std.Io.Dir.cwd().openDir(io, ".", .{});
+    defer std.process.setCurrentDir(io, olddir) catch @panic("this test crashed the file system :/ sorry!");
+    try std.process.setCurrentDir(io, tmpCwd.dir);
 
-    var names = std.array_list.Managed([]u8).init(a);
-
+    var names: ArrayList([]u8) = .{};
+    defer names.deinit(a);
     while (try di.next(io)) |each| {
+        // default glob should exclude dots
         if (each.name[0] == '.') continue;
-        try names.append(try a.dupe(u8, each.name));
+        try names.append(a, try a.dupe(u8, each.name));
     }
-    try std.testing.expectEqual(@as(usize, 5), names.items.len);
+    try expectEqual(5, names.items.len);
 
-    var ti = TokenIterator{
-        .raw = "echo *",
-    };
+    var ti = TokenIterator{ .raw = "echo *" };
 
     const slice = try ti.toSlice(a);
     defer a.free(slice);
-    var itr = try Parser.iterate(a, slice);
-    try itr.resolveAll(a, undefined);
+    var itr = try Resolver.iterate(a, slice);
+    try itr.resolveAll(a, io);
     defer itr.raze(a);
 
-    var count: usize = 0;
-    while (itr.next()) |next| {
-        count += 1;
-        _ = next;
-    }
-    try std.testing.expectEqual(@as(usize, 6), count);
-
-    try std.testing.expectEqualStrings("echo", itr.first().resolved.str);
+    try expectEqualStrings("echo", itr.first().resolved.str);
     found: while (itr.next()) |next| {
         if (names.items.len == 0) return error.TestingSizeMismatch;
         for (names.items, 0..) |name, i| {
-            if (std.mem.eql(u8, name, next.resolved.str)) {
+            if (eql(u8, name, next.resolved.str)) {
                 a.free(names.swapRemove(i));
                 continue :found;
             }
-        } else return error.TestingUnmatchedName;
+        } else {
+            std.debug.print("unmatched path {s}\n", .{next.resolved.str});
+            for (names.items) |n| std.debug.print("unmatched name {s}\n", .{n});
+            return error.TestingUnmatchedName;
+        }
     }
-    try std.testing.expect(names.items.len == 0);
-    try std.testing.expect(itr.next() == null);
-    names.clearAndFree();
+    try expectEqual(0, names.items.len);
+    try expectEqual(null, itr.next());
 }
 
-test "glob ." {
+test "glob .*" {
     var a = std.testing.allocator;
     const io = std.testing.io;
-
-    if (true) return error.SkipZigTest;
 
     var tmpCwd = std.testing.tmpDir(.{ .iterate = true });
     defer tmpCwd.cleanup();
@@ -1186,30 +1072,22 @@ test "glob ." {
     _ = try tmpCwd.dir.createFile(io, "no_wai", .{});
     _ = try tmpCwd.dir.createFile(io, "ya-wai", .{});
     var di = tmpCwd.dir.iterate();
+    const olddir = try std.Io.Dir.cwd().openDir(io, ".", .{});
+    defer std.process.setCurrentDir(io, olddir) catch @panic("this test crashed the file system :/ sorry!");
+    try std.process.setCurrentDir(io, tmpCwd.dir);
 
-    var names = std.array_list.Managed([]u8).init(a);
+    var names: ArrayList([]u8) = .{};
+    while (try di.next(io)) |each| try names.append(a, try a.dupe(u8, each.name));
+    try expectEqual(4, names.items.len);
+    defer names.deinit(a);
 
-    while (try di.next(io)) |each| {
-        try names.append(try a.dupe(u8, each.name));
-    }
-    try std.testing.expectEqual(@as(usize, 4), names.items.len);
-
-    var ti = TokenIterator{
-        .raw = "echo .* *",
-    };
+    var ti = TokenIterator{ .raw = "echo .* *" };
 
     const slice = try ti.toSlice(a);
     defer a.free(slice);
-    var itr = try Parser.iterate(a, slice);
-    try itr.resolveAll(a, undefined);
+    var itr = try Resolver.iterate(a, slice);
+    try itr.resolveAll(a, io);
     defer itr.raze(a);
-
-    var count: usize = 0;
-    while (itr.next()) |next| {
-        count += 1;
-        _ = next;
-    }
-    try std.testing.expectEqual(@as(usize, 5), count);
 
     try std.testing.expectEqualStrings("echo", itr.first().resolved.str);
     found: while (itr.next()) |next| {
@@ -1219,57 +1097,48 @@ test "glob ." {
                 a.free(names.swapRemove(i));
                 continue :found;
             }
-        } else return error.TestingUnmatchedName;
+        } else {
+            std.debug.print("unmatched path '{s}'\n", .{next.resolved.str});
+            for (names.items) |n| std.debug.print("unmatched name '{s}'\n", .{n});
+            return error.TestingUnmatchedName;
+        }
     }
-    try std.testing.expect(names.items.len == 0);
-    try std.testing.expect(itr.next() == null);
-    names.clearAndFree();
+    try expectEqual(0, names.items.len);
+    try expectEqual(null, itr.next());
 }
 
 test "glob ~/*" {
+    if (true) return error.SkipZigTest;
     var a = std.testing.allocator;
     const io = std.testing.io;
-
-    if (true) return error.SkipZigTest;
-
-    Variables.init(a);
-    defer Variables.raze(a);
 
     var tmpCwd = std.testing.tmpDir(.{ .iterate = true });
     defer tmpCwd.cleanup();
     const baseCwd = try tmpCwd.dir.realPathFileAlloc(io, ".", a);
     defer a.free(baseCwd);
 
-    _ = try tmpCwd.dir.createFile(io, "blerg", .{});
-
+    Variables.init(a);
+    defer Variables.raze(a);
     try Variables.put("HOME", baseCwd, a);
 
+    _ = try tmpCwd.dir.createFile(io, "blerg", .{});
+
     var di = tmpCwd.dir.iterate();
-    var names = std.array_list.Managed([]u8).init(a);
+    var names: ArrayList([]u8) = .{};
+    defer names.deinit(a);
 
     while (try di.next(io)) |each| {
         if (each.name[0] == '.') continue;
-        try names.append(try a.dupe(u8, each.name));
+        try names.append(a, try a.dupe(u8, each.name));
     }
-    errdefer {
-        for (names.items) |each| a.free(each);
-        names.clearAndFree();
-    }
+    errdefer for (names.items) |each| a.free(each);
 
     var ti = TokenIterator{ .raw = "echo ~/* " };
-
     const slice = try ti.toSlice(a);
     defer a.free(slice);
-    var itr = try Parser.iterate(a, slice);
+    var itr = try Resolver.iterate(a, slice);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
-
-    var count: usize = 0;
-    while (itr.next()) |next| {
-        count += 1;
-        log.debug("loop {s} {any}\n", .{ next.resolved.str, next.kind });
-    }
-    try std.testing.expectEqual(names.items.len + 1, count);
 
     try std.testing.expectEqualStrings("echo", itr.first().resolved.str);
     found: while (itr.next()) |next| {
@@ -1280,13 +1149,13 @@ test "glob ~/*" {
                 continue :found;
             }
         } else {
-            std.debug.print("unmatched {s}\n", .{next.resolved.str});
+            std.debug.print("unmatched path '{s}'\n", .{next.resolved.str});
+            for (names.items) |n| std.debug.print("unmatched name '{s}'\n", .{n});
             return error.TestingUnmatchedName;
         }
     }
-    try std.testing.expect(names.items.len == 0);
-    try std.testing.expect(itr.next() == null);
-    names.clearAndFree();
+    try expectEqual(0, names.items.len);
+    try expectEqual(null, itr.next());
 }
 
 test "escapes" {
@@ -1298,10 +1167,10 @@ test "escapes" {
 
     const slice = try t.toSlice(a);
     defer a.free(slice);
-    var itr = try Parser.iterate(a, slice);
+    var itr = try Resolver.iterate(a, slice);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
-    try std.testing.expectEqualStrings("one\\", itr.next().?.resolved.str);
+    try expectEqualStrings("one\\", itr.next().?.resolved.str);
 }
 
 test "escapes 2" {
@@ -1312,11 +1181,11 @@ test "escapes 2" {
     var slice = try t.toSlice(a);
     defer a.free(slice);
 
-    try std.testing.expectEqualDeep(Token{ .str = "--inline=escaped", .kind = .word }, slice[0]);
-    try std.testing.expectEqualDeep(Token{ .str = "\\ ", .kind = .{ .escp = ' ' } }, slice[1]);
-    try std.testing.expectEqualDeep(Token{ .str = "string", .kind = .word }, slice[2]);
+    try expectEqualDeep(Token{ .str = "--inline=escaped", .kind = .word }, slice[0]);
+    try expectEqualDeep(Token{ .str = "\\ ", .kind = .{ .escp = ' ' } }, slice[1]);
+    try expectEqualDeep(Token{ .str = "string", .kind = .word }, slice[2]);
 
-    var itr = try Parser.iterate(a, slice);
+    var itr = try Resolver.iterate(a, slice);
     try itr.resolveAll(a, undefined);
     defer itr.raze(a);
     try expectEqualStrings("--inline=escaped string", itr.next().?.resolved.str);
@@ -1327,13 +1196,13 @@ test "sub process" {
 
     var t = TokenIterator{ .raw = "which $(echo 'ls')" };
     var first = t.first();
-    try std.testing.expectEqualStrings("which", first.str);
-    try std.testing.expectEqualStrings(" ", t.next().?.str);
+    try expectEqualStrings("which", first.str);
+    try expectEqualStrings(" ", t.next().?.str);
 
-    try std.testing.expectEqualStrings("$(echo 'ls')", t.next().?.str);
+    try expectEqualStrings("$(echo 'ls')", t.next().?.str);
 
     // TODO build a better test harness for this
-    // var p = try Parser.single(&a, @constCast(next));
+    // var p = try Resolver.single(&a, @constCast(next));
     // try std.testing.expectEqualStrings("ls", p.str);
     // a.free(p.resolved.?);
 }
@@ -1347,7 +1216,7 @@ test "naughty strings parsed" {
     const slice = try itr.toSlice(a);
     defer a.free(slice);
 
-    var pitr = try Parser.iterate(a, slice);
+    var pitr = try Resolver.iterate(a, slice);
     try pitr.resolveAll(a, undefined);
     defer pitr.raze(a);
 
@@ -1358,12 +1227,12 @@ test "naughty strings parsed" {
     //std.debug.print("debug {}\n", .{pitr.next().?});
     //pitr.restart();
 
-    try std.testing.expectEqualStrings("thingy", pitr.next().?.resolved.str);
-    try std.testing.expectEqualStrings("(b.argv.next())", pitr.next().?.resolved.str);
-    try std.testing.expectEqual(.op_mode, pitr.next().?.resolved.construct);
-    try std.testing.expectEqualStrings("_", pitr.next().?.resolved.str);
-    try std.testing.expectEqual(.op_mode, pitr.next().?.resolved.construct);
-    try std.testing.expectEqualStrings("{}", pitr.next().?.resolved.str);
+    try expectEqualStrings("thingy", pitr.next().?.resolved.str);
+    try expectEqualStrings("(b.argv.next())", pitr.next().?.resolved.str);
+    try expectEqual(.op_mode, pitr.next().?.resolved.construct);
+    try expectEqualStrings("_", pitr.next().?.resolved.str);
+    try expectEqual(.op_mode, pitr.next().?.resolved.construct);
+    try expectEqualStrings("{}", pitr.next().?.resolved.str);
 }
 
 test "comment" {
@@ -1371,37 +1240,37 @@ test "comment" {
     var tkn_itr = TokenIterator{ .raw = "# comment" };
     const slice = try tkn_itr.toSlice(a);
     defer a.free(slice);
-    try std.testing.expectEqualStrings("# comment", slice[0].str);
-    try std.testing.expectEqual(slice[0].kind, .comment);
+    try expectEqualStrings("# comment", slice[0].str);
+    try expectEqual(slice[0].kind, .comment);
 
-    var pitr = try Parser.iterate(a, slice);
+    var pitr = try Resolver.iterate(a, slice);
     try pitr.resolveAll(a, undefined);
     defer pitr.raze(a);
-    try std.testing.expectEqual(null, pitr.next());
+    try expectEqual(null, pitr.next());
 }
 
 test "comment 2" {
     var a = std.testing.allocator;
     var tkn_itr = Token.Iterator{ .raw = " echo #comment\ncd home" };
-    try std.testing.expectEqualStrings(" ", tkn_itr.next().?.str);
-    try std.testing.expectEqualStrings("echo", tkn_itr.next().?.str);
-    try std.testing.expectEqualStrings(" ", tkn_itr.next().?.str);
-    try std.testing.expectEqualStrings("#comment", tkn_itr.next().?.str);
-    try std.testing.expectEqualStrings("\n", tkn_itr.next().?.str);
-    try std.testing.expectEqualStrings("cd", tkn_itr.next().?.str);
-    try std.testing.expectEqualStrings(" ", tkn_itr.next().?.str);
-    try std.testing.expectEqualStrings("home", tkn_itr.next().?.str);
+    try expectEqualStrings(" ", tkn_itr.next().?.str);
+    try expectEqualStrings("echo", tkn_itr.next().?.str);
+    try expectEqualStrings(" ", tkn_itr.next().?.str);
+    try expectEqualStrings("#comment", tkn_itr.next().?.str);
+    try expectEqualStrings("\n", tkn_itr.next().?.str);
+    try expectEqualStrings("cd", tkn_itr.next().?.str);
+    try expectEqualStrings(" ", tkn_itr.next().?.str);
+    try expectEqualStrings("home", tkn_itr.next().?.str);
     tkn_itr.restart();
     const slice = try tkn_itr.toSlice(a);
     defer a.free(slice);
 
-    var pitr = try Parser.iterate(a, slice);
+    var pitr = try Resolver.iterate(a, slice);
     try pitr.resolveAll(a, undefined);
     defer pitr.raze(a);
-    try std.testing.expectEqualStrings("echo", pitr.next().?.resolved.str);
-    try std.testing.expectEqualStrings("cd", pitr.next().?.resolved.str);
-    try std.testing.expectEqualStrings("home", pitr.next().?.resolved.str);
-    try std.testing.expect(null == pitr.next());
+    try expectEqualStrings("echo", pitr.next().?.resolved.str);
+    try expectEqualStrings("cd", pitr.next().?.resolved.str);
+    try expectEqualStrings("home", pitr.next().?.resolved.str);
+    try expect(null == pitr.next());
 }
 
 const std = @import("std");
@@ -1423,3 +1292,4 @@ const find = std.mem.find;
 const findScalar = std.mem.findScalar;
 const startsWith = std.mem.startsWith;
 const concat = std.mem.concat;
+const eql = std.mem.eql;

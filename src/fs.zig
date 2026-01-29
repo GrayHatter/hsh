@@ -223,38 +223,40 @@ pub fn reCreate(name: []const u8, io: Io) ?File {
     return fileAt(Dir.cwd(), name, io, .create, .read_only, true);
 }
 
-pub fn globCwd(search: []const u8, a: Allocator, io: Io) ![][]u8 {
+pub const GlobRule = enum {
+    default,
+    include_dot,
+};
+
+pub fn globCwd(search: []const u8, rule: GlobRule, a: Allocator, io: Io) ![][]u8 {
     var dir = try Dir.cwd().openDir(io, ".", .{ .iterate = true });
     defer dir.close(io);
-    return globAt(dir, search, a, io);
+    return globAt(dir, search, rule, a, io);
 }
 
-pub fn globAt(dir: Dir, search: []const u8, a: Allocator, io: Io) ![][]u8 {
+pub fn globAt(dir: Dir, search: []const u8, rule: GlobRule, a: Allocator, io: Io) ![][]u8 {
     // TODO multi space glob
     std.debug.assert(std.mem.count(u8, search, "*") == 1);
-    var split = std.mem.splitScalar(u8, search, '*');
-    const before = split.first();
-    const after = split.rest();
+    const idx = findScalar(u8, search, '*').?;
+    const before = search[0..idx];
+    const after = search[idx + 1 ..];
     var itr = dir.iterate();
 
-    var names = try a.alloc([]u8, 10);
-    errdefer a.free(names);
+    var names: ArrayList([]u8) = try .initCapacity(a, 20);
+    errdefer names.deinit(a);
+    errdefer for (names.items) |itm| a.free(itm);
 
     // TODO leaks if error in the middle of iteration
-    var count: usize = 0;
     while (try itr.next(io)) |entry| {
-        if (!std.mem.startsWith(u8, entry.name, before)) continue;
-        if (!std.mem.endsWith(u8, entry.name, after)) continue;
-        names[count] = try a.dupe(u8, entry.name);
-        count +|= 1;
-        if (count >= names.len) {
-            if (!a.resize(names, names.len * 2)) {
-                names = try a.realloc(names, names.len * 2);
-            } else names.len *|= 2;
+        switch (rule) {
+            .default => if (entry.name.len == 0 or entry.name[0] == '.') continue,
+            .include_dot => {},
         }
+        if (!startsWith(u8, entry.name, before)) continue;
+        if (!endsWith(u8, entry.name, after)) continue;
+        try names.append(a, try a.dupe(u8, entry.name));
     }
-    if (!a.resize(names, count)) @panic("unable to downsize names");
-    return names[0..count];
+    return names.toOwnedSlice(a);
 }
 
 /// Caller owns returned file
@@ -355,6 +357,9 @@ const File = std.Io.File;
 const Dir = std.Io.Dir;
 const Environ = std.process.Environ;
 const eql = std.mem.eql;
+const findScalar = std.mem.findScalar;
+const startsWith = std.mem.startsWith;
+const endsWith = std.mem.endsWith;
 const log = @import("log.zig");
 const INotify = @import("inotify.zig");
 const Hsh = @import("hsh.zig");

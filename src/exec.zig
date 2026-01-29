@@ -63,7 +63,7 @@ pub fn execFromInput(str: []const u8, a: Allocator, _: Io) ![]u8 {
     var itr = TokenIterator{ .raw = str };
     const tokens = try itr.toSlice(a);
     defer a.free(tokens);
-    var ps = try Parser.iterate(a, tokens);
+    var ps = try Resolver.iterate(a, tokens);
     defer ps.raze(a);
     return a.dupe(u8, ps.first().resolved.str);
 }
@@ -120,7 +120,7 @@ pub fn makeAbsExecutable(str: []const u8, a: Allocator, io: Io) Error![]u8 {
         if (!validPath(str, io)) return Error.ExeNotFound;
         var cwd: [2048]u8 = undefined;
         var cwd_fd = std.Io.Dir.cwd().openDir(io, ".", .{ .iterate = true }) catch return error.Unknown;
-        log.err("path abs {}\n", .{cwd_fd});
+        log.debug("path abs {}\n", .{cwd_fd});
         const length = cwd_fd.realPath(io, &cwd) catch return Error.NotFound;
         return try std.mem.join(a, "/", &[2][]const u8{ cwd[0..length], str });
     }
@@ -211,7 +211,7 @@ fn mkCallableStack(itr: *TokenIterator, a: Allocator, io: Io) Error![]CallableSt
 
         const eslice = itr.toSliceExec(a) catch unreachable;
         defer a.free(eslice);
-        var parsed = Parser.iterate(a, eslice) catch unreachable;
+        var parsed = Resolver.iterate(a, eslice) catch unreachable;
         try parsed.resolveAll(a, io);
         defer parsed.raze(a);
 
@@ -487,7 +487,7 @@ pub fn childParsed(argv: []const u8, h: *Hsh, a: Allocator, io: Io) Error!ChildR
     const slice = try itr.toSliceExec(a);
     defer a.free(slice);
 
-    var parsed = Parser.iterate(a, slice) catch return Error.Parse;
+    var parsed = Resolver.iterate(a, slice) catch return Error.Parse;
     defer parsed.raze(a);
     var list = ArrayListManaged([]const u8).init(a);
     while (parsed.next()) |p| {
@@ -614,7 +614,7 @@ const ArrayListManaged = std.array_list.Managed;
 const Token = @import("token.zig");
 const TokenIterator = Token.Iterator;
 const parse = @import("parse.zig");
-const Parser = parse.Parser;
+const Resolver = parse.Resolver;
 const ParsedIterator = parse.Iterator;
 const log = @import("log.zig");
 const fd_t = std.posix.fd_t;

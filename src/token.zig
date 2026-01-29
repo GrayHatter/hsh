@@ -379,7 +379,7 @@ pub fn brace(src: []const u8, close: u8) Error!Token {
 
     if (src[end - 1] != close) return Error.OpenGroup;
 
-    return Token{
+    return .{
         .str = src[0..end],
         .kind = .{ .brace = close },
     };

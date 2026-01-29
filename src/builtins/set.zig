@@ -178,12 +178,12 @@ test "set" {
     defer Vars.raze(a);
 
     var ts = [_]Token{
-        Token{ .kind = .word, .str = "set" },
-        Token{ .kind = .ws, .str = " " },
-        Token{ .kind = .word, .str = "-C" },
+        .make("set", .word),
+        .make(" ", .ws),
+        .make("-C", .word),
     };
 
-    var p = try Parse.Parser.iterate(a, &ts);
+    var p = try Parse.Resolver.iterate(a, &ts);
     try p.resolveAll(a, io);
     defer p.raze(a);
 
@@ -193,13 +193,13 @@ test "set" {
     try std.testing.expectEqualStrings("true", nc.?);
 
     ts = [_]Token{
-        Token{ .kind = .word, .str = "set" },
-        Token{ .kind = .ws, .str = " " },
-        Token{ .kind = .word, .str = "+C" },
+        .make("set", .word),
+        .make(" ", .ws),
+        .make("+C", .word),
     };
 
     p.raze(a);
-    p = try Parse.Parser.iterate(a, &ts);
+    p = try Parse.Resolver.iterate(a, &ts);
     try p.resolveAll(a, io);
 
     _ = try set(&p, a);
