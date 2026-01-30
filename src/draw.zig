@@ -54,8 +54,11 @@ pub const Style = struct {
     fg: ?Color = null,
     bg: ?Color = null,
 
-    pub const BoldGreen: Style = .{ .attr = .bold, .fg = .green };
-    pub const Green: Style = .{ .fg = .green };
+    pub const bold_green: Style = .{ .attr = .bold, .fg = .green };
+    pub const green: Style = .{ .fg = .green };
+    pub const bold_blue: Style = .{ .attr = .bold, .fg = .blue };
+    pub const red: Style = .{ .fg = .red };
+    pub const red_bg: Style = .{ .bg = .red };
 };
 
 pub const Lexeme = struct {

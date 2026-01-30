@@ -21,11 +21,10 @@ const Spinners = enum {
     };
 
     pub fn spin(s: Spinners, pos: usize) []const u8 {
-        const art = switch (s) {
-            .corners => glyphs.corners,
-            .dots2t3 => glyphs.dots,
+        return switch (s) {
+            .corners => glyphs.corners[pos % glyphs.corners.len],
+            .dots2t3 => glyphs.dots[pos % glyphs.dots.len],
         };
-        return art[pos % art.len];
     }
 };
 
@@ -57,12 +56,7 @@ fn userTextMultiline(_: Prompt, draw: *Draw, tkn: *Tokenizer) !void {
     const err = if (tkn.err_idx > 0) tkn.err_idx else tkn.raw.items.len;
     const good = tkn.raw.items[0..err];
     const bad = tkn.raw.items[err..];
-    draw.draw(.{
-        .siblings = &[_]Lexeme{
-            .str(good),
-            .styled(bad, .{ .bg = .red }),
-        },
-    });
+    draw.draw(.{ .siblings = &.{ .str(good), .styled(bad, .red_bg) } });
 }
 
 fn userText(_: Prompt, draw: *Draw, good: []const u8, bad: []const u8) !void {
@@ -75,13 +69,8 @@ fn userText(_: Prompt, draw: *Draw, good: []const u8, bad: []const u8) !void {
 fn prompt(p: Prompt, draw: *Draw.Drawable) !void {
     draw.draw(
         &[_]Lexeme{
-            .styled(p.username, .{
-                .attr = .bold,
-                .fg = .blue,
-            }),
-            .str("@"),
-            .str(p.hostname),
-            .str(p.cwd.*),
+            .styled(p.username, .bold_blue), .str(p.hostname),
+            .str(" "),                       .str(p.cwd.*),
             .str(p.brace),
         },
     );
@@ -90,10 +79,8 @@ fn prompt(p: Prompt, draw: *Draw.Drawable) !void {
 fn jobsContext(draw: *Draw, jobs: *const Jobs) !void {
     for (jobs) |j| {
         const lex = [_]Lexeme{
-            .str("[ "),
-            if (j.status == .background) .str(spinner(.dots2t3)) else .str("Z"),
-            .str(" "),
-            .str(j.name orelse "Unknown Job"),
+            .str("[ "), if (j.status == .background) .str(spinner(.dots2t3)) else .str("Z"),
+            .str(" "),  .str(j.name orelse "Unknown Job"),
             .str(" ]"),
         };
         draw.drawBefore(&lex);
