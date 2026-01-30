@@ -185,10 +185,7 @@ pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, addr: ?usize) noretur
         \\
     , .{});
     std.debug.print("\n\r\x1B[J", .{});
-    if (Tty.current_tty) |*t| {
-        Tty.current_tty = null;
-        t.panic();
-    }
+    Tty.current().panic();
     std.debug.defaultPanic(msg, addr);
     @trap();
 }

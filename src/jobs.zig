@@ -40,7 +40,7 @@ pub const Job = struct {
         return self.status.alive();
     }
 
-    pub fn pause(self: *Job, tty: *TTY) bool {
+    pub fn pause(self: *Job, tty: *Tty) bool {
         defer self.status = .paused;
         if (self.status == .running) {
             self.termattr = tty.getAttr();
@@ -58,7 +58,7 @@ pub const Job = struct {
         self.termattr = tio;
     }
 
-    pub fn forground(self: *Job, tty: *TTY) bool {
+    pub fn forground(self: *Job, tty: *Tty) bool {
         if (!self.alive()) return false;
 
         if (self.termattr) |tio| {
@@ -262,11 +262,10 @@ pub fn waitFor(j: *Jobs, jid: std.posix.pid_t) !*const Job {
             if (std.posix.W.IFSIGNALED(s.status)) {
                 job.crash(0);
             } else if (std.os.linux.W.IFSTOPPED(s.status)) {
-                var tty = TTY.current_tty orelse unreachable;
-                tty.waitForFg();
+                Tty.current().waitForFg();
                 log.err("stop sig {}\n", .{std.os.linux.W.STOPSIG(s.status)});
-                _ = job.pause(&tty);
-                tty.setRaw() catch unreachable;
+                _ = job.pause(Tty.current());
+                Tty.current().setRaw() catch unreachable;
             } else if (std.os.linux.W.IFEXITED(s.status)) {
                 job.exit(std.os.linux.W.EXITSTATUS(s.status));
             }
@@ -288,4 +287,4 @@ const ArrayList = std.ArrayList;
 const Hsh = @import("hsh.zig");
 const SI_CODE = @import("signals.zig").SI_CODE;
 const log = @import("log.zig");
-const TTY = @import("tty.zig");
+const Tty = @import("tty.zig");

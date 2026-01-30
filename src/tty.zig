@@ -28,11 +28,11 @@ pub const WStack = struct {
     unbuffered: Writer,
 };
 
-pub var current_tty: ?Tty = null;
+var _current: ?Tty = null;
 
 /// Calling init multiple times is UB
 pub fn init(a: Allocator, io: Io) !Tty {
-    std.debug.assert(current_tty == null);
+    std.debug.assert(_current == null);
     const sys_stdout = std.Io.File.stdout();
 
     const dev: ?File = if (try sys_stdout.isTty(io))
@@ -60,8 +60,12 @@ pub fn init(a: Allocator, io: Io) !Tty {
         .orig_attr = tcAttr(dev.?.handle),
     };
 
-    current_tty = t;
+    _current = t;
     return t;
+}
+
+pub fn current() *Tty {
+    return &(_current orelse unreachable);
 }
 
 fn tcAttr(tty_fd: i32) ?std.posix.termios {
@@ -232,6 +236,10 @@ pub fn raze(t: *Tty) void {
 pub fn panic(t: *Tty) void {
     var tty = t.*;
     t.dev = null;
+    if (_current != null and t == &(_current.?)) {
+        _current = null;
+    }
+
     tty.raze();
 }
 

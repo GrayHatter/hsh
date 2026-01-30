@@ -1,11 +1,10 @@
-// files should be lowercased, but #YOLO
 pub const Alias = @import("builtins/alias.zig");
 pub const Export = @import("builtins/export.zig");
 pub const Set = @import("builtins/set.zig");
 //pub const Source = @import("builtins/source.zig");
 pub const Which = @import("builtins/which.zig");
 
-var Self = @This();
+var Builtin = @This();
 
 pub const Err = error{
     Unknown,
@@ -37,7 +36,7 @@ pub const Builtins = union(enum) {
     //source: Source,
     which: Which,
     // DEBUGGING BUILTINS
-    tty: Tty,
+    tty: TtyDebug,
 };
 
 /// Optional builtins "exist" only if they don't already exist on the system.
@@ -46,9 +45,7 @@ pub const BuiltinWeak = enum {
     version,
 };
 
-var global_io: std.Io = undefined;
-pub fn init(a: Allocator, io: Io) void {
-    global_io = io;
+pub fn init(a: Allocator) void {
     Export.init();
     Alias.init();
     Set.init(a);
@@ -114,16 +111,16 @@ pub fn existsOptional(str: []const u8) bool {
 
 /// reusable print function for builtins
 pub fn print(comptime format: []const u8, args: anytype) Err!void {
-    var b: [64]u8 = undefined;
-    var stdout = std.Io.File.stdout().writer(global_io, &b);
-    stdout.interface.print(format, args) catch |err| {
+    const stdout = &Tty.current().out.w.interface;
+    stdout.print(format, args) catch |err| {
         log.err(
-            "Builtin unable to write to stdout: {}\n    but stderr will work right?\n",
-            .{err},
-        );
+            \\Builtin unable to write to stdout: {}
+            \\but stderr will work.. right?
+            \\
+        , .{err});
         return Err.StdOut;
     };
-    stdout.interface.flush() catch unreachable;
+    stdout.flush() catch unreachable;
 }
 
 pub const Cd = struct {
@@ -255,7 +252,7 @@ test "builtins alias" {
 }
 
 //DEBUGGING BUILTINS
-pub const Tty = struct {
+pub const TtyDebug = struct {
     fn call(hsh: *Hsh, pi: *ParsedIterator, _: Allocator, _: Io) Err!u8 {
         std.debug.assert(std.mem.eql(u8, "tty", pi.first().resolved.str));
 
@@ -297,6 +294,7 @@ const Io = std.Io;
 const Writer = std.Io.Writer;
 const eql = std.mem.eql;
 const Hsh = @import("hsh.zig");
+const Tty = @import("tty.zig");
 const log = @import("log.zig");
 const hsh_build = @import("hsh_build");
 pub const Token = @import("token.zig");
