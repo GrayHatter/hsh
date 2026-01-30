@@ -48,16 +48,16 @@ const Conditional = enum {
 };
 
 const CallableStack = struct {
-    callable: union(enum) {
-        builtin: Builtin,
-        exec: Binary,
-        logic: Logic,
-    },
+    callable: Callable,
     stdio: StdIo,
     conditional: ?Conditional = null,
 };
 
-var paths: []const Fs.Named = undefined;
+const Callable = union(enum) {
+    builtin: Builtin,
+    exec: Binary,
+    logic: Logic,
+};
 
 pub fn execFromInput(str: []const u8, a: Allocator, _: Io) ![]u8 {
     var itr = TokenIterator{ .raw = str };
@@ -74,10 +74,10 @@ const ExeKind = enum {
     function,
 };
 
-pub fn executableType(str: []const u8, a: Allocator, io: Io) ?ExeKind {
+pub fn executableType(str: []const u8, fs: Fs, a: Allocator, io: Io) ?ExeKind {
     if (Funcs.exists(str)) return .function;
     if (bi.exists(str)) return .builtin;
-    const plsfree = makeAbsExecutable(str, a, io) catch {
+    const plsfree = makeAbsExecutable(str, fs, a, io) catch {
         if (bi.existsOptional(str)) {
             return .builtin;
         }
@@ -87,8 +87,8 @@ pub fn executableType(str: []const u8, a: Allocator, io: Io) ?ExeKind {
     return .exe;
 }
 
-pub fn executable(str: []const u8, a: Allocator, io: Io) bool {
-    return executableType(str, a, io) != null;
+pub fn executable(str: []const u8, fs: Fs, a: Allocator, io: Io) bool {
+    return executableType(str, fs, a, io) != null;
 }
 
 fn validPath(path: []const u8, io: Io) bool {
@@ -111,7 +111,7 @@ fn validPathAbs(path: []const u8, io: Io) bool {
 
 /// TODO BUG arg should be absolute but argv[0] should only be absolute IFF
 /// there was a / is the original token.
-pub fn makeAbsExecutable(str: []const u8, a: Allocator, io: Io) Error![]u8 {
+pub fn makeAbsExecutable(str: []const u8, fs: Fs, a: Allocator, io: Io) Error![]u8 {
     if (str.len == 0) return Error.NotFound; // Is this always NotFound?
     if (str[0] == '/') {
         if (!validPathAbs(str, io)) return Error.ExeNotFound;
@@ -126,7 +126,7 @@ pub fn makeAbsExecutable(str: []const u8, a: Allocator, io: Io) Error![]u8 {
     }
 
     var next: []u8 = "";
-    for (paths) |path| {
+    for (fs.paths.items) |path| {
         next = try std.mem.join(a, "/", &[2][]const u8{ path.dir.name, str });
         if (validPathAbs(next, io)) return next;
         a.free(next);
@@ -135,8 +135,8 @@ pub fn makeAbsExecutable(str: []const u8, a: Allocator, io: Io) Error![]u8 {
 }
 
 /// Caller will own memory
-fn makeExeZ(str: []const u8, a: Allocator, io: Io) Error!ARG {
-    var exe = try makeAbsExecutable(str, a, io);
+fn makeExeZ(str: []const u8, fs: Fs, a: Allocator, io: Io) Error!ARG {
+    var exe = try makeAbsExecutable(str, fs, a, io);
     if (a.resize(exe, exe.len + 1)) {
         exe.len += 1;
     } else {
@@ -146,21 +146,23 @@ fn makeExeZ(str: []const u8, a: Allocator, io: Io) Error!ARG {
     return exe[0 .. exe.len - 1 :0];
 }
 
-fn mkBuiltin(parsed: ParsedIterator, a: Allocator) Error!Builtin {
+fn prepareBuiltin(parsed: ParsedIterator, a: Allocator) Error!Callable {
     var itr = parsed;
     itr.tokens = try a.dupe(Token, itr.tokens);
-    return Builtin{ .builtin = itr.first().resolved.str, .argv = itr };
+    return .{
+        .builtin = .{ .builtin = itr.first().resolved.str, .argv = itr },
+    };
 }
 
 /// Caller owns memory of argv, and the open fds
-fn mkBinary(itr: *ParsedIterator, a: Allocator, io: Io) Error!Binary {
+fn prepareBinary(itr: *ParsedIterator, fs: Fs, a: Allocator, io: Io) Error!Callable {
     var argv: ArrayList(?ARG) = .{};
     errdefer argv.deinit(a);
     errdefer for (argv.items) |arg| {
         a.free(std.mem.span(arg.?));
     };
 
-    try argv.append(a, makeExeZ(itr.first().resolved.str, a, io) catch |e| {
+    try argv.append(a, makeExeZ(itr.first().resolved.str, fs, a, io) catch |e| {
         log.warn("path missing {s}\n", .{itr.first().resolved.str});
         return e;
     });
@@ -169,17 +171,23 @@ fn mkBinary(itr: *ParsedIterator, a: Allocator, io: Io) Error!Binary {
         try argv.append(a, try a.dupeZ(u8, t.resolved.str));
     }
 
-    return Binary{
-        .arg = argv.items[0].?,
-        .argv = try argv.toOwnedSliceSentinel(a, null),
+    return .{
+        .exec = .{
+            .arg = argv.items[0].?,
+            .argv = try argv.toOwnedSliceSentinel(a, null),
+        },
     };
 }
 
-fn mkLogic(a: Allocator, t: Token) !Logic {
-    return .{ .logic = try logic_.Logicizer.init(a, t) };
+fn prepareLogic(a: Allocator, t: Token) !Callable {
+    return .{
+        .logic = .{
+            .logic = try logic_.Logicizer.init(a, t),
+        },
+    };
 }
 
-fn mkCallableStack(itr: *TokenIterator, a: Allocator, io: Io) Error![]CallableStack {
+fn mkCallableStack(itr: *TokenIterator, fs: Fs, a: Allocator, io: Io) Error![]CallableStack {
     var stack: ArrayList(CallableStack) = .{};
     errdefer stack.deinit(a);
     errdefer for (stack.items) |stk| switch (stk.callable) {
@@ -199,10 +207,10 @@ fn mkCallableStack(itr: *TokenIterator, a: Allocator, io: Io) Error![]CallableSt
         if (peek.kind == .logic) {
             log.warn("Hack in use\n", .{});
             try stack.append(a, .{
-                .callable = .{ .logic = mkLogic(a, peek) catch |err| {
+                .callable = prepareLogic(a, peek) catch |err| {
                     log.err("Unable to make logic {}\n", .{err});
                     return Error.Unknown;
-                } },
+                },
                 .stdio = StdIo{ .in = STDIN_FD },
                 .conditional = null,
             });
@@ -267,15 +275,15 @@ fn mkCallableStack(itr: *TokenIterator, a: Allocator, io: Io) Error![]CallableSt
         for (eslice) |s| log.debug("exe slice {}\n", .{s});
         const exe_str = parsed.first().resolved.str;
         const stk: CallableStack = if (bi.exists(exe_str)) .{
-            .callable = .{ .builtin = try mkBuiltin(parsed, a) },
+            .callable = try prepareBuiltin(parsed, a),
             .stdio = io_mode,
             .conditional = condition,
-        } else if (mkBinary(&parsed, a, io)) |bin| .{
-            .callable = .{ .exec = bin },
+        } else if (prepareBinary(&parsed, fs, a, io)) |bin| .{
+            .callable = bin,
             .stdio = io_mode,
             .conditional = condition,
         } else |err| if (bi.existsOptional(exe_str)) .{
-            .callable = .{ .builtin = try mkBuiltin(parsed, a) },
+            .callable = try prepareBuiltin(parsed, a),
             .stdio = io_mode,
             .conditional = condition,
         } else return err;
@@ -345,13 +353,11 @@ fn free(a: Allocator, s: *CallableStack) void {
 /// input is a string ownership is retained by the caller
 pub fn exec(input: []const u8, h: *Hsh, a: Allocator, io: Io) Error!void {
     // HACK I don't like it either, but LOOK OVER THERE!!!
-    paths = h.fs.paths.items;
     var tty = h.tty;
 
     var titr = TokenIterator{ .raw = input };
-    //defer Variables.razeEphemeral();
 
-    const stack = mkCallableStack(&titr, a, io) catch |e| {
+    const stack = mkCallableStack(&titr, h.fs, a, io) catch |e| {
         log.debug("unable to make stack {}\n", .{e});
         return e;
     };
@@ -565,7 +571,9 @@ pub fn childZ(argv: [:null]const ?[*:0]const u8, h: *Hsh, a: Allocator, io: Io) 
 test "mkstack" {
     var a = std.testing.allocator;
     const io = std.testing.io;
-    paths = &[1]Fs.Named{.{ .dir = .{ .name = "/usr/bin", .dir = undefined } }};
+
+    const fs: Fs = .testingFs();
+
     var ti = TokenIterator{ .raw = "ls | sort" };
 
     try std.testing.expectEqualStrings("ls", ti.first().str);
@@ -575,14 +583,14 @@ test "mkstack" {
     try std.testing.expectEqualStrings("sort", ti.next().?.str);
 
     ti.restart();
-    const stk = try mkCallableStack(&ti, a, io);
+    const stk = try mkCallableStack(&ti, fs, a, io);
     try std.testing.expect(stk.len == 2);
     for (stk) |*s| free(a, s);
     a.free(stk);
 
     ti = TokenIterator{ .raw = "zig build && zig-out/bin/hsh" };
     ti.restart();
-    const stk2 = try mkCallableStack(&ti, a, io);
+    const stk2 = try mkCallableStack(&ti, fs, a, io);
     for (stk2) |*s| free(a, s);
     a.free(stk2);
 

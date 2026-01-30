@@ -34,24 +34,23 @@ pub const Named = union(enum) {
     pub const Closed = struct {
         name: []const u8,
 
-        pub fn openFile(_: *Closed, _: Io) *Named {
+        pub fn openFile(_: *Closed, _: Io) !void {
             unreachable;
         }
 
-        pub fn openDir(c: *Closed, io: Io) *Named {
-            const n: *Named = @fieldParentPtr(c, "closed_dir");
+        pub fn openDir(c: *Closed, io: Io) !void {
+            const n: *Named = @fieldParentPtr("closed_dir", c);
             n.* = .{ .dir = .{
                 .name = c.name,
-                .dir = Fs.Dir.openDirAbsolute(io, c.name, .{}),
+                .dir = try Fs.Dir.openDirAbsolute(io, c.name, .{}),
             } };
-            return n;
         }
     };
 
-    pub fn open(n: *Named, io: Io) Named {
-        return switch (n) {
+    pub fn open(n: *Named, io: Io) !void {
+        return switch (n.*) {
             .closed_file => unreachable,
-            .closed_dir => |c| c.openDir(io),
+            .closed_dir => |*c| try c.openDir(io),
             .dir => unreachable,
             .file => unreachable,
         };
@@ -66,6 +65,12 @@ pub fn init(env: Environ, a: Allocator, io: Io) !Fs {
             if (mpath.len == 0) continue;
             try paths.append(a, .{ .closed_dir = .{ .name = mpath } });
         }
+    }
+    for (paths.items) |*path| {
+        path.open(io) catch |err| switch (err) {
+            error.FileNotFound => {},
+            else => return err,
+        };
     }
 
     const cwd = try Dir.cwd().openDir(io, ".", .{ .iterate = true });
@@ -359,6 +364,26 @@ test "fs" {
     }
 }
 
+pub fn testingFs() Fs {
+    const paths = struct {
+        pub var p = [_]Named{
+            .{ .dir = .{ .name = "/usr/bin", .dir = undefined } },
+        };
+    };
+    if (!builtin.is_test) unreachable;
+    return .{
+        .cwd = undefined,
+        .cwd_name = "testing/cwd",
+        .home = .{ .name = "/home/user", .dir = Dir.cwd().openDir(std.testing.io, ".", .{}) catch unreachable },
+        .paths = .{ .items = &paths.p },
+        .conf = undefined,
+        .rc = undefined,
+        .history = undefined,
+        .inotify_fd = undefined,
+        .watches = .{},
+    };
+}
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -376,3 +401,4 @@ const Hsh = @import("hsh.zig");
 const vars = @import("variables.zig");
 const allocPrint = std.fmt.allocPrint;
 const linux = std.os.linux;
+const builtin = @import("builtin");

@@ -1,15 +1,15 @@
 // I know, but I'm not writing the api right now :/
 var path: [2048]u8 = undefined;
 
-fn executable(str: []const u8, a: Allocator, io: Io) ?[]const u8 {
-    return Exec.makeAbsExecutable(str, a, io) catch return null;
+fn executable(str: []const u8, fs: Fs, a: Allocator, io: Io) ?[]const u8 {
+    return Exec.makeAbsExecutable(str, fs, a, io) catch return null;
 }
 
 /// TODO implement real version
-pub fn call(_: *Hsh, itr: *ParsedIterator, a: Allocator, io: Io) bi.Err!u8 {
+pub fn call(h: *Hsh, itr: *ParsedIterator, a: Allocator, io: Io) bi.Err!u8 {
     defer itr.raze(a);
     const w = itr.first().resolved.str;
-    std.debug.assert(std.mem.eql(u8, "which", w));
+    assert(eql(u8, "which", w));
     var cannon = (itr.next() orelse return 2).resolved.str;
     if (bi.Alias.find(cannon)) |al| {
         try bi.print("{s} is aliased to {s}\n", .{ cannon, al.value });
@@ -22,7 +22,7 @@ pub fn call(_: *Hsh, itr: *ParsedIterator, a: Allocator, io: Io) bi.Err!u8 {
         try bi.print("{s} is a builtin\n", .{cannon});
         return 0;
     }
-    if (executable(cannon, a, io)) |exe| {
+    if (executable(cannon, h.fs, a, io)) |exe| {
         try bi.print("{s}\n", .{exe});
         return 0;
     }
@@ -40,5 +40,8 @@ const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const bi = @import("../builtins.zig");
 const Hsh = @import("../hsh.zig");
+const Fs = @import("../fs.zig");
 const ParsedIterator = @import("../parse.zig").Iterator;
 const Exec = @import("../exec.zig");
+const assert = std.debug.assert;
+const eql = std.mem.eql;

@@ -225,6 +225,10 @@ fn doSignals(hsh: *Hsh) bool {
     return Signals.do(hsh) != .none;
 }
 
+test {
+    _ = &std.testing.refAllDecls(@This());
+}
+
 const std = @import("std");
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
