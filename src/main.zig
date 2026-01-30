@@ -2,7 +2,7 @@ fn core(hsh: *Hsh, a: Allocator, io: Io) ![]u8 {
     var array_alloc = std.heap.ArenaAllocator.init(a);
     defer array_alloc.deinit();
     const alloc = array_alloc.allocator();
-    var line = try Line.init(hsh, alloc, .{ .interactive = hsh.tty.is_tty });
+    var line = try Line.init(hsh, alloc, .{ .interactive = hsh.tty.dev != null });
 
     defer hsh.draw.reset();
     //try Context.update(hsh, &[_]Context.Contexts{.git});
@@ -112,7 +112,7 @@ pub fn main(init: std.process.Init) !void {
     defer hsh.tty.raze();
     try hsh.tty.setRaw();
     // Look at me, I'm the captain now!
-    hsh.tty.pwnTTY();
+    try hsh.tty.pwnTTY();
 
     hsh.draw = Drawable.init(a, &hsh) catch unreachable;
     defer hsh.draw.raze(a);

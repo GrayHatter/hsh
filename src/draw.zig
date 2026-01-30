@@ -94,7 +94,7 @@ pub fn init(a: Allocator, hsh: *Hsh) !Drawable {
     colorize = hsh.enabled(Features.Colorize);
     const buffer = try a.alloc(u8, draw_buffer_size);
     return .{
-        .writer = &hsh.tty.out.interface,
+        .writer = &hsh.tty.out.w.interface,
         .before = .initBuffer(buffer[0..][0 .. draw_buffer_size / 4]),
         .b = .initBuffer(buffer[draw_buffer_size / 4 * 1 ..][0 .. draw_buffer_size / 4]),
         .right = .initBuffer(buffer[draw_buffer_size / 4 * 2 ..][0 .. draw_buffer_size / 4]),

@@ -1,8 +1,6 @@
-alloc: Allocator,
-dev: i32,
-is_tty: bool,
-in: Reader,
-out: Writer,
+dev: ?File,
+in: RStack,
+out: WStack,
 orig_attr: ?std.posix.termios,
 pid: std.posix.pid_t = undefined,
 owner: ?std.posix.pid_t = null,
@@ -18,40 +16,60 @@ pub const VTCmds = enum {
     DECCKM,
 };
 
+pub const RStack = struct {
+    fd: File,
+    w: Reader,
+    unbuffered: Reader,
+};
+
+pub const WStack = struct {
+    fd: File,
+    w: Writer,
+    unbuffered: Writer,
+};
+
 pub var current_tty: ?Tty = null;
 
 /// Calling init multiple times is UB
 pub fn init(a: Allocator, io: Io) !Tty {
-    // TODO figure out how to handle multiple calls to current_tty?
-
-    const is_tty = Io.File.stdout().isTty(io) catch unreachable and Io.File.stdin().isTty(io) catch unreachable;
-
-    const tty = if (is_tty)
-        Io.Dir.openFileAbsolute(io, "/dev/tty", .{ .mode = .read_write }) catch std.Io.File.stdout()
-    else
-        std.Io.File.stdout();
-
     std.debug.assert(current_tty == null);
+    const sys_stdout = std.Io.File.stdout();
 
-    const self = Tty{
-        .alloc = a,
-        .dev = tty.handle,
-        .is_tty = is_tty,
-        .in = Io.File.stdin().reader(io, try a.alloc(u8, 2048)),
-        .out = Io.File.stdout().writer(io, try a.alloc(u8, 2048)),
-        .orig_attr = tcAttr(tty.handle),
+    const dev: ?File = if (try sys_stdout.isTty(io))
+        Io.Dir.openFileAbsolute(io, "/dev/tty", .{ .mode = .read_write }) catch unreachable
+    else
+        null;
+
+    const in_tty = if (dev) |d| d else std.Io.File.stdin();
+    const out_tty = if (dev) |d| d else std.Io.File.stdout();
+
+    const in_b = try a.alloc(u8, 2048);
+    const out_b = try a.alloc(u8, 2048);
+    const t = Tty{
+        .dev = dev,
+        .in = .{
+            .fd = in_tty,
+            .w = in_tty.reader(io, in_b),
+            .unbuffered = in_tty.reader(io, &.{}),
+        },
+        .out = .{
+            .fd = out_tty,
+            .w = out_tty.writer(io, out_b),
+            .unbuffered = in_tty.writer(io, &.{}),
+        },
+        .orig_attr = tcAttr(dev.?.handle),
     };
 
-    current_tty = self;
-    return self;
+    current_tty = t;
+    return t;
 }
 
 fn tcAttr(tty_fd: i32) ?std.posix.termios {
     return std.posix.tcgetattr(tty_fd) catch null;
 }
 
-pub fn getAttr(self: *Tty) ?std.posix.termios {
-    return tcAttr(self.dev);
+pub fn getAttr(t: *Tty) ?std.posix.termios {
+    return tcAttr((t.dev orelse return null).handle);
 }
 
 fn makeRaw(orig: ?std.posix.termios) std.posix.termios {
@@ -78,85 +96,82 @@ fn makeRaw(orig: ?std.posix.termios) std.posix.termios {
     return next;
 }
 
-fn setTTYWhen(self: *Tty, mtio: ?std.posix.termios, when: TCSA) !void {
-    if (mtio) |tio| try std.posix.tcsetattr(self.dev, when, tio);
+fn setTTYWhen(t: *Tty, mtio: ?std.posix.termios, when: TCSA) !void {
+    const fd = t.dev orelse return error.NoTtyDevice;
+    if (mtio) |tio| try std.posix.tcsetattr(fd.handle, when, tio);
 }
 
-pub fn setTTY(self: *Tty, tio: ?std.posix.termios) void {
-    self.setTTYWhen(tio, .DRAIN) catch |err| {
+pub fn setTTY(t: *Tty, tio: ?std.posix.termios) void {
+    t.setTTYWhen(tio, .DRAIN) catch |err| {
         log.err("TTY ERROR encountered, {} when popping.\n", .{err});
     };
 }
 
-pub fn setOrig(self: *Tty) !void {
-    if (!self.is_tty) return;
-    try self.setTTYWhen(self.orig_attr, .DRAIN);
-    // try self.command(.ReqMouseEvents, false);
-    try self.command(.ModOtherKeys, false);
-    //try self.command(.S8C1T, false);
-    try self.command(.DECCKM, false);
+pub fn setOrig(t: *Tty) !void {
+    if (t.dev == null) return;
+    try t.setTTYWhen(t.orig_attr, .DRAIN);
+    // try t.command(.ReqMouseEvents, false);
+    try t.command(.ModOtherKeys, false);
+    //try t.command(.S8C1T, false);
+    try t.command(.DECCKM, false);
 }
 
-pub fn setRaw(self: *Tty) !void {
-    if (!self.is_tty) return;
-    try self.setTTYWhen(makeRaw(self.orig_attr), .DRAIN);
-    // try self.command(.ReqMouseEvents, true);
-    try self.command(.ModOtherKeys, true);
-    //try self.command(.S8C1T, true);
-    try self.command(.DECCKM, false);
+pub fn setRaw(t: *Tty) !void {
+    if (t.dev == null) return;
+    try t.setTTYWhen(makeRaw(t.orig_attr), .DRAIN);
+    // try t.command(.ReqMouseEvents, true);
+    try t.command(.ModOtherKeys, true);
+    //try t.command(.S8C1T, true);
+    try t.command(.DECCKM, false);
 }
 
-pub fn setOwner(self: *Tty, mpgrp: ?std.posix.pid_t) !void {
-    if (!self.is_tty or self.owner == null) return;
-    const pgrp = mpgrp orelse self.pid;
-    _ = try std.posix.tcsetpgrp(self.dev, pgrp);
+pub fn setOwner(t: *Tty, mpgrp: ?std.posix.pid_t) !void {
+    if (t.owner == null) return;
+    const pgrp = mpgrp orelse t.pid;
+    const fd = t.dev orelse return error.NoTtyDevice;
+    _ = try std.posix.tcsetpgrp(fd.handle, pgrp);
 }
 
-pub fn pwnTTY(self: *Tty) void {
-    self.pid = std.os.linux.getpid();
+pub fn pwnTTY(t: *Tty) !void {
+    const fd = t.dev orelse return error.NoTtyDevice;
+    t.pid = std.os.linux.getpid();
     const ssid = custom_syscalls.getsid(0);
-    log.debug("pwnTTY {} and {} \n", .{ self.pid, ssid });
-    if (ssid != self.pid) _ = std.os.linux.setpgid(self.pid, self.pid);
+    log.debug("pwnTTY {} and {} \n", .{ t.pid, ssid });
+    if (ssid != t.pid) _ = std.os.linux.setpgid(t.pid, t.pid);
 
-    const res = std.posix.tcsetpgrp(self.dev, self.pid) catch |err| {
-        self.owner = self.pid;
-        log.err("tcsetpgrp failed on pid {}, error was: {}\n", .{ self.pid, err });
-        const get = std.posix.tcgetpgrp(self.dev) catch |err2| {
+    const res = std.posix.tcsetpgrp(fd.handle, t.pid) catch |err| {
+        t.owner = t.pid;
+        log.err("tcsetpgrp failed on pid {}, error was: {}\n", .{ t.pid, err });
+        const get = std.posix.tcgetpgrp(fd.handle) catch |err2| {
             log.err("tcgetpgrp err {}\n", .{err2});
-            return;
+            return err;
         };
         log.err("tcgetpgrp reports {}\n", .{get});
         unreachable;
     };
     log.debug("tc pwnd {}\n", .{res});
-    const pgrp = std.posix.tcgetpgrp(self.dev) catch unreachable;
+    const pgrp = std.posix.tcgetpgrp(fd.handle) catch unreachable;
     log.debug("get new pgrp {}\n", .{pgrp});
 }
 
-pub fn waitForFg(self: *Tty) void {
-    if (!self.is_tty) return;
+pub fn waitForFg(t: *Tty) void {
+    if (t.dev == null) return;
     var pgid = custom_syscalls.getpgid(0);
-    var fg = std.posix.tcgetpgrp(self.dev) catch |err| {
+    var fg = std.posix.tcgetpgrp(t.dev.?.handle) catch |err| {
         log.err("died waiting for fg {}\n", .{err});
         @panic("panic carefully!");
     };
     while (pgid != fg) {
-        std.posix.kill(-pgid, std.posix.SIG.TTIN) catch {
-            @panic("unable to send TTIN");
-        };
+        std.posix.kill(-pgid, std.posix.SIG.TTIN) catch @panic("unable to send TTIN");
         pgid = custom_syscalls.getpgid(0);
-        std.posix.tcsetpgrp(self.dev, pgid) catch {
-            @panic("died in loop");
-        };
-        fg = std.posix.tcgetpgrp(self.dev) catch {
-            @panic("died in loop");
-        };
+        std.posix.tcsetpgrp(t.dev.?.handle, pgid) catch @panic("died in loop");
+        fg = std.posix.tcgetpgrp(t.dev.?.handle) catch @panic("died in loop");
     }
 }
 
-pub fn print(tty: *Tty, comptime fmt: []const u8, args: anytype) !void {
-    try tty.out.interface.print(fmt, args);
-    try tty.out.interface.flush();
+fn print(tty: *Tty, comptime fmt: []const u8, args: anytype) !void {
+    try tty.out.unbuffered.interface.print(fmt, args);
+    try tty.out.unbuffered.interface.flush();
 }
 
 pub fn command(tty: *Tty, comptime code: VTCmds, comptime enable: ?bool) !void {
@@ -193,21 +208,19 @@ pub fn command(tty: *Tty, comptime code: VTCmds, comptime enable: ?bool) !void {
 //    };
 //}
 
-pub fn geom(self: *Tty) !Cord {
+pub fn geom(t: *Tty) !Cord {
+    const fd = t.dev orelse return error.NoTtyDevice;
     var size: std.posix.winsize = std.mem.zeroes(std.posix.winsize);
-    const err = std.posix.system.ioctl(self.dev, std.posix.T.IOCGWINSZ, @intFromPtr(&size));
+    const err = std.posix.system.ioctl(fd.handle, std.posix.T.IOCGWINSZ, @intFromPtr(&size));
     if (std.posix.errno(err) != .SUCCESS) {
         return std.posix.unexpectedErrno(@enumFromInt(err));
     }
-    return .{
-        .x = size.col,
-        .y = size.row,
-    };
+    return .{ .x = size.col, .y = size.row };
 }
 
-pub fn raze(self: *Tty) void {
-    if (self.orig_attr) |attr| {
-        self.setTTYWhen(attr, .NOW) catch |err| {
+pub fn raze(t: *Tty) void {
+    if (t.orig_attr) |attr| {
+        t.setTTYWhen(attr, .NOW) catch |err| {
             std.debug.print(
                 "\r\n\nTTY ERROR RAZE encountered, {} when attempting to raze.\r\n\n",
                 .{err},
