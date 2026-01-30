@@ -270,10 +270,7 @@ pub const Iterator = struct {
 
         switch (t.kind) {
             .nos, .err, .ws => unreachable,
-            .vari => {
-                const dollar = try itr.parseDollar(t.str);
-                try itr.resolved.appendBounded(.{ .parsed = dollar });
-            },
+            .vari => try itr.parseVariable(t.str),
             .io => |io_m| {
                 log.debug("found io '{s}'\n", .{t.str});
                 switch (io_m) {
@@ -319,13 +316,14 @@ pub const Iterator = struct {
                 }
             },
             .word => {
-                if (findScalar(u8, t.str, '$')) |idx| {
-                    try itr.resolved.appendBounded(.{ .parsed = .{
-                        .word = .{ .str = t.str[0..idx] },
-                    } });
-                    const dollar = try itr.parseDollar(t.str[idx..]);
-                    try itr.resolved.appendBounded(.{ .parsed = dollar });
-                    try itr.parse(.make(t.str[idx + dollar.anyStr().len ..], t.kind));
+                if (findScalar(u8, t.str, '$')) |_| {
+                    unreachable;
+                    //try itr.resolved.appendBounded(.{ .parsed = .{
+                    //    .word = .{ .str = t.str[0..idx] },
+                    //} });
+                    //const dollar = try itr.parseVariable(t.str[idx..]);
+                    //try itr.resolved.appendBounded(.{ .parsed = dollar });
+                    //try itr.parse(.make(t.str[idx + dollar.anyStr().len ..], t.kind));
                 } else if (findScalar(u8, t.str, '*')) |_| {
                     try itr.parseGlob(t.str);
                 } else {
@@ -336,28 +334,26 @@ pub const Iterator = struct {
         }
     }
 
-    fn parseDollar(_: *Iterator, str: []const u8) !Parsed {
+    fn parseIo() !void {}
+
+    fn parseVariable(itr: *Iterator, str: []const u8) !void {
         std.debug.assert(str[0] == '$');
-        if (str.len == 0) return .{ .word = .{
-            .str = str,
-        } };
+        if (str.len == 0) {
+            try itr.resolved.appendBounded(.{ .parsed = .{ .word = .{ .str = str } } });
+            return;
+        }
 
         switch (str[1]) {
-            '(' => {
-                if (findScalar(u8, str, ')')) |idx| {
-                    return .{ .subcommand = .{ .str = str[0 .. idx + 1] } };
-                }
-                return .{ .word = .{ .str = str } };
-            },
-            '{' => {
-                if (findScalar(u8, str, '}')) |idx| {
-                    return .{ .dollar = .{ .str = str[0 .. idx + 1] } };
-                }
-                return .{ .word = .{ .str = str } };
-            },
-            else => return .{ .dollar = .{ .str = str } },
+            '(' => if (findScalar(u8, str, ')')) |idx|
+                try itr.resolved.appendBounded(.{ .parsed = .{ .subcommand = .{ .str = str[0 .. idx + 1] } } })
+            else
+                try itr.resolved.appendBounded(.{ .parsed = .{ .word = .{ .str = str } } }),
+            '{' => if (findScalar(u8, str, '}')) |idx|
+                try itr.resolved.appendBounded(.{ .parsed = .{ .dollar = .{ .str = str[0 .. idx + 1] } } })
+            else
+                try itr.resolved.appendBounded(.{ .parsed = .{ .word = .{ .str = str } } }),
+            else => try itr.resolved.appendBounded(.{ .parsed = .{ .dollar = .{ .str = str } } }),
         }
-        return error.Unknown;
     }
 
     fn parseGlob(itr: *Iterator, str: []const u8) !void {
@@ -541,7 +537,7 @@ pub const Resolver = struct {
         } };
     }
 
-    fn subcmd(h: *Hsh, a: Allocator, tkn: Token) !Token {
+    fn subCommand(h: *Hsh, a: Allocator, tkn: Token) !Token {
         var local = tkn;
         const cmd = tkn.str[2 .. tkn.str.len - 1];
         std.debug.assert(tkn.str[0] == '$');
@@ -763,6 +759,7 @@ test "parse vars existing with white space" {
         try .any(" "),
         try .any("blerg"),
     };
+    try expectEqual(Token{ .str = "$string", .kind = .vari }, ts[2]);
 
     var itr = try Resolver.iterate(a, &ts);
     try itr.resolveAll(a, undefined);
