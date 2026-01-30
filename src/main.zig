@@ -15,8 +15,8 @@ fn core(hsh: *Hsh, a: Allocator, io: Io) ![]u8 {
         redraw = hsh.spin(a, io) or redraw;
 
         if (redraw) {
-            try prompt.draw(hsh, line.peek());
-            try Draw.render(&hsh.draw);
+            try hsh.prompt.render(&hsh.draw, line.peek());
+            try hsh.draw.render();
             redraw = false;
         }
 
@@ -201,8 +201,7 @@ const log = @import("log.zig");
 const Tty = @import("tty.zig");
 const Draw = @import("draw.zig");
 const Drawable = Draw.Drawable;
-const prompt = @import("prompt.zig");
-const jobsContext = @import("prompt.zig").jobsContext;
+const Prompt = @import("Prompt.zig");
 const Context = @import("context.zig");
 const Hsh = @import("hsh.zig");
 const Exec = @import("exec.zig");

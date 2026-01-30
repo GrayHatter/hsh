@@ -5,6 +5,7 @@ pid: std.posix.pid_t,
 pgrp: std.posix.pid_t = -1,
 jobs: Jobs,
 tty: Tty = undefined,
+prompt: Prompt,
 draw: Drawable = undefined,
 line: *Line = undefined,
 input: i32 = 0,
@@ -147,6 +148,7 @@ pub fn init(env: Environ, a: Allocator, io: Io) !Hsh {
     // TODO there's errors other than just mem here
     var hsh: Hsh = .{
         .features = .{},
+        .prompt = .init(env.getPosix("USER") orelse "[env error]", null),
         .env = env,
         .pid = std.os.linux.getpid(),
         .jobs = .init(),
@@ -241,6 +243,7 @@ const builtin = @import("builtin");
 const log = @import("log.zig");
 const Context = @import("context.zig");
 const Drawable = @import("draw.zig").Drawable;
+const Prompt = @import("Prompt.zig");
 const INEvent = @import("inotify.zig").Event;
 const Line = @import("line.zig");
 const Resolver = @import("parse.zig").Resolver;

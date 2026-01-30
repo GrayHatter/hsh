@@ -1,5 +1,6 @@
 hsh: *Hsh,
 draw: *Draw,
+prompt: *Prompt,
 alloc: Allocator,
 input: Input,
 tkn: Tokenizer,
@@ -31,6 +32,7 @@ pub fn init(hsh: *Hsh, a: Allocator, options: Options) !Line {
     return .{
         .hsh = hsh,
         .draw = &hsh.draw,
+        .prompt = &hsh.prompt,
         .alloc = a,
         .input = .{ .stdin = hsh.input, .spin = spin, .hsh = hsh },
         .tkn = Tokenizer.init(a),
@@ -72,7 +74,7 @@ fn core(line: *Line, a: Allocator, io: Io) !Action {
         } catch |err| switch (err) {
             error.io => return err,
             error.signaled => {
-                Draw.clearCtx(&line.hsh.draw);
+                line.draw.clearCtx();
                 try line.draw.render();
                 return .empty;
             },
@@ -123,7 +125,7 @@ fn core(line: *Line, a: Allocator, io: Io) !Action {
                     else => |els| log.warn("unknown {}\n", .{els}),
                 }
                 line.draw.clear();
-                try Prompt.draw(line.hsh, line.peek());
+                try line.prompt.render(line.draw, line.peek());
                 try line.draw.render();
             },
 
@@ -141,14 +143,11 @@ pub fn do(line: *Line, a: Allocator, io: Io) ![]u8 {
             .external => try line.externEditorRead(io),
             .empty => continue,
             .exec => {
-                if (line.peek().len > 0) {
-                    return try line.dupeText();
-                }
-
-                try line.hsh.draw.writer.writeByte('\n');
-                line.hsh.draw.clear();
-                try Prompt.draw(line.hsh, line.peek());
-                try line.hsh.draw.render();
+                try line.draw.unbuffered.writeByte('\n');
+                if (line.peek().len > 0) return try line.dupeText();
+                line.draw.clear();
+                try line.prompt.render(line.draw, line.peek());
+                try line.draw.render();
                 continue;
             },
         };
@@ -257,7 +256,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
             switch (ks) {
                 .char => |c| {
                     line.hsh.draw.clear();
-                    try Prompt.draw(line.hsh, line.peek());
+                    try line.prompt.render(line.draw, line.peek());
                     try line.hsh.draw.render();
 
                     switch (c) {
@@ -353,7 +352,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
             }
         },
         .redraw => {
-            line.hsh.draw.clear();
+            line.draw.clear();
             cmplt.drawAll(line.hsh.draw.term_size) catch |err| switch (err) {
                 error.ItemCount => {},
                 else => return err,
@@ -363,8 +362,8 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                     line.hsh.draw.drawAfter(row);
                 }
             }
-            try Prompt.draw(line.hsh, line.peek());
-            try line.hsh.draw.render();
+            try line.hsh.prompt.render(line.draw, line.peek());
+            try line.draw.render();
             continue :sw .{ .read = {} };
         },
         .read => {
@@ -375,7 +374,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
             continue :sw .{ .typing = chr };
         },
         .done => {
-            line.hsh.draw.clearCtx();
+            line.draw.clearCtx();
             return;
         },
     }
@@ -394,6 +393,6 @@ const Complete = @import("completion.zig");
 //const History = @import("history.zig");
 const Input = @import("input.zig");
 const Keys = @import("keys.zig");
-const Prompt = @import("prompt.zig");
+const Prompt = @import("Prompt.zig");
 
 const Draw = @import("draw.zig");
