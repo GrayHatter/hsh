@@ -38,11 +38,11 @@ fn validateName(str: []const u8) ![]const u8 {
 }
 
 pub fn call(_: *Hsh, titr: *ParsedIterator, a: Allocator, _: Io) Err!u8 {
-    log.err("al call {any}\n", .{titr});
-    std.debug.assert(eql(u8, "alias", titr.first().resolved.str));
+    log.debug("alias call {any}\n", .{titr});
+    assert(eql(u8, "alias", titr.first().resolved.str));
     const arg = titr.next() orelse return printAll();
-    log.err("al call {}\n", .{arg});
-    log.err("al call {s}\n", .{arg.resolved.str});
+    log.info("alias call {}\n", .{arg});
+    log.err("alias call {s}\n", .{arg.resolved.str});
     if (findScalar(u8, arg.resolved.str, '=')) |idx| {
         const name = validateName(arg.resolved.str[0..idx]) catch unreachable;
         const value = arg.resolved.str[idx + 1 ..];
@@ -76,7 +76,7 @@ pub fn find(name: []const u8) ?Alias {
 
 // TODO might leak
 fn add(name: []const u8, val: []const u8, a: Allocator) Err!void {
-    log.debug("ALIAS adding {s} = '{s}'\n", .{ name, val });
+    log.debug("alias adding {s} = '{s}'\n", .{ name, val });
     if (val.len == 0) return del(name, a);
     const gop = aliases.getOrPut(a, name) catch unreachable;
     if (gop.found_existing) {
@@ -149,3 +149,4 @@ const ParsedIterator = Parse.Iterator;
 const print = bi.print;
 const log = @import("../log.zig");
 const builtin = @import("builtin");
+const assert = std.debug.assert;

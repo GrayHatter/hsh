@@ -130,7 +130,7 @@ pub const Cd = struct {
     /// Someone should add some sane input sanitzation to this
     fn call(hsh: *Hsh, titr: *ParsedIterator, a: Allocator, io: Io) Err!u8 {
         // TODO pushd and popd
-        std.debug.assert(std.mem.eql(u8, "cd", titr.first().resolved.str));
+        assert(eql(u8, "cd", titr.first().resolved.str));
         defer titr.raze(a);
 
         while (titr.next()) |t| {
@@ -140,10 +140,8 @@ pub const Cd = struct {
             };
             return 0;
         } else {
-            if (hsh.fs.home) |_| {
-                hsh.fs.cd("", a, io) catch @panic("CD $HOME should never fail");
-                return 0;
-            } else return Err.InvalidCommand;
+            hsh.fs.cd("", a, io) catch @panic("CD $HOME should never fail");
+            return 0;
         }
     }
 };
@@ -305,3 +303,4 @@ const hsh_build = @import("hsh_build");
 pub const Token = @import("token.zig");
 pub const ParsedIterator = @import("parse.zig").Iterator;
 pub const Variables = @import("variables.zig");
+const assert = std.debug.assert;

@@ -83,7 +83,8 @@ fn readFromRC(hsh: *Hsh, a: Allocator, io: Io) !void {
             const tokens = titr.toSlice(a) catch return error.Memory;
             defer a.free(tokens);
             var pitr = Resolver.iterate(a, tokens) catch continue;
-            // defer free pitr.resolved
+            try pitr.resolveAll(a, io);
+            defer pitr.raze(a);
 
             if (!shellbuiltin.exists(pitr.first().resolved.str)) {
                 log.warn("Unknown rc line \n    {s}\n", .{line});
@@ -95,11 +96,13 @@ fn readFromRC(hsh: *Hsh, a: Allocator, io: Io) !void {
                 log.err("rc parse error {}\n", .{err});
             };
             pitr.raze(a);
-        } else |err| {
-            if (err != Error.EOF) {
+        } else |err| switch (err) {
+            error.EndOfStream => {},
+            else => {
                 log.err("error {}\n", .{err});
-                unreachable;
-            }
+
+                return err;
+            },
         }
     }
 }
@@ -135,7 +138,7 @@ fn writeLine(f: std.fs.File, line: []const u8) !usize {
 //    outf.setEndPos(cpos) catch return error.Other;
 //}
 
-pub fn init(env: Environ, a: Allocator, io: Io) Error!Hsh {
+pub fn init(env: Environ, a: Allocator, io: Io) !Hsh {
     // I'm pulling all of env out at startup only because that's the first
     // example I found. It's probably sub optimal, but ¯\_(ツ)_/¯. We may
     // decide we care enough to fix this, or not. The internet seems to think

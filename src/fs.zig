@@ -1,6 +1,6 @@
 cwd: Dir,
 cwd_name: []const u8 = "fixme",
-home: ?Named.Dir,
+home: Named.Dir,
 paths: ArrayList(Named),
 conf: ?Named.Dir = null,
 rc: ?Named.File = null,
@@ -68,13 +68,21 @@ pub fn init(env: Environ, a: Allocator, io: Io) !Fs {
         }
     }
 
+    const cwd = try Dir.cwd().openDir(io, ".", .{ .iterate = true });
+    const cwd_name = try cwd.realPathFileAlloc(io, ".", a);
     var fs: Fs = .{
-        .cwd = try Dir.cwd().openDir(io, ".", .{ .iterate = true }),
+        .cwd = cwd,
         .paths = paths,
-        .home = .{
-            .name = env.getPosix("HOME") orelse unreachable,
-            .dir = try Fs.Dir.openDirAbsolute(io, env.getPosix("HOME") orelse unreachable, .{}),
-        },
+        .home = if (env.getPosix("HOME")) |home|
+            .{
+                .name = home,
+                .dir = try Fs.Dir.openDirAbsolute(io, home, .{}),
+            }
+        else
+            .{
+                .name = try a.dupe(u8, cwd_name),
+                .dir = try Fs.Dir.openDirAbsolute(io, cwd_name, .{}),
+            },
         .inotify_fd = @intCast((linux.inotify_init1(std.os.linux.IN.CLOEXEC | std.os.linux.IN.NONBLOCK))),
         .watches = .{},
     };
@@ -97,11 +105,9 @@ pub fn inotifyInstall(fs: *Fs, path: []const u8, cb: ?INotify.Callback, a: Alloc
 
 pub fn inotifyInstallRc(fs: *Fs, cb: ?INotify.Callback, a: Allocator) !void {
     if (fs.rc) |_| {
-        if (fs.home) |home| {
-            const path = try allocPrint(a, "{s}/.config/hsh/hshrc", .{home.name});
-            errdefer a.free(path);
-            try fs.inotifyInstall(path, cb, a);
-        }
+        const path = try allocPrint(a, "{s}/.config/hsh/hshrc", .{fs.home.name});
+        errdefer a.free(path);
+        try fs.inotifyInstall(path, cb, a);
     }
 }
 
@@ -143,16 +149,18 @@ pub fn raze(fs: *Fs, a: Allocator, io: Io) void {
 }
 
 pub fn cd(fs: *Fs, trgt: []const u8, a: Allocator, io: Io) !void {
-    // std.debug.print("cd path {s} default {s}\n", .{ &path, hsh.fs.home_name });
-    const next = if (trgt.len == 0 and fs.home != null)
-        try fs.cwd.openDir(io, fs.home.?.name, .{})
+    log.err("cd path '{s}'\n", .{trgt});
+    const old_name = fs.cwd_name;
+
+    const next = if (trgt.len == 0)
+        try fs.cwd.openDir(io, fs.home.name, .{})
     else
         try fs.cwd.openDir(io, trgt, .{});
 
+    fs.cwd_name = try fs.cwd.realPathFileAlloc(io, ".", a);
+    a.free(old_name);
     fs.cwd.close(io);
     fs.cwd = next;
-    a.free(fs.cwd_name);
-    fs.cwd_name = try fs.cwd.realPathFileAlloc(io, ".", a);
 }
 
 pub fn mktemp(data: ?[]const u8, a: Allocator, io: Io) ![]u8 {
@@ -264,14 +272,16 @@ pub fn globAt(dir: Dir, search: []const u8, rule: GlobRule, a: Allocator, io: Io
 fn findPath(fs: *Fs, name: []const u8, a: Allocator, io: Io, comptime cr: CreateRule) !Named.File {
     if (fs.conf) |conf| {
         const out = try allocPrint(a, "{s}/hsh", .{conf.name});
+        log.debug("finding path '{s}'\n", .{out});
         if (Dir.openDirAbsolute(io, out, .{})) |d| {
             if (writeFileAt(d, name, io, cr)) |file| return .{ .name = out, .file = file };
         } else |_| {
             log.debug("unable to open {s}\n", .{out});
         }
-    } else if (fs.home) |home| {
+    } else {
+        const home = fs.home;
         if (home.dir.openDir(io, ".config", .{})) |*hc| {
-            fs.conf = .{ .name = try a.dupe(u8, ".config"), .dir = hc.* };
+            fs.conf = .{ .name = try home.dir.realPathFileAlloc(io, ".config", a), .dir = hc.* };
             if (hc.openDir(io, "hsh", .{})) |hch| {
                 if (writeFileAt(hch, name[1..], io, cr)) |file| {
                     return .{ .name = try a.dupe(u8, name[1..]), .file = file };
