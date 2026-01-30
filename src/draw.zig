@@ -1,6 +1,7 @@
 cursor: u32 = 0,
 cursor_reposition: bool = true,
 writer: *Writer,
+unbuffered: *Writer,
 before: DrawBuf = undefined,
 b: DrawBuf = undefined,
 right: DrawBuf = undefined,
@@ -95,6 +96,7 @@ pub fn init(a: Allocator, hsh: *Hsh) !Drawable {
     const buffer = try a.alloc(u8, draw_buffer_size);
     return .{
         .writer = &hsh.tty.out.w.interface,
+        .unbuffered = &hsh.tty.out.unbuffered.interface,
         .before = .initBuffer(buffer[0..][0 .. draw_buffer_size / 4]),
         .b = .initBuffer(buffer[draw_buffer_size / 4 * 1 ..][0 .. draw_buffer_size / 4]),
         .right = .initBuffer(buffer[draw_buffer_size / 4 * 2 ..][0 .. draw_buffer_size / 4]),
@@ -104,7 +106,7 @@ pub fn init(a: Allocator, hsh: *Hsh) !Drawable {
 }
 
 pub fn key(d: *Drawable, c: u8) !void {
-    try d.writer.writeByte(c);
+    try d.unbuffered.writeByte(c);
 }
 
 pub fn move(d: *Drawable, comptime dir: Direction, width: u16) !void {

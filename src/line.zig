@@ -1,4 +1,5 @@
 hsh: *Hsh,
+draw: *Draw,
 alloc: Allocator,
 input: Input,
 tkn: Tokenizer,
@@ -29,6 +30,7 @@ const Action = enum {
 pub fn init(hsh: *Hsh, a: Allocator, options: Options) !Line {
     return .{
         .hsh = hsh,
+        .draw = &hsh.draw,
         .alloc = a,
         .input = .{ .stdin = hsh.input, .spin = spin, .hsh = hsh },
         .tkn = Tokenizer.init(a),
@@ -51,7 +53,7 @@ fn spin(hsh: ?*Hsh, a: Allocator, io: Io) bool {
 
 fn char(line: *Line, c: u8) !void {
     try line.tkn.consumec(c);
-    try line.hsh.draw.key(c);
+    try line.draw.key(c);
 
     // TODO FIXME
     line.text = line.tkn.raw.items;
@@ -71,7 +73,7 @@ fn core(line: *Line, a: Allocator, io: Io) !Action {
             error.io => return err,
             error.signaled => {
                 Draw.clearCtx(&line.hsh.draw);
-                try Draw.render(&line.hsh.draw);
+                try line.draw.render();
                 return .empty;
             },
             error.end_of_text => return error.FIXME,
@@ -120,9 +122,9 @@ fn core(line: *Line, a: Allocator, io: Io) !Action {
                     .tab => try line.complete(a, io),
                     else => |els| log.warn("unknown {}\n", .{els}),
                 }
-                line.hsh.draw.clear();
+                line.draw.clear();
                 try Prompt.draw(line.hsh, line.peek());
-                try line.hsh.draw.render();
+                try line.draw.render();
             },
 
             else => |el| {
