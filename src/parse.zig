@@ -9,30 +9,32 @@ pub const Construct = enum {
     alias,
     builtin,
     dollar,
+    empty,
     fmt_str,
     glob,
+    glob_multi,
+    glob_path,
     io_mode,
-    multi_glob,
     op_mode,
     path,
     subcommand,
     word,
-    empty,
 };
 
 pub const Parsed = union(Construct) {
     alias: Base,
     builtin: Base,
     dollar: Base,
+    empty: void,
     fmt_str: Base,
     glob: Base,
+    glob_multi: Base,
+    glob_path: Base,
     io_mode: IoMode,
-    multi_glob: Base,
     op_mode: OpMode,
     path: Base,
     subcommand: Base,
     word: Base,
-    empty: void,
 
     pub const Base = struct {
         str: []const u8,
@@ -327,8 +329,7 @@ pub const Iterator = struct {
                 } else if (findScalar(u8, t.str, '*')) |_| {
                     try itr.parseGlob(t.str);
                 } else {
-                    const real = try Resolver.single(t);
-                    try itr.resolved.appendBounded(real);
+                    try itr.resolved.appendBounded(.{ .parsed = .{ .word = .{ .str = t.str } } });
                 }
             },
         }
@@ -357,7 +358,8 @@ pub const Iterator = struct {
     }
 
     fn parseGlob(itr: *Iterator, str: []const u8) !void {
-        if (find(u8, str, "*")) |_| {} else unreachable;
+        if (find(u8, str, "*") == null) unreachable;
+        if (find(u8, str, "**") != null) return error.NotImplemented;
 
         if (find(u8, str, "/")) |_| {
             //unreachable;
@@ -371,7 +373,7 @@ pub const Iterator = struct {
             //        }
             //        const path = try std.mem.join(itr.alloc, "/", &[2][]const u8{ dir, name });
             try itr.resolved.appendBounded(
-                .{ .parsed = .{ .glob = .{ .str = str, .continues = false } } },
+                .{ .parsed = .{ .glob_path = .{ .str = str, .continues = false } } },
             );
         } else {
             try itr.resolved.appendBounded(
@@ -421,53 +423,11 @@ pub const Resolver = struct {
         };
     }
 
-    pub fn single(token: Token) !Arg {
-        if (token.str.len == 0) return .empty;
-
-        switch (token.kind) {
-            .quote => {
-                std.debug.print("{any}", .{token});
-                unreachable;
-                //var needle = [2]u8{ '\\', token.subtoken };
-                //if (mem.indexOfScalar(u8, token.str, '\\')) |_| {} else return token;
-
-                //var i: usize = 0;
-                //backing.appendSliceBounded(a, token.str) catch return Error.Memory;
-                //while (i + 1 < backing.items.len) : (i += 1) {
-                //    if (backing.items[i] == '\\') {
-                //        if (mem.indexOfAny(u8, backing.items[i + 1 .. i + 2], &needle)) |_| {
-                //            _ = backing.orderedRemove(i);
-                //        }
-                //    }
-                //}
-                //local.resolved = backing.toOwnedSlice(a) catch return Error.Memory;
-                //return local;
-            },
-            .vari => unreachable, //return try variable(token.str),
-            .word, .path => return try word(token),
-            .subp => {
-                return .{ .parsed = .{
-                    .subcommand = .{ .str = token.str },
-                } };
-            },
-            else => {
-                switch (token.str[0]) {
-                    '$' => return .{ .parsed = .{
-                        .dollar = .{ .str = token.str },
-                    } },
-                    else => return .{ .parsed = .{
-                        .word = .{ .str = token.str },
-                    } },
-                }
-            },
-        }
-    }
-
     fn alias(str: []const u8) ![]const u8 {
         return (Alias.find(str) orelse return error.Empty).value;
     }
 
-    fn word(t: Token) !Arg {
+    pub fn word(t: Token) !Arg {
         if (findScalar(u8, t.str, '\\')) |_| {
             return .{ .parsed = .{ .fmt_str = .{ .str = t.str } } };
         }

@@ -549,7 +549,7 @@ pub fn complete(cs: *CompSet, hsh: *Hsh, tks: *Tokenizer, io: Io) !void {
                     try completeDir(cs, dir, io);
                 },
                 .word, .path => {
-                    var t = try Resolver.single(pair.t);
+                    var t = try Resolver.word(pair.t);
                     if (std.mem.indexOfScalar(u8, t.resolved.str, '/')) |_| {
                         try completePath(cs, t.resolved.str, io);
                     } else {
