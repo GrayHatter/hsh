@@ -154,7 +154,7 @@ pub fn main(init: std.process.Init) !void {
             continue;
         } else |err| {
             switch (err) {
-                error.io => {
+                error.Io => {
                     hsh.tty.waitForFg();
                     //@breakpoint();
                     log.err("{} crash in main\n", .{err});

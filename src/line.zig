@@ -34,7 +34,7 @@ pub fn init(hsh: *Hsh, a: Allocator, options: Options) !Line {
         .draw = &hsh.draw,
         .prompt = &hsh.prompt,
         .alloc = a,
-        .input = .{ .stdin = hsh.input, .spin = spin, .hsh = hsh },
+        .input = .{ .stdin = &hsh.tty.in.r.interface, .spin = spin },
         .tkn = Tokenizer.init(a),
         .completion = Complete.init(a),
         .options = options,
@@ -48,9 +48,9 @@ pub fn raze(line: Line) void {
     if (line.completion) |comp| comp.raze();
 }
 
-fn spin(hsh: ?*Hsh, a: Allocator, io: Io) bool {
-    if (hsh) |h| return h.spin(a, io);
-    return false;
+fn spin(input: *const Input, a: Allocator, io: Io) bool {
+    const line: *const Line = @fieldParentPtr("input", input);
+    return line.hsh.spin(a, io);
 }
 
 fn char(line: *Line, c: u8) !void {
@@ -72,13 +72,13 @@ fn core(line: *Line, a: Allocator, io: Io) !Action {
             .scripted => line.input.nonInteractive(),
             .external_editor => return .external,
         } catch |err| switch (err) {
-            error.io => return err,
-            error.signaled => {
+            error.Io => return err,
+            error.Signaled => {
                 line.draw.clearCtx();
                 try line.draw.render();
                 return .empty;
             },
-            error.end_of_text => return error.FIXME,
+            //error.end_of_text => return error.FIXME,
         };
         ////hsh.draw.cursor = 0;
         //if (tkn.raw.items.len == 0) {
@@ -368,7 +368,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
         },
         .read => {
             const chr = line.input.interactive(a, io) catch |err| switch (err) {
-                error.signaled => continue :sw .{ .typing = .{ .control = .{ .c = .esc } } },
+                //error.signaled => continue :sw .{ .typing = .{ .control = .{ .c = .esc } } },
                 else => return err,
             };
             continue :sw .{ .typing = chr };

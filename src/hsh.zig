@@ -1,4 +1,4 @@
-features: hshFeature,
+features: Features,
 env: std.process.Environ,
 fs: Fs,
 pid: std.posix.pid_t,
@@ -8,8 +8,6 @@ tty: Tty = undefined,
 prompt: Prompt,
 draw: Drawable = undefined,
 line: *Line = undefined,
-input: i32 = 0,
-changes: []u8 = undefined,
 waiting: bool = false,
 
 const Hsh = @This();
@@ -25,25 +23,24 @@ pub const Error = error{
     InitFailed,
 };
 
-pub const Features = enum {
-    Debugging,
-    TabComplete,
-    Colorize,
+pub const Feature = enum {
+    debugging,
+    tab_complete,
+    colorize,
 };
 
-pub const hshFeature = struct {
-    Debugging: bool = builtin.mode == std.builtin.OptimizeMode.Debug,
-    TabComplete: ?bool = true,
-    Colorize: ?bool = null,
+pub const Features = struct {
+    debugging: bool = builtin.mode == std.builtin.OptimizeMode.Debug,
+    tab_complete: ?bool = true,
+    colorize: ?bool = null,
 };
 
 // Until tagged structs are a thing, enforce these to be equal at compile time
 // it's probably not important for the order to be equal... but here we are :)
 comptime {
-    std.debug.assert(@typeInfo(Features).@"enum".fields.len == @typeInfo(hshFeature).@"struct".fields.len);
-    for (@typeInfo(Features).@"enum".fields, 0..) |field, i| {
-        std.debug.assert(std.mem.eql(u8, field.name, @typeInfo(hshFeature).@"struct".fields[i].name));
-        //@compileLog("{s}\n", .{field.name});
+    for (@typeInfo(Feature).@"enum".fields, @typeInfo(Features).@"struct".fields) |feat, hfeat| {
+        if (!std.mem.eql(u8, feat.name, hfeat.name))
+            @compileError("Feature mismatch " ++ feat.name ++ "\n");
     }
 }
 
@@ -145,12 +142,19 @@ pub fn init(env: Environ, a: Allocator, io: Io) !Hsh {
     // decide we care enough to fix this, or not. The internet seems to think
     // it's a mistake to alter the env for a running process.
 
+    // Init shell
+    Variables.init(a);
+    Variables.load(env, a) catch return error.Memory;
+    // builtins that wish to save data depend on this being available
+    shellbuiltin.init(a, io);
+    try Context.init(a);
+
     // TODO there's errors other than just mem here
     var hsh: Hsh = .{
         .features = .{},
         .prompt = .init(env.getPosix("USER") orelse "[env error]", null),
         .env = env,
-        .pid = std.os.linux.getpid(),
+        .pid = os.getpid(),
         .jobs = .init(),
         .fs = Fs.init(env, a, io) catch return error.Memory,
     };
@@ -158,23 +162,15 @@ pub fn init(env: Environ, a: Allocator, io: Io) !Hsh {
         log.err("Unable to install rc INotify\n", .{});
     };
 
-    // Init shell
-    Variables.init(a);
-    // builtins that wish to save data depend on this being available
-
-    shellbuiltin.init(a, io);
-    try Context.init(a);
     try readFromRC(&hsh, a, io);
-    Variables.load(env, a) catch return error.Memory;
-
     return hsh;
 }
 
-pub fn enabled(hsh: *const Hsh, comptime f: Features) bool {
+pub fn enabled(hsh: *const Hsh, comptime f: Feature) bool {
     return switch (f) {
-        .Debugging => if (hsh.features.Debugging) true else false,
-        .TabComplete => hsh.feature.TabComplete,
-        .Colorize => hsh.features.Colorize orelse true,
+        .debugging => if (hsh.features.debugging) true else false,
+        .tab_complete => hsh.features.tab_complete,
+        .colorize => hsh.features.colorize orelse true,
     };
 }
 
@@ -254,3 +250,4 @@ const Variables = @import("variables.zig");
 const Fs = @import("fs.zig");
 const Jobs = @import("jobs.zig");
 const shellbuiltin = @import("builtins.zig");
+const os = std.os.linux; // TODO add support for other oses

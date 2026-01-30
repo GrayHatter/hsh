@@ -1,6 +1,5 @@
-stdin: std.posix.fd_t,
-spin: ?*const fn (*Hsh, Allocator, Io) bool = null,
-hsh: ?*Hsh = null,
+stdin: *Reader,
+spin: ?*const fn (*const Input, Allocator, Io) bool = null,
 next: ?Event = null,
 
 const Input = @This();
@@ -68,12 +67,6 @@ pub const CtrlMod = struct {
     }
 };
 
-const errors = error{
-    io,
-    signaled,
-    end_of_text,
-};
-
 pub const Event = union(enum) {
     action: Action,
     char: u8,
@@ -82,29 +75,7 @@ pub const Event = union(enum) {
 };
 
 pub fn init(stdin: std.posix.fd_t) Input {
-    return .{
-        .stdin = stdin,
-    };
-}
-
-fn read(input: Input, buf: []u8) !usize {
-    return std.posix.read(input.stdin, buf);
-    // switch (std.posix.errno(rc)) {
-    //     .SUCCESS => return @intCast(rc),
-    //     .INTR => return error.Interupted,
-    //     .AGAIN => return error.WouldBlock,
-    //     .BADF => return error.NotOpenForReading, // Can be a race condition.
-    //     .IO => return error.InputOutput,
-    //     .ISDIR => return error.IsDir,
-    //     .NOBUFS => return error.SystemResources,
-    //     .NOMEM => return error.SystemResources,
-    //     .CONNRESET => return error.ConnectionResetByPeer,
-    //     .TIMEDOUT => return error.ConnectionTimedOut,
-    //     else => |err| {
-    //         std.debug.print("unexpected read err {}\n", .{err});
-    //         @panic("unknown read error\n");
-    //     },
-    // }
+    return .{ .stdin = stdin };
 }
 
 fn ctrlCode(b: u8) Control {
@@ -198,7 +169,7 @@ fn ascii(key: Keys.ASCII) Event {
     return .{ .control = .none };
 }
 
-fn toChar(k: Keys.Event) errors!Event {
+fn toChar(k: Keys.Event) Event {
     switch (k) {
         .ascii => |as| return ascii(as),
         .keysm => |ks| return event(ks),
@@ -209,46 +180,39 @@ fn toChar(k: Keys.Event) errors!Event {
     }
 }
 
-pub fn nonInteractive(input: Input) errors!Event {
-    var buffer: [1]u8 = undefined;
-
-    const nbyte: usize = input.read(&buffer) catch |err| {
+pub fn nonInteractive(input: *const Input) !Event {
+    const byte: u8 = input.stdin.takeByte() catch |err| {
         log.err("unable to read {}", .{err});
-        return error.io;
+        return error.Io;
     };
-    if (nbyte == 0) return error.end_of_text;
 
-    if (Keys.translate(buffer[0], input.stdin)) |key| {
-        return toChar(key);
-    } else |_| unreachable;
+    return toChar(Keys.translate(byte, input.stdin) catch unreachable);
 }
 
-pub fn interactive(input: Input, a: Allocator, io: Io) errors!Event {
-    var buffer: [1]u8 = undefined;
-
+pub fn interactive(in: *const Input, a: Allocator, io: Io) !Event {
     while (true) {
-        if (input.read(&buffer) catch |err| {
-            log.err("unable to read {}", .{err});
-            return error.io;
-        } == 0) {
-            if (input.spin) |spin| {
-                if (spin(input.hsh.?, a, io))
-                    return error.signaled;
-            }
-            continue;
-        }
+        const byte = in.stdin.takeByte() catch |err| switch (err) {
+            error.EndOfStream => {
+                if (in.spin) |spin| {
+                    if (spin(in, a, io))
+                        return error.Signaled;
+                }
+                continue;
+            },
+            else => {
+                log.err("unable to read {}\n\n", .{err});
+                return error.Io;
+            },
+        };
 
-        if (Keys.translate(buffer[0], input.stdin)) |key| {
-            return toChar(key);
-        } else |_| unreachable;
+        return toChar(Keys.translate(byte, in.stdin) catch unreachable);
     }
 }
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
+const Reader = Io.Reader;
 const log = @import("log.zig");
-const Hsh = @import("hsh.zig");
 const Keys = @import("keys.zig");
 const parser = @import("parse.zig");
-const Parser = parser.Parser;

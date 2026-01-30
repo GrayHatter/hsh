@@ -92,7 +92,7 @@ const Direction = enum {
 pub const Drawable = @This();
 
 pub fn init(a: Allocator, hsh: *Hsh) !Drawable {
-    colorize = hsh.enabled(Features.Colorize);
+    colorize = hsh.enabled(.colorize);
     const buffer = try a.alloc(u8, draw_buffer_size);
     return .{
         .writer = &hsh.tty.out.w.interface,

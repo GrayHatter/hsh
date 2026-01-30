@@ -1,7 +1,4 @@
-pub const Error = error{
-    UnknownEvent,
-    IO,
-};
+const Keys = @This();
 
 // zig fmt: off
 pub const Key = enum(u8) {
@@ -45,6 +42,7 @@ pub const Mods = struct {
         };
     }
 };
+
 pub const ASCII = u8;
 
 pub const KeyMod = struct {
@@ -86,72 +84,64 @@ pub const Event = union(enum) {
     }
 };
 
-pub fn translate(c: u8, io: i32) Error!Event {
+pub fn translate(c: u8, r: *Reader) !Event {
     switch (c) {
-        0x1B => return try esc(io),
+        0x1B => return try esc(r),
         else => return .{ .ascii = c },
     }
 }
 
-pub fn esc(io: i32) Error!Event {
-    var buffer: [1]u8 = .{0x1B};
-    _ = std.posix.read(io, &buffer) catch return Error.IO;
-    switch (buffer[0]) {
-        0x1B => return Event.fromKey(.esc),
-        '[' => return csi(io),
-        'O' => return Event.fromKey(try sst(io)),
-        else => {
-            log.warn("\n\nunknown input: escape {s} {}\n", .{ buffer, buffer[0] });
-            return Event{ .keysm = .{
-                .evt = .{
-                    .ascii = buffer[0],
-                },
-                .mods = Mods.make(2),
-            } };
+pub fn esc(r: *Reader) !Event {
+    if (r.bufferedLen() == 0) return Event.fromKey(.esc);
+    switch (try r.takeByte()) {
+        0x1B => unreachable, // I assume this is unreachable now? // return Event.fromKey(.esc),
+        '[' => return csi(r),
+        'O' => return Event.fromKey(try sst(r)),
+        else => |byte| {
+            log.warn("\n\nunknown input: escape {c} {d}\n", .{ byte, byte });
+            return Event{
+                .keysm = .{ .evt = .{ .ascii = byte }, .mods = Mods.make(2) },
+            };
         },
     }
-    return Error.UnknownEvent;
 }
 
 /// Single Shift Three
-fn sst(io: i32) Error!Key {
-    var buffer: [1]u8 = undefined;
-    if ((std.posix.read(io, &buffer) catch return Error.IO) != 1) unreachable;
-    switch (buffer[0]) {
+fn sst(r: *Reader) !Key {
+    switch (try r.takeByte()) {
         'P' => return .F1,
         'Q' => return .F2,
         'R' => return .F3,
         'S' => return .F4,
         else => |c| {
             log.err("unexpected single shift three char 0x{X}\n", .{c});
-            return Error.UnknownEvent;
+            return error.UnknownEvent;
         },
     }
 }
 
 /// Control Sequence Introducer
-fn csi(io: i32) Error!Event {
-    var buffer: [32]u8 = undefined;
-    var i: usize = 0;
-    // Iterate byte by byte to terminate as early as possible
-    while (i < buffer.len) : (i += 1) {
-        const len = std.posix.read(io, buffer[i .. i + 1]) catch return Error.IO;
-        if (len == 0) return Error.UnknownEvent;
-        switch (buffer[i]) {
-            '~', 'a'...'z', 'A'...'Z' => break,
+fn csi(r: *Reader) !Event {
+    var buffer = try r.peekGreedy(1);
+    for (buffer, 0..) |byte, i|
+        switch (byte) {
+            '~', 'a'...'z', 'A'...'Z' => {
+                buffer = buffer[0..i];
+                break;
+            },
             else => continue,
-        }
-    }
-    std.debug.assert(i != buffer.len);
-    switch (buffer[i]) {
-        '~' => return Event.fromKey(try csi_vt(buffer[0..i])), // intentionally dropping ~
-        'a'...'z', 'A'...'Z' => return csi_xterm(buffer[0 .. i + 1]),
+        };
+    r.toss(buffer.len);
+
+    switch (buffer[buffer.len - 1]) {
+        '~' => return Event.fromKey(try csi_vt(buffer[0 .. buffer.len - 1])), // intentionally dropping ~
+        'a'...'z', 'A'...'Z' => return csi_xterm(buffer),
         else => std.debug.print("\n\nunknown\n{any}\n\n\n", .{buffer}),
     }
-    return Error.UnknownEvent;
+    return error.UnknownEvent;
 }
 
-fn csi_xterm(buffer: []const u8) Error!Event {
+fn csi_xterm(buffer: []const u8) !Event {
     switch (buffer[0]) {
         'A' => return Event.fromKey(.up),
         'B' => return Event.fromKey(.down),
@@ -196,7 +186,7 @@ fn csi_xterm(buffer: []const u8) Error!Event {
     }
 }
 
-fn csi_vt(in: []const u8) Error!Key {
+fn csi_vt(in: []const u8) !Key {
     const y: u16 = std.fmt.parseInt(u16, in, 10) catch 0;
     switch (y) {
         1 => return .home,
@@ -229,10 +219,11 @@ fn csi_vt(in: []const u8) Error!Key {
         33 => return .F19,
         34 => return .F20,
         9, 16, 22, 27, 30, 35 => unreachable,
-        else => return Error.UnknownEvent,
+        else => return error.UnknownEvent,
     }
-    return Error.UnknownEvent;
+    return error.UnknownEvent;
 }
 
 const std = @import("std");
 const log = @import("log.zig");
+const Reader = std.Io.Reader;

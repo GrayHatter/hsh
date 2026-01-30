@@ -18,7 +18,7 @@ pub const VTCmds = enum {
 
 pub const RStack = struct {
     fd: File,
-    w: Reader,
+    r: Reader,
     unbuffered: Reader,
 };
 
@@ -49,13 +49,13 @@ pub fn init(a: Allocator, io: Io) !Tty {
         .dev = dev,
         .in = .{
             .fd = in_tty,
-            .w = in_tty.reader(io, in_b),
-            .unbuffered = in_tty.reader(io, &.{}),
+            .r = in_tty.readerStreaming(io, in_b),
+            .unbuffered = in_tty.readerStreaming(io, &.{}),
         },
         .out = .{
             .fd = out_tty,
-            .w = out_tty.writer(io, out_b),
-            .unbuffered = in_tty.writer(io, &.{}),
+            .w = out_tty.writerStreaming(io, out_b),
+            .unbuffered = in_tty.writerStreaming(io, &.{}),
         },
         .orig_attr = tcAttr(dev.?.handle),
     };
