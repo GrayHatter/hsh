@@ -368,7 +368,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
         },
         .read => {
             const chr = line.input.interactive(a, io) catch |err| switch (err) {
-                //error.signaled => continue :sw .{ .typing = .{ .control = .{ .c = .esc } } },
+                error.Signaled => continue :sw .{ .typing = .{ .control = .{ .c = .esc } } },
                 else => return err,
             };
             continue :sw .{ .typing = chr };
