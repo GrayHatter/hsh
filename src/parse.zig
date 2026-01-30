@@ -85,6 +85,16 @@ pub const Resolved = struct {
     pub fn raze(r: *Resolved, a: Allocator) void {
         if (r.allocated) a.free(r.str);
     }
+
+    pub fn dupe(r: Resolved, a: Allocator) !Arg {
+        return .{ .resolved = .{
+            .str = try a.dupe(u8, r.str),
+            .construct = r.construct,
+            .allocated = r.allocated,
+            .io = r.io,
+            .op = r.op,
+        } };
+    }
 };
 
 pub const Iterator = struct {
@@ -409,6 +419,19 @@ pub const Iterator = struct {
             .resolved => |rs| a.free(rs.str),
         };
         self.resolved.clearAndFree(a);
+    }
+
+    pub fn clone(source: *const Iterator, a: Allocator) !Iterator {
+        var out = source.*;
+
+        out.resolved = .initBuffer(try a.alloc(Arg, source.resolved.items.len));
+
+        for (source.resolved.items) |src| switch (src) {
+            .parsed => unreachable, // not implemented
+            .resolved => |rs| try out.resolved.appendBounded(try rs.dupe(a)),
+        };
+
+        return out;
     }
 };
 

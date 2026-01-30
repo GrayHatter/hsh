@@ -229,6 +229,12 @@ pub fn raze(t: *Tty) void {
     }
 }
 
+pub fn panic(t: *Tty) void {
+    var tty = t.*;
+    t.dev = null;
+    tty.raze();
+}
+
 const expect = std.testing.expect;
 test "split" {
     var s = "\x1B[86;1R";

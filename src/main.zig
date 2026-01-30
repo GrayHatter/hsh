@@ -177,12 +177,17 @@ pub fn main(init: std.process.Init) !void {
 // to capture/save state, but that's a much later TODO
 pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, addr: ?usize) noreturn {
     @branchHint(.cold);
-
-    log.err("Panic reached... your TTY is likely broken now.\n\n      ...sorry about that!\n\n", .{});
+    log.err(
+        \\Panic reached... your TTY is likely broken now.
+        \\
+        \\     ...sorry about that!
+        \\
+        \\
+    , .{});
     std.debug.print("\n\r\x1B[J", .{});
     if (Tty.current_tty) |*t| {
         Tty.current_tty = null;
-        t.raze();
+        t.panic();
     }
     std.debug.defaultPanic(msg, addr);
     @trap();

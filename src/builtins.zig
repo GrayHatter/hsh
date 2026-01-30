@@ -92,7 +92,7 @@ pub fn strExec(str: []const u8) BuiltinFn {
     inline for (@typeInfo(BuiltinWeak).@"enum".fields) |f| {
         if (eql(u8, f.name, str)) return execOpt(@enumFromInt(f.value));
     }
-    log.err("strExec panic on {s}\n", .{str});
+    log.err("strExec panic on '{s}'\n", .{str});
     unreachable;
 }
 
@@ -153,7 +153,7 @@ pub const Die = struct {
 };
 
 pub const Exit = struct {
-    pub fn call(_: *Hsh, i: *ParsedIterator, _: Allocator, _: Io) Err!u8 {
+    pub fn call(h: *Hsh, i: *ParsedIterator, a: Allocator, io: Io) Err!u8 {
         std.debug.assert(std.mem.eql(u8, "exit", i.first().resolved.str));
         var code: u8 = 0;
         if (i.next()) |next| {
@@ -165,11 +165,10 @@ pub const Exit = struct {
         } else {
             // TODO: Get exit code of last command
         }
-        if (true) unreachable;
-        //hsh.draw.raze();
-        //hsh.tty.raze();
-        //hsh.raze();
-        //std.posix.exit(code);
+        h.draw.raze(a);
+        h.tty.raze();
+        h.raze(a, io);
+        os.exit(code);
     }
 };
 
@@ -304,3 +303,4 @@ pub const Token = @import("token.zig");
 pub const ParsedIterator = @import("parse.zig").Iterator;
 pub const Variables = @import("variables.zig");
 const assert = std.debug.assert;
+const os = std.os.linux;

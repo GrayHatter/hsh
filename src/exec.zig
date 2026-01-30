@@ -147,8 +147,8 @@ fn makeExeZ(str: []const u8, fs: Fs, a: Allocator, io: Io) Error!ARG {
 }
 
 fn prepareBuiltin(parsed: ParsedIterator, a: Allocator) Error!Callable {
-    var itr = parsed;
-    itr.tokens = try a.dupe(Token, itr.tokens);
+    var itr = try parsed.clone(a);
+    log.debug("builtin str '{s}'\n", .{itr.first().resolved.str});
     return .{
         .builtin = .{ .builtin = itr.first().resolved.str, .argv = itr },
     };
