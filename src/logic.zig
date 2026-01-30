@@ -334,6 +334,8 @@ pub const Logicizer = struct {
     }
 };
 
+const expectEqual = std.testing.expectEqual;
+const expectEqualStrings = std.testing.expectEqualStrings;
 test "if" {
     const a = std.testing.allocator;
     const if_str =
@@ -346,14 +348,13 @@ test "if" {
     var ifs = try Token.logic(if_str);
     var if_block = try If.build(a, &ifs);
     defer if_block.raze();
-    try std.testing.expect(if_block.clause != null);
     // we just accept the whitespace here, it's not our job to parse it out
     const hope_true = try Token.any(if_block.clause.?[1..]);
-    try std.testing.expectEqualStrings("true", hope_true.str);
+    try expectEqualStrings("true", hope_true.str);
     const ws = try Token.any(if_block.body.?);
     const hope_echo = try Token.any(if_block.body.?[ws.str.len..]);
-    try std.testing.expectEqualStrings("echo", hope_echo.str);
-    try std.testing.expect(if_block.elif == null);
+    try expectEqualStrings("echo", hope_echo.str);
+    try expectEqual(null, if_block.elif);
 
     const else_str =
         \\if true
@@ -367,15 +368,13 @@ test "if" {
     var elses = try Token.logic(else_str);
     var else_block = try If.build(a, &elses);
     defer else_block.raze();
-    try std.testing.expect(else_block.clause != null);
     // we just accept the whitespace here, it's not our job to parse it out
     const else_hope_true = try Token.any(else_block.clause.?[1..]);
-    try std.testing.expectEqualStrings("true", else_hope_true.str);
+    try expectEqualStrings("true", else_hope_true.str);
     const else_ws = try Token.any(else_block.body.?);
     const else_hope_echo = try Token.any(else_block.body.?[else_ws.str.len..]);
-    try std.testing.expectEqualStrings("echo", else_hope_echo.str);
-    try std.testing.expect(else_block.elif != null);
     try std.testing.expect(else_block.elif.?.* == .elses);
+    try expectEqualStrings("echo", else_hope_echo.str);
 
     const elif_str =
         \\if true
@@ -389,21 +388,19 @@ test "if" {
     var elifs = try Token.logic(elif_str);
     var elif_block = try If.build(a, &elifs);
     defer elif_block.raze();
-    try std.testing.expect(elif_block.clause != null);
     // we just accept the whitespace here, it's not our job to parse it out
     const elif_hope_true = try Token.any(elif_block.clause.?[1..]);
-    try std.testing.expectEqualStrings("true", elif_hope_true.str);
+    try expectEqualStrings("true", elif_hope_true.str);
     const elif_ws = try Token.any(elif_block.body.?);
     const elif_hope_echo = try Token.any(elif_block.body.?[elif_ws.str.len..]);
-    try std.testing.expectEqualStrings("echo", elif_hope_echo.str);
-    try std.testing.expect(elif_block.elif != null);
+    try expectEqualStrings("echo", elif_hope_echo.str);
     try std.testing.expect(elif_block.elif.?.* == .elifs);
-    try std.testing.expectEqualStrings(" something_true; ", elif_block.elif.?.*.elifs.clause.?);
+    try expectEqualStrings(" something_true; ", elif_block.elif.?.*.elifs.clause.?);
     const ws2 = try Token.any(elif_block.elif.?.*.elifs.body.?[1..]);
     const elif_hope_print = try Token.any(elif_block.elif.?.*.elifs.body.?[ws2.str.len + 1 ..]);
-    try std.testing.expectEqualStrings("print", elif_hope_print.str);
-    try std.testing.expectEqualStrings("print \"nothing\"\n", elif_block.elif.?.*.elifs.body.?[ws2.str.len + 1 ..]);
-    try std.testing.expect(elif_block.elif.?.*.elifs.elif == null);
+    try expectEqualStrings("print", elif_hope_print.str);
+    try expectEqualStrings("print \"nothing\"\n", elif_block.elif.?.*.elifs.body.?[ws2.str.len + 1 ..]);
+    try expectEqual(null, elif_block.elif.?.*.elifs.elif);
 
     const elif_else_str =
         \\if true
@@ -419,25 +416,22 @@ test "if" {
     var elif_elses = try Token.logic(elif_else_str);
     var elif_else_block = try If.build(a, &elif_elses);
     defer elif_else_block.raze();
-    try std.testing.expect(elif_else_block.clause != null);
     // we just accept the whitespace here, it's not our job to parse it out
     const elif_else_hope_true = try Token.any(elif_else_block.clause.?[1..]);
-    try std.testing.expectEqualStrings("true", elif_else_hope_true.str);
+    try expectEqualStrings("true", elif_else_hope_true.str);
     const elif_else_ws = try Token.any(elif_else_block.body.?);
     const elif_else_hope_echo = try Token.any(elif_else_block.body.?[elif_else_ws.str.len..]);
-    try std.testing.expectEqualStrings("echo", elif_else_hope_echo.str);
-    try std.testing.expect(elif_else_block.elif != null);
+    try expectEqualStrings("echo", elif_else_hope_echo.str);
     try std.testing.expect(elif_else_block.elif.?.* == .elifs);
     const ee_elif = elif_else_block.elif.?.*;
-    try std.testing.expectEqualStrings(" something_true; ", ee_elif.elifs.clause.?);
+    try expectEqualStrings(" something_true; ", ee_elif.elifs.clause.?);
     // skip the ;
     const ws_len = (try Token.any(ee_elif.elifs.body.?[1..])).str.len + 1;
-    try std.testing.expectEqualStrings("print \"nothing\"\n", elif_block.elif.?.*.elifs.body.?[ws_len..]);
+    try expectEqualStrings("print \"nothing\"\n", elif_block.elif.?.*.elifs.body.?[ws_len..]);
     const elif_else_hope_print = try Token.any(ee_elif.elifs.body.?[ws_len..]);
-    try std.testing.expectEqualStrings("print", elif_else_hope_print.str);
-    try std.testing.expect(elif_block.elif.?.*.elifs.elif == null);
-    try std.testing.expect(ee_elif.elifs.elif != null);
-    try std.testing.expectEqualStrings("\n    which \"undefined\"\n", ee_elif.elifs.elif.?.elses);
+    try expectEqualStrings("print", elif_else_hope_print.str);
+    try expectEqual(null, elif_block.elif.?.*.elifs.elif);
+    try expectEqualStrings("\n    which \"undefined\"\n", ee_elif.elifs.elif.?.elses);
 }
 
 test "while" {
@@ -450,13 +444,12 @@ test "while" {
 
     var whiles = try Token.logic(while_str);
     var while_block = try While.build(&whiles);
-    try std.testing.expect(while_block.clause != null);
     // we just accept the whitespace here, it's not our job to parse it out
     const hope_false = try Token.any(while_block.clause.?[1..]);
-    try std.testing.expectEqualStrings("false", hope_false.str);
+    try expectEqualStrings("false", hope_false.str);
     const ws = try Token.any(while_block.body.?);
     const hope_echo = try Token.any(while_block.body.?[ws.str.len..]);
-    try std.testing.expectEqualStrings("echo", hope_echo.str);
+    try expectEqualStrings("echo", hope_echo.str);
 }
 
 const std = @import("std");
