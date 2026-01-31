@@ -123,7 +123,7 @@ fn sst(r: *Reader) !Key {
 /// Control Sequence Introducer
 fn csi(r: *Reader) !Event {
     var buffer = try r.peekGreedy(1);
-    for (buffer, 0..) |byte, i|
+    for (buffer, 1..) |byte, i|
         switch (byte) {
             '~', 'a'...'z', 'A'...'Z' => {
                 buffer = buffer[0..i];
