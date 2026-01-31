@@ -1,5 +1,4 @@
-cwd: Dir,
-cwd_name: []const u8 = "fixme",
+cwd: Named.Dir,
 home: Named.Dir,
 paths: ArrayList(Named),
 conf: ?Named.Dir = null,
@@ -19,6 +18,16 @@ pub const Named = union(enum) {
     pub const File = struct {
         name: []const u8,
         file: Fs.File,
+
+        pub fn close(d: Named.Dir, io: Io) Named.Closed {
+            d.dir.close(io);
+            return .{ .name = d.name };
+        }
+
+        pub fn raze(n: *Named.File, a: Allocator, io: Io) void {
+            n.file.close(io);
+            a.free(n.name);
+        }
     };
 
     pub const Dir = struct {
@@ -28,6 +37,11 @@ pub const Named = union(enum) {
         pub fn close(d: Named.Dir, io: Io) Named.Closed {
             d.dir.close(io);
             return .{ .name = d.name };
+        }
+
+        pub fn raze(n: *Named.Dir, a: Allocator, io: Io) void {
+            n.dir.close(io);
+            a.free(n.name);
         }
     };
 
@@ -45,15 +59,40 @@ pub const Named = union(enum) {
                 .dir = try Fs.Dir.openDirAbsolute(io, c.name, .{}),
             } };
         }
+
+        pub fn raze(n: *Named, a: Allocator, io: Io) void {
+            switch (n.*) {
+                .closed_file => {},
+                .closed_dir => {},
+                .dir => |*d| _ = d.close(io),
+                .file => |*f| _ = f.close(io),
+            }
+            a.free(n.name);
+        }
     };
 
     pub fn open(n: *Named, io: Io) !void {
-        return switch (n.*) {
+        switch (n.*) {
             .closed_file => unreachable,
-            .closed_dir => |*c| try c.openDir(io),
+            .closed_dir => |*d| try d.openDir(io),
             .dir => unreachable,
             .file => unreachable,
-        };
+        }
+    }
+
+    pub fn close(n: *Named, io: Io) void {
+        switch (n.*) {
+            .closed_file => unreachable,
+            .closed_dir => unreachable,
+            .dir => |*d| _ = d.close(io),
+            .file => unreachable,
+        }
+    }
+
+    pub fn raze(named: *Named, a: Allocator, io: Io) void {
+        switch (named.*) {
+            inline else => |*n| n.raze(a, io),
+        }
     }
 };
 
@@ -73,20 +112,22 @@ pub fn init(env: Environ, a: Allocator, io: Io) !Fs {
         };
     }
 
-    const cwd = try Dir.cwd().openDir(io, ".", .{ .iterate = true });
-    const cwd_name = try cwd.realPathFileAlloc(io, ".", a);
+    const cwd: Named.Dir = .{
+        .dir = try Dir.cwd().openDir(io, ".", .{ .iterate = true }),
+        .name = try Dir.cwd().realPathFileAlloc(io, ".", a),
+    };
     var fs: Fs = .{
         .cwd = cwd,
         .paths = paths,
         .home = if (env.getPosix("HOME")) |home|
             .{
                 .name = home,
-                .dir = try Fs.Dir.openDirAbsolute(io, home, .{}),
+                .dir = try Dir.openDirAbsolute(io, home, .{}),
             }
         else
             .{
-                .name = try a.dupe(u8, cwd_name),
-                .dir = try Fs.Dir.openDirAbsolute(io, cwd_name, .{}),
+                .name = try a.dupe(u8, cwd.name),
+                .dir = try Dir.openDirAbsolute(io, cwd.name, .{}),
             },
         .inotify_fd = @intCast((linux.inotify_init1(std.os.linux.IN.CLOEXEC | std.os.linux.IN.NONBLOCK))),
         .watches = .{},
@@ -97,6 +138,8 @@ pub fn init(env: Environ, a: Allocator, io: Io) !Fs {
 
     return fs;
 }
+
+pub var g_fs: ?Fs = null;
 
 pub fn inotifyInstall(fs: *Fs, path: []const u8, cb: ?INotify.Callback, a: Allocator) !void {
     if (fs.inotify_fd) |infd| {
@@ -142,30 +185,28 @@ pub fn checkINotify(fs: *Fs, h: *Hsh, a: Allocator, io: Io) bool {
 }
 
 pub fn raze(fs: *Fs, a: Allocator, io: Io) void {
-    //fs.dirs.raze();
-    //fs.names.raze(a);
     if (fs.rc) |rc| rc.file.close(io);
     // TODO inotify_fd
     for (fs.watches.items) |*watch| {
         a.free(watch.path);
     }
     fs.watches.deinit(a);
-    // don't close fs.history, it's not owned by us
+    if (fs.history) |*h| h.raze(a, io);
 }
 
 pub fn cd(fs: *Fs, trgt: []const u8, a: Allocator, io: Io) !void {
     log.err("cd path '{s}'\n", .{trgt});
-    const old_name = fs.cwd_name;
+    const old_name = fs.cwd.name;
 
     const next = if (trgt.len == 0)
-        try fs.cwd.openDir(io, fs.home.name, .{})
+        try fs.cwd.dir.openDir(io, fs.home.name, .{})
     else
-        try fs.cwd.openDir(io, trgt, .{});
+        try fs.cwd.dir.openDir(io, trgt, .{});
 
-    fs.cwd_name = try fs.cwd.realPathFileAlloc(io, ".", a);
+    fs.cwd.name = try fs.cwd.dir.realPathFileAlloc(io, ".", a);
     a.free(old_name);
-    fs.cwd.close(io);
-    fs.cwd = next;
+    fs.cwd.dir.close(io);
+    fs.cwd.dir = next;
 }
 
 pub fn mktemp(data: ?[]const u8, a: Allocator, io: Io) ![]u8 {
@@ -350,18 +391,6 @@ fn openHistFile(fs: *Fs, a: Allocator, io: Io) !Named.File {
 
 test "fs" {
     _ = std.testing.refAllDecls(@This());
-    if (true) return error.SkipZigTest;
-    const a = std.testing.allocator;
-    var env = try std.process.getEnvMap(a);
-    defer env.deinit();
-    //var p = try findPath(a, &env) orelse unreachable;
-    //var buf: [200]u8 = undefined;
-    //std.debug.print("path {s}\n", .{try p.realpath(".", &buf)});
-    if (openRcFile(a, &env)) |_| {
-        // pass
-    } else |err| {
-        if (err != error.Missing) return err;
-    }
 }
 
 pub fn testingFs() Fs {
@@ -372,8 +401,7 @@ pub fn testingFs() Fs {
     };
     if (!builtin.is_test) unreachable;
     return .{
-        .cwd = undefined,
-        .cwd_name = "testing/cwd",
+        .cwd = .{ .dir = undefined, .name = "testing/cwd" },
         .home = .{ .name = "/home/user", .dir = Dir.cwd().openDir(std.testing.io, ".", .{}) catch unreachable },
         .paths = .{ .items = &paths.p },
         .conf = undefined,

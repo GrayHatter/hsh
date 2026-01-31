@@ -179,8 +179,8 @@ pub fn raze(hsh: *Hsh, a: Allocator, io: Io) void {
     if (hsh.fs.rc) |rc| {
         var fw = rc.file.writer(io, &b);
         fw.seekTo(0) catch @panic("unable to seek rc");
-        shellbuiltin.save(hsh, &fw.interface) catch unreachable;
-        fw.interface.flush() catch unreachable;
+        //shellbuiltin.save(hsh, &fw.interface) catch unreachable;
+        //fw.interface.flush() catch unreachable;
     }
 
     Context.raze(a);

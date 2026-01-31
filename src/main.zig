@@ -105,7 +105,7 @@ pub fn main(init: std.process.Init) !void {
     var hsh = try Hsh.init(init.minimal.environ, a, io);
     defer hsh.raze(a, io);
 
-    hsh.prompt.cwd = &hsh.fs.cwd_name;
+    hsh.prompt.cwd = &hsh.fs.cwd.name;
 
     try Signals.init(a);
     defer Signals.raze();
