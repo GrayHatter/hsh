@@ -69,9 +69,8 @@ fn userText(_: Prompt, draw: *Draw, good: []const u8, bad: []const u8) !void {
 fn prompt(p: Prompt, draw: *Draw.Drawable) !void {
     draw.draw(
         &[_]Lexeme{
-            .styled(p.username, .bold_blue), .str(p.hostname),
-            .str(" "),                       .str(p.cwd.*),
-            .str(p.brace),
+            .styled(p.username, .bold_blue), .str("@"),           .str(p.hostname),
+            .str(" "),                       .alt(p.cwd.*, .dir), .str(p.brace),
         },
     );
 }
@@ -95,3 +94,4 @@ const Draw = @import("draw.zig");
 const Jobs = @import("jobs.zig");
 const Feature = @import("hsh.zig").Features;
 const Lexeme = Draw.Lexeme;
+const fmt = @import("fmt.zig");

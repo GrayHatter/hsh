@@ -139,7 +139,7 @@ pub fn init(env: Environ, a: Allocator, io: Io) !Fs {
     return fs;
 }
 
-pub var g_fs: ?Fs = null;
+pub var g_fs: ?*const Fs = null;
 
 pub fn inotifyInstall(fs: *Fs, path: []const u8, cb: ?INotify.Callback, a: Allocator) !void {
     if (fs.inotify_fd) |infd| {

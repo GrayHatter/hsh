@@ -106,6 +106,7 @@ pub fn main(init: std.process.Init) !void {
     defer hsh.raze(a, io);
 
     hsh.prompt.cwd = &hsh.fs.cwd.name;
+    Fs.g_fs = &hsh.fs;
 
     try Signals.init(a);
     defer Signals.raze();
@@ -213,3 +214,4 @@ const Exec = @import("exec.zig");
 const Signals = @import("signals.zig");
 const Jobs = @import("jobs.zig");
 const Line = @import("line.zig");
+const Fs = @import("fs.zig");
