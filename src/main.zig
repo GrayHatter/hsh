@@ -39,7 +39,7 @@ fn execTacC(mini: std.process.Init.Minimal, io: Io) u8 {
     var hsh = Hsh.init(mini.environ, a, io) catch return 255;
     defer hsh.raze(a, io);
     hsh.tty = Tty.init(a, io) catch return 255;
-    defer hsh.tty.raze();
+    defer hsh.tty.raze(a);
     var args = mini.args.iterate();
     while (args.next()) |_| {
         unreachable;
@@ -112,7 +112,7 @@ pub fn main(init: std.process.Init) !void {
     defer Signals.raze();
 
     hsh.tty = try Tty.init(a, io);
-    defer hsh.tty.raze();
+    defer hsh.tty.raze(a);
 
     try hsh.tty.setRaw();
     // Look at me, I'm the captain now!
@@ -185,8 +185,8 @@ pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace, addr: ?usize) noretur
         \\
     , .{});
     std.debug.print("\n\r\x1B[J", .{});
-    Tty.current().panic();
     std.debug.defaultPanic(msg, addr);
+    Tty.current().panic();
     @trap();
 }
 

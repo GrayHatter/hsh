@@ -222,7 +222,7 @@ pub fn geom(t: *Tty) !Cord {
     return .{ .x = size.col, .y = size.row };
 }
 
-pub fn raze(t: *Tty) void {
+pub fn raze(t: *Tty, a: Allocator) void {
     if (t.orig_attr) |attr| {
         t.setTTYWhen(attr, .NOW) catch |err| {
             std.debug.print(
@@ -231,16 +231,25 @@ pub fn raze(t: *Tty) void {
             );
         };
     }
+
+    a.free(t.in.r.interface.buffer);
+    a.free(t.out.w.interface.buffer);
 }
 
 pub fn panic(t: *Tty) void {
-    var tty = t.*;
     t.dev = null;
     if (_current != null and t == &(_current.?)) {
         _current = null;
     }
-
-    tty.raze();
+    // we can't call raze without an allocator
+    if (t.orig_attr) |attr| {
+        t.setTTYWhen(attr, .NOW) catch |err| {
+            std.debug.print(
+                "\r\n\nTTY ERROR RAZE encountered, {} when attempting to raze.\r\n\n",
+                .{err},
+            );
+        };
+    }
 }
 
 const expect = std.testing.expect;

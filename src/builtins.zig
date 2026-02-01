@@ -163,7 +163,7 @@ pub const Exit = struct {
             // TODO: Get exit code of last command
         }
         h.draw.raze(a);
-        h.tty.raze();
+        h.tty.raze(a);
         h.raze(a, io);
         os.exit(code);
     }
