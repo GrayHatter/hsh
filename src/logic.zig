@@ -32,12 +32,12 @@ pub const Reserved = enum {
 };
 
 fn execBody(body: []const u8, h: *Hsh, a: Allocator, io: Io) !void {
-    var tzr = Tokenizer.init(a);
-    defer tzr.raze();
+    var tzr: Tokenizer = .{};
+    defer tzr.raze(a);
     for (body) |b| {
-        tzr.consumec(b) catch |err| {
-            if (err == Tokenizer.Error.Exec) {
-                try exec_.exec(tzr.raw.items, h, a, io);
+        tzr.consumeChar(b) catch |err| {
+            if (err == error.Exec) {
+                try exec_.exec(tzr.getSlice(), h, a, io);
                 tzr.reset();
             }
         };

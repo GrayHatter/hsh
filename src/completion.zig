@@ -36,7 +36,8 @@ pub const FSKind = enum {
     }
 };
 
-pub const Flavor = enum(u3) {
+pub const Flavor = enum(u8) {
+    original,
     any,
     path_exe,
     file_system,
@@ -45,6 +46,7 @@ pub const Flavor = enum(u3) {
 };
 
 pub const Kind = union(Flavor) {
+    original: void,
     any: void,
     path_exe: void,
     file_system: FSKind,
@@ -52,15 +54,11 @@ pub const Kind = union(Flavor) {
 
 pub const Option = struct {
     str: []const u8,
-    /// the original user text has kind == null
-    kind: ?Kind = Kind{ .any = {} },
+    kind: Kind = Kind{ .any = {} },
 
     pub fn style(cs_: Option, active: bool) Draw.Style {
-        const default = Draw.Style{
-            .attr = if (active) .reverse else .reset,
-        };
-        if (cs_.kind == null) return default;
-        switch (cs_.kind.?) {
+        const default: Draw.Style = .{ .attr = if (active) .reverse else .reset };
+        switch (cs_.kind) {
             .file_system => |f_s| {
                 switch (f_s) {
                     .dir => return .{
@@ -176,7 +174,7 @@ pub const CompSet = struct {
     //orig_token: ?*const Token = null,
     kind: Token.Kind = .nos,
     err: bool = false,
-    draw_cache: [Flavor.len]?[][]Draw.Lexeme = .{null} ** 3,
+    draw_cache: [Flavor.len]?[][]Draw.Lexeme = @splat(null),
 
     /// Intentionally excludes original from the count
     pub fn count(cs_: *const CompSet) usize {
@@ -234,21 +232,21 @@ pub const CompSet = struct {
     }
 
     // behavior is undefined when count <= 0
-    pub fn next(cs_: *CompSet) *const Option {
-        std.debug.assert(cs_.count() > 0);
+    pub fn next(cs: *CompSet) Option {
+        assert(cs.count() > 0);
 
-        cs_.skip();
-        if (cs_.search.items.len > 0 and cs_.countFiltered() > 0) {
-            while (!cs_.curSearchMatch()) {
-                cs_.skip();
+        cs.skip();
+        if (cs.search.items.len > 0 and cs.countFiltered() > 0) {
+            while (!cs.curSearchMatch()) {
+                cs.skip();
             }
         }
-        return &cs_.group.items[cs_.index];
+        return cs.group.items[cs.index];
     }
 
-    pub fn current(cs_: *const CompSet) *const Option {
-        if (cs_.group.items.len == 0) return &cs_.original.?;
-        return &cs_.group.items[cs_.index];
+    pub fn current(cs: *const CompSet) *const Option {
+        if (cs.group.items.len == 0) return &cs.original.?;
+        return &cs.group.items[cs.index];
     }
 
     pub fn skip(cs_: *CompSet) void {
@@ -298,7 +296,7 @@ pub const CompSet = struct {
     }
 
     pub fn push(cs: *CompSet, o: Option) !void {
-        cs.groupSet(o.kind.?);
+        cs.groupSet(o.kind);
         try cs.group.append(cs.alloc, o);
     }
 
@@ -409,7 +407,7 @@ pub const CompSet = struct {
 
 fn completeDir(cs: *CompSet, cwdi: Io.Dir, io: Io) !void {
     var itr = cwdi.iterate();
-    cs.original = Option{ .str = try cs.alloc.dupe(u8, ""), .kind = null };
+    cs.original = Option{ .str = try cs.alloc.dupe(u8, ""), .kind = .original };
     while (try itr.next(io)) |each| {
         try cs.push(Option{
             .str = try cs.alloc.dupe(u8, each.name),
@@ -420,7 +418,7 @@ fn completeDir(cs: *CompSet, cwdi: Io.Dir, io: Io) !void {
 
 fn completeDirBase(cs: *CompSet, base: []const u8, cwdi: Io.Dir, io: Io) !void {
     var itr = cwdi.iterate();
-    cs.original = Option{ .str = try cs.alloc.dupe(u8, base), .kind = null };
+    cs.original = Option{ .str = try cs.alloc.dupe(u8, base), .kind = .original };
     while (try itr.next(io)) |each| {
         if (!std.mem.startsWith(u8, each.name, base)) continue;
         try cs.push(Option{
@@ -449,7 +447,7 @@ fn completePath(cs: *CompSet, target: []const u8, io: Io) !void {
     }
     defer dir.close(io);
 
-    cs.original = Option{ .str = try cs.alloc.dupe(u8, base), .kind = null };
+    cs.original = Option{ .str = try cs.alloc.dupe(u8, base), .kind = .original };
     var itr = dir.iterate();
     while (try itr.next(io)) |each| {
         if (!std.mem.startsWith(u8, each.name, base)) continue;
@@ -469,7 +467,7 @@ fn completeFromPath(cs: *CompSet, target: []const u8, paths: ArrayList(Fs.Named)
         return completePath(cs, target, io);
     }
 
-    cs.original = .{ .str = try cs.alloc.dupe(u8, target), .kind = null };
+    cs.original = .{ .str = try cs.alloc.dupe(u8, target), .kind = .original };
 
     for (paths.items) |path| {
         var dir = std.Io.Dir.openDirAbsolute(io, path.dir.name, .{ .iterate = true }) catch return;
@@ -567,7 +565,7 @@ pub fn complete(cs: *CompSet, hsh: *Hsh, tks: *Tokenizer, io: Io) !void {
     }
 
     if (cs.original) |orig| {
-        try tks.maybeDupe(orig.str);
+        try tks.maybeReplace(orig, cs.alloc);
         try cs.searchStr(orig.str);
     }
     if (cs.original) |orig| {
@@ -611,3 +609,4 @@ const Cord = Draw.Cord;
 const S = @import("strings.zig");
 const ERRSTR_TOOBIG = S.COMPLETE_TOOBIG;
 const ERRSTR_NOOPTS = S.COMPLETE_NOOPTS;
+const assert = std.debug.assert;

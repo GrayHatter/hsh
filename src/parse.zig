@@ -557,8 +557,8 @@ const expectEqualDeep = std.testing.expectEqualDeep;
 
 test "iterator nows" {
     var a = std.testing.allocator;
-    var t: Tokenizer = Tokenizer.init(std.testing.allocator);
-    defer t.raze();
+    var t: Tokenizer = Tokenizer{};
+    defer t.raze(a);
 
     try t.consumeSlice("\"this is some text\" more text");
     var itr = t.iterator();
@@ -577,8 +577,8 @@ test "iterator nows" {
 
 test "breaking" {
     var a = std.testing.allocator;
-    var t = Tokenizer.init(std.testing.allocator);
-    defer t.raze();
+    var t = Tokenizer{};
+    defer t.raze(a);
 
     try t.consumeSlice("alias la='ls -la'");
     var titr = t.iterator();

@@ -8,7 +8,7 @@ const History = @This();
 
 pub fn init(file: ?Fs.Named.File, a: Allocator, io: Io) !History {
     if (file) |f| {
-        log.err("hist file {} name {s}\n", .{ f.file, f.name });
+        log.debug("hist file {} name {s}\n", .{ f.file, f.name });
         const cursor = (try f.file.stat(io)).size;
         var h: History = .{
             .fd = f.file,
@@ -20,7 +20,7 @@ pub fn init(file: ?Fs.Named.File, a: Allocator, io: Io) !History {
         while (h.reader.interface.takeSentinel('\n')) |next| {
             try h.lines.append(a, fbaa.dupe(u8, next) catch unreachable);
         } else |_| {}
-        log.err("hist count {}\n", .{h.lines.items.len});
+        log.debug("hist count {}\n", .{h.lines.items.len});
         return h;
     } else return error.NotImplemented;
 }

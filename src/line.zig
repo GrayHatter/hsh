@@ -37,7 +37,7 @@ pub fn init(hsh: *Hsh, a: Allocator, io: Io, options: Options) !Line {
         .draw = &hsh.draw,
         .prompt = &hsh.prompt,
         .input = .{ .stdin = &hsh.tty.in.r.interface, .spin = spin },
-        .tkn = Tokenizer.init(a),
+        .tkn = .{},
         .completion = Complete.init(a),
         .options = options,
         .history = try .init(hsh.fs.history, a, io),
@@ -59,11 +59,11 @@ fn char(line: *Line, c: u8) !void {
         line.alloc.free(line.bytes);
         line.bytes = &.{};
     }
-    try line.tkn.consumec(c);
+    try line.tkn.consumeChar(c);
     try line.draw.key(c);
 
     // TODO FIXME
-    line.bytes = line.tkn.raw.items;
+    //line.bytes = line.tkn.getSlice();
 }
 
 pub const CursorDirection = enum {
@@ -83,7 +83,7 @@ fn cursor(line: *Line, cd: CursorDirection) void {
 }
 
 pub fn peek(line: Line) []const u8 {
-    return line.tkn.raw.items;
+    return line.tkn.getSlice();
 }
 
 fn core(line: *Line, a: Allocator, io: Io) !Action {
@@ -139,10 +139,10 @@ fn core(line: *Line, a: Allocator, io: Io) !Action {
                     .down => try line.findHistory(.down),
                     .left => line.tkn.move(.dec),
                     .right => line.tkn.move(.inc),
-                    .backspace => line.tkn.pop(),
+                    .backspace => line.tkn.remove(),
                     .newline => return .exec,
                     .end_of_text => return .exec,
-                    .delete_word => _ = try line.tkn.dropWord(),
+                    .delete_word => _ = line.tkn.removeWord(),
                     .tab => try line.complete(a, io),
                     else => |els| log.warn("unknown {}\n", .{els}),
                 }
@@ -177,7 +177,7 @@ pub fn do(line: *Line, a: Allocator, io: Io) ![]u8 {
 }
 
 fn dupe(line: Line) ![]u8 {
-    return try line.alloc.dupe(u8, line.bytes);
+    return try line.alloc.dupe(u8, line.tkn.getSlice());
 }
 
 pub fn externEditor(line: *Line, io: Io) ![]u8 {
@@ -275,19 +275,22 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                     switch (c) {
                         0x00...0x1f => unreachable,
                         ' ' => {
-                            try line.tkn.maybeCommit(null);
+                            try line.tkn.maybeCommit(null, a);
                             cmplt.raze();
-                            try line.tkn.consumec(' ');
+                            try line.tkn.consumeChar(' ');
                             continue :sw .{ .done = {} };
                         },
                         '/' => |chr| {
                             // IFF this is an existing directory,
                             // completion should continue
                             if (cmplt.count() > 1) {
-                                if (cmplt.current().kind) |kind| {
-                                    if (kind == .file_system and kind.file_system == .dir) {
-                                        try line.tkn.consumec(chr);
-                                    }
+                                switch (cmplt.current().kind) {
+                                    .original => {},
+                                    .any => {},
+                                    .path_exe => {},
+                                    .file_system => |kind| {
+                                        if (kind == .dir) try line.tkn.consumeChar(chr);
+                                    },
                                 }
                             }
                             continue :sw .{ .redraw = {} };
@@ -296,7 +299,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                             try Complete.complete(cmplt, line.hsh, &line.tkn, io);
 
                             if (cmplt.count() == 0) {
-                                try line.tkn.consumec(c);
+                                try line.tkn.consumeChar(c);
                                 continue :sw .{ .done = {} };
                             } else {
                                 try cmplt.searchChar(c);
@@ -315,13 +318,13 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                                 cmplt.revr();
                             }
                             //_ = try doComplete(line.hsh, &line.tkn, &cmplt);
-                            try line.tkn.maybeReplace(cmplt.next());
+                            try line.tkn.maybeReplace(cmplt.next(), a);
                         },
                         .esc => {
-                            try line.tkn.maybeDrop();
+                            try line.tkn.maybeRemove(a);
                             if (cmplt.original) |o| {
-                                try line.tkn.maybeAdd(o.str);
-                                try line.tkn.maybeCommit(null);
+                                try line.tkn.maybeAdd(o.str, a);
+                                try line.tkn.maybeCommit(null, a);
                             }
                             cmplt.raze();
                             continue :sw .{ .done = {} };
@@ -330,13 +333,13 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                             // TODO implement arrows
                         },
                         .home, .end => |h_e| {
-                            try line.tkn.maybeCommit(null);
-                            line.tkn.idx = if (h_e == .home) 0 else line.tkn.raw.items.len;
+                            try line.tkn.maybeCommit(null, a);
+                            line.tkn.idx = if (h_e == .home) 0 else line.tkn.len;
                         },
                         .newline => {
-                            try line.tkn.maybeCommit(null);
+                            try line.tkn.maybeCommit(null, a);
                             cmplt.raze();
-                            try line.tkn.consumec(' ');
+                            try line.tkn.consumeChar(' ');
                             continue :sw .{ .done = {} };
                         },
                         .backspace => {
@@ -346,17 +349,17 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                                 continue :sw .{ .redraw = {} };
                             };
                             //line.mode = try doComplete(line.hsh, line.tkn, line.completion);
-                            try line.tkn.maybeDrop();
-                            try line.tkn.maybeAdd(cmplt.search.items);
+                            try line.tkn.maybeRemove(a);
+                            try line.tkn.maybeAdd(cmplt.search.items, a);
                             continue :sw .{ .redraw = {} };
                         },
                         .delete_word => {
-                            _ = try line.tkn.dropWord();
+                            _ = line.tkn.removeWord();
                             continue :sw .{ .redraw = {} };
                         },
                         else => {
                             log.err("\n\nunexpected key  [{}]\n\n\n", .{ks});
-                            try line.tkn.maybeCommit(null);
+                            try line.tkn.maybeCommit(null, a);
                         },
                     }
                     continue :sw .{ .redraw = {} };
