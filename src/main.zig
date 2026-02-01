@@ -146,7 +146,6 @@ pub fn main(init: std.process.Init) !void {
                     });
                     try hsh.draw.render();
                 },
-                error.StdIOError => log.err("StdIoError\n", .{}),
                 else => {
                     log.err("Exec error {}\n", .{err});
                     unreachable;

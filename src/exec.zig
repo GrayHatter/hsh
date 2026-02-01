@@ -14,7 +14,7 @@ pub const Error = error{
     ExeNotFound,
     Pipeline,
     Parse,
-    StdIOError,
+    StdIOerror,
 };
 
 const ARG = [*:0]u8;
@@ -111,17 +111,17 @@ fn validPathAbs(path: []const u8, io: Io) bool {
 
 /// TODO BUG arg should be absolute but argv[0] should only be absolute IFF
 /// there was a / is the original token.
-pub fn makeAbsExecutable(str: []const u8, fs: Fs, a: Allocator, io: Io) Error![]u8 {
-    if (str.len == 0) return Error.NotFound; // Is this always NotFound?
+pub fn makeAbsExecutable(str: []const u8, fs: Fs, a: Allocator, io: Io) ![]u8 {
+    if (str.len == 0) return error.NotFound; // Is this always NotFound?
     if (str[0] == '/') {
-        if (!validPathAbs(str, io)) return Error.ExeNotFound;
+        if (!validPathAbs(str, io)) return error.ExeNotFound;
         return try a.dupe(u8, str);
     } else if (std.mem.indexOf(u8, str, "/")) |_| {
-        if (!validPath(str, io)) return Error.ExeNotFound;
+        if (!validPath(str, io)) return error.ExeNotFound;
         var cwd: [2048]u8 = undefined;
         var cwd_fd = std.Io.Dir.cwd().openDir(io, ".", .{ .iterate = true }) catch return error.Unknown;
         log.debug("path abs {}\n", .{cwd_fd});
-        const length = cwd_fd.realPath(io, &cwd) catch return Error.NotFound;
+        const length = cwd_fd.realPath(io, &cwd) catch return error.NotFound;
         return try std.mem.join(a, "/", &[2][]const u8{ cwd[0..length], str });
     }
 
@@ -131,11 +131,11 @@ pub fn makeAbsExecutable(str: []const u8, fs: Fs, a: Allocator, io: Io) Error![]
         if (validPathAbs(next, io)) return next;
         a.free(next);
     }
-    return Error.ExeNotFound;
+    return error.ExeNotFound;
 }
 
 /// Caller will own memory
-fn makeExeZ(str: []const u8, fs: Fs, a: Allocator, io: Io) Error!ARG {
+fn makeExeZ(str: []const u8, fs: Fs, a: Allocator, io: Io) !ARG {
     var exe = try makeAbsExecutable(str, fs, a, io);
     if (a.resize(exe, exe.len + 1)) {
         exe.len += 1;
@@ -146,7 +146,7 @@ fn makeExeZ(str: []const u8, fs: Fs, a: Allocator, io: Io) Error!ARG {
     return exe[0 .. exe.len - 1 :0];
 }
 
-fn prepareBuiltin(parsed: ParsedIterator, a: Allocator) Error!Callable {
+fn prepareBuiltin(parsed: ParsedIterator, a: Allocator) !Callable {
     var itr = try parsed.clone(a);
     log.debug("builtin str '{s}'\n", .{itr.first().resolved.str});
     return .{
@@ -155,7 +155,7 @@ fn prepareBuiltin(parsed: ParsedIterator, a: Allocator) Error!Callable {
 }
 
 /// Caller owns memory of argv, and the open fds
-fn prepareBinary(itr: *ParsedIterator, fs: Fs, a: Allocator, io: Io) Error!Callable {
+fn prepareBinary(itr: *ParsedIterator, fs: Fs, a: Allocator, io: Io) !Callable {
     var argv: ArrayList(?ARG) = .{};
     errdefer argv.deinit(a);
     errdefer for (argv.items) |arg| {
@@ -187,7 +187,7 @@ fn prepareLogic(a: Allocator, t: Token) !Callable {
     };
 }
 
-fn mkCallableStack(itr: *TokenIterator, fs: Fs, a: Allocator, io: Io) Error![]CallableStack {
+fn mkCallableStack(itr: *TokenIterator, fs: Fs, a: Allocator, io: Io) ![]CallableStack {
     var stack: ArrayList(CallableStack) = .{};
     errdefer stack.deinit(a);
     errdefer for (stack.items) |stk| switch (stk.callable) {
@@ -209,7 +209,7 @@ fn mkCallableStack(itr: *TokenIterator, fs: Fs, a: Allocator, io: Io) Error![]Ca
             try stack.append(a, .{
                 .callable = prepareLogic(a, peek) catch |err| {
                     log.err("Unable to make logic {}\n", .{err});
-                    return Error.Unknown;
+                    return error.Unknown;
                 },
                 .stdio = StdIo{ .in = STDIN_FD },
                 .conditional = null,
@@ -230,7 +230,7 @@ fn mkCallableStack(itr: *TokenIterator, fs: Fs, a: Allocator, io: Io) Error![]Ca
         if (peek.kind == .oper) {
             switch (peek.kind.oper) {
                 .pipe => {
-                    const pipe = system.pipe2(.{}) catch return Error.OSErr;
+                    const pipe = system.pipe2(.{}) catch return error.OSErr;
                     io_mode.pipe = true;
                     io_mode.out = pipe[1];
                     prev_stdout = pipe[0];
@@ -251,10 +251,10 @@ fn mkCallableStack(itr: *TokenIterator, fs: Fs, a: Allocator, io: Io) Error![]Ca
                                 error.NoClobber => log.err("Noclobber is enabled.\n", .{}),
                                 else => log.err("Failed to open file {s}\n", .{maybeio.str}),
                             }
-                            return Error.StdIOError;
+                            return error.StdIOerror;
                         };
                         if (appnd == .Append) {
-                            std.debug.assert(linux.lseek(f.handle, 0, linux.SEEK.END) >= 0);
+                            assert(linux.lseek(f.handle, 0, linux.SEEK.END) >= 0);
                         }
                         io_mode.out = f.handle;
                     },
@@ -292,7 +292,7 @@ fn mkCallableStack(itr: *TokenIterator, fs: Fs, a: Allocator, io: Io) Error![]Ca
     return try stack.toOwnedSlice(a);
 }
 
-fn execBuiltin(b: *Builtin, h: *Hsh, a: Allocator, io: Io) Error!u8 {
+fn execBuiltin(b: *Builtin, h: *Hsh, a: Allocator, io: Io) !u8 {
     const bi_func = bi.strExec(b.builtin);
     const res = bi_func(h, &b.argv, a, io) catch |err| {
         log.err("builtin error {}\n", .{err});
@@ -302,7 +302,7 @@ fn execBuiltin(b: *Builtin, h: *Hsh, a: Allocator, io: Io) Error!u8 {
     return res;
 }
 
-fn execBin(e: Binary, a: Allocator) Error!void {
+fn execBin(e: Binary, a: Allocator) !void {
     // TODO manage env
 
     const environ = Variables.henviron(a);
@@ -318,22 +318,20 @@ fn execBin(e: Binary, a: Allocator) Error!void {
     //}
 }
 
-fn execLogic(l: *Logic, h: *Hsh, a: Allocator, io: Io) Error!void {
+fn execLogic(l: *Logic, h: *Hsh, a: Allocator, io: Io) !void {
     var logic: ?*logic_.Logicizer = &l.logic;
     log.warn("TODO handle signals\n", .{});
     while (logic) |lexec| {
         logic = lexec.exec(h, a, io) catch |err| {
-            log.err("Error found when attempting to exec logic {}\n", .{err});
-            return Error.Unknown;
+            log.err("error found when attempting to exec logic {}\n", .{err});
+            return error.Unknown;
         };
     }
 }
 
 fn free(a: Allocator, s: *CallableStack) void {
     switch (s.callable) {
-        .builtin => |b| {
-            a.free(b.argv.tokens);
-        },
+        .builtin => |b| a.free(b.argv.tokens),
         .exec => |e| {
             // TODO validate this clears all pointers correctly
             for (e.argv) |*marg| {
@@ -344,14 +342,12 @@ fn free(a: Allocator, s: *CallableStack) void {
             }
             a.free(e.argv);
         },
-        .logic => |*l| {
-            l.logic.raze();
-        },
+        .logic => |*l| l.logic.raze(),
     }
 }
 
 /// input is a string ownership is retained by the caller
-pub fn exec(input: []const u8, h: *Hsh, a: Allocator, io: Io) Error!void {
+pub fn exec(input: []const u8, h: *Hsh, a: Allocator, io: Io) !void {
     // HACK I don't like it either, but LOOK OVER THERE!!!
     var tty = h.tty;
 
@@ -365,10 +361,7 @@ pub fn exec(input: []const u8, h: *Hsh, a: Allocator, io: Io) Error!void {
 
     // TODO replace this hack with real logic to determine what env builtins
     // need to execute in.
-    if (stack.len == 1 and
-        stack[0].stdio.in == STDIN_FD and
-        stack[0].stdio.out == STDOUT_FD)
-    {
+    if (stack.len == 1 and stack[0].stdio.in == STDIN_FD and stack[0].stdio.out == STDOUT_FD) {
         if (stack[0].callable == .builtin) {
             _ = try execBuiltin(&stack[0].callable.builtin, h, a, io);
             free(a, &stack[0]);
@@ -379,7 +372,7 @@ pub fn exec(input: []const u8, h: *Hsh, a: Allocator, io: Io) Error!void {
         }
 
         if (stack[0].callable == .logic) {
-            execLogic(&stack[0].callable.logic, h, a, io) catch return Error.Unknown;
+            execLogic(&stack[0].callable.logic, h, a, io) catch return error.Unknown;
             free(a, &stack[0]);
             _ = h.jobs.waitForFg();
             return;
@@ -388,7 +381,7 @@ pub fn exec(input: []const u8, h: *Hsh, a: Allocator, io: Io) Error!void {
 
     tty.setOrig() catch |e| {
         log.err("TTY didn't respond {}\n", .{e});
-        return Error.Unknown;
+        return error.Unknown;
     };
 
     errdefer {
@@ -423,7 +416,7 @@ pub fn exec(input: []const u8, h: *Hsh, a: Allocator, io: Io) Error!void {
             // repush original because spinning will revert
             tty.setOrig() catch |e| {
                 log.err("TTY didn't respond {}\n", .{e});
-                return Error.Unknown;
+                return error.Unknown;
             };
         }
 
@@ -431,15 +424,15 @@ pub fn exec(input: []const u8, h: *Hsh, a: Allocator, io: Io) Error!void {
         if (fpid < 0) unreachable;
         if (fpid == 0) {
             if (s.stdio.in != std.posix.STDIN_FILENO) {
-                if (linux.dup2(s.stdio.in, std.posix.STDIN_FILENO) < 0) return Error.OSErr;
+                if (linux.dup2(s.stdio.in, std.posix.STDIN_FILENO) < 0) return error.OSErr;
                 std.posix.close(s.stdio.in);
             }
             if (s.stdio.out != std.posix.STDOUT_FILENO) {
-                if (linux.dup2(s.stdio.out, std.posix.STDOUT_FILENO) < 0) return Error.OSErr;
+                if (linux.dup2(s.stdio.out, std.posix.STDOUT_FILENO) < 0) return error.OSErr;
                 std.posix.close(s.stdio.out);
             }
             if (s.stdio.err != std.posix.STDERR_FILENO) {
-                if (linux.dup2(s.stdio.err, std.posix.STDERR_FILENO) < 0) return Error.OSErr;
+                if (linux.dup2(s.stdio.err, std.posix.STDERR_FILENO) < 0) return error.OSErr;
                 std.posix.close(s.stdio.err);
             }
 
@@ -487,13 +480,13 @@ pub const ChildResult = struct {
 };
 
 /// Tokenizes, parses, and executes a a valid argv string.
-pub fn childParsed(argv: []const u8, h: *Hsh, a: Allocator, io: Io) Error!ChildResult {
+pub fn childParsed(argv: []const u8, h: *Hsh, a: Allocator, io: Io) !ChildResult {
     var itr = TokenIterator{ .raw = argv };
 
     const slice = try itr.toSliceExec(a);
     defer a.free(slice);
 
-    var parsed = Resolver.iterate(a, slice) catch return Error.Parse;
+    var parsed = Resolver.iterate(a, slice) catch return error.Parse;
     defer parsed.raze(a);
     var list = ArrayListManaged([]const u8).init(a);
     while (parsed.next()) |p| {
@@ -509,7 +502,7 @@ pub fn childParsed(argv: []const u8, h: *Hsh, a: Allocator, io: Io) Error!ChildR
 /// Collects, and reformats argv into it's null terminated counterpart for
 /// execvpe. Caller retains ownership of memory.
 pub fn child(argv: []const []const u8, h: *Hsh, a: Allocator, io: Io) !ChildResult {
-    if (argv.len == 0 or argv[0].len == 0) return Error.NotFound;
+    if (argv.len == 0 or argv[0].len == 0) return error.NotFound;
     signal.block();
     defer signal.unblock();
     var list: ArrayList(?[*:0]u8) = .{};
@@ -531,7 +524,7 @@ pub fn child(argv: []const []const u8, h: *Hsh, a: Allocator, io: Io) !ChildResu
 
 /// Preformatted version of child. Accepts the null, and 0 terminated versions
 /// to pass directly to exec. Caller maintains ownership of argv
-pub fn childZ(argv: [:null]const ?[*:0]const u8, h: *Hsh, a: Allocator, io: Io) Error!ChildResult {
+pub fn childZ(argv: [:null]const ?[*:0]const u8, h: *Hsh, a: Allocator, io: Io) !ChildResult {
     const pipe = system.pipe2(.{}) catch unreachable;
     const pid = linux.fork();
     if (pid < 0) unreachable;
@@ -544,7 +537,7 @@ pub fn childZ(argv: [:null]const ?[*:0]const u8, h: *Hsh, a: Allocator, io: Io) 
         _ = linux.execve(argv[0].?, argv.ptr, environ);
         //catch {
         //    log.err("Unexpected error in childZ\n", .{});
-        //    return Error.ChildExecFailed;
+        //    return error.ChildExecFailed;
         //};
         unreachable;
     }
@@ -633,3 +626,4 @@ const logic_ = @import("logic.zig");
 const Variables = @import("variables.zig");
 const Funcs = @import("funcs.zig");
 const linux = std.os.linux;
+const assert = std.debug.assert;
