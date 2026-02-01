@@ -88,6 +88,7 @@ pub const Style = struct {
     pub const bold_blue: Style = .{ .attr = .bold, .fg = .blue };
     pub const red: Style = .{ .fg = .red };
     pub const red_bg: Style = .{ .bg = .red };
+    pub const red_bold: Style = .{ .fg = .red, .attr = .bold };
 
     pub fn format(s: Style, w: *Writer) !void {
         if (s.attr) |a| try a.format(w);

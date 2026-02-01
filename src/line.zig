@@ -1,20 +1,20 @@
-hsh: *Hsh,
-draw: *Draw,
-prompt: *Prompt,
 alloc: Allocator,
-input: Input,
-tkn: Tokenizer,
-options: Options,
 mode: union(enum) {
     interactive: void,
     scripted: void,
     external_editor: []u8,
 },
-//history: History = undefined,
-history_position: ?usize = null,
-history_search: ?[]const u8 = null,
+bytes: []u8,
+input: Input,
+tkn: Tokenizer,
+options: Options,
+hsh: *Hsh,
+draw: *Draw,
+prompt: *Prompt,
+history: History,
+hist_index: usize = 0,
+hist_search: ?[]u8 = null,
 completion: Complete.CompSet,
-text: []u8,
 
 const Line = @This();
 
@@ -28,19 +28,19 @@ const Action = enum {
     external,
 };
 
-pub fn init(hsh: *Hsh, a: Allocator, options: Options) !Line {
+pub fn init(hsh: *Hsh, a: Allocator, io: Io, options: Options) !Line {
     return .{
+        .alloc = a,
+        .mode = if (options.interactive) .{ .interactive = {} } else .{ .scripted = {} },
+        .bytes = &.{},
         .hsh = hsh,
         .draw = &hsh.draw,
         .prompt = &hsh.prompt,
-        .alloc = a,
         .input = .{ .stdin = &hsh.tty.in.r.interface, .spin = spin },
         .tkn = Tokenizer.init(a),
         .completion = Complete.init(a),
         .options = options,
-        //.history = History.init(hsh.fs.history.?.file),
-        .mode = if (options.interactive) .{ .interactive = {} } else .{ .scripted = {} },
-        .text = try a.alloc(u8, 0),
+        .history = try .init(hsh.fs.history, a, io),
     };
 }
 
@@ -54,11 +54,32 @@ fn spin(input: *const Input, a: Allocator, io: Io) bool {
 }
 
 fn char(line: *Line, c: u8) !void {
+    if (line.hist_index > 0) {
+        line.hist_index = 0;
+        line.alloc.free(line.bytes);
+        line.bytes = &.{};
+    }
     try line.tkn.consumec(c);
     try line.draw.key(c);
 
     // TODO FIXME
-    line.text = line.tkn.raw.items;
+    line.bytes = line.tkn.raw.items;
+}
+
+pub const CursorDirection = enum {
+    left,
+    right,
+    start,
+    end,
+    word_left,
+    word_right,
+};
+
+fn cursor(line: *Line, cd: CursorDirection) void {
+    _ = line;
+    switch (cd) {
+        else => {},
+    }
 }
 
 pub fn peek(line: Line) []const u8 {
@@ -80,7 +101,7 @@ fn core(line: *Line, a: Allocator, io: Io) !Action {
             },
             //error.end_of_text => return error.FIXME,
         };
-        ////hsh.draw.cursor = 0;
+        ////line.draw.cursor = 0;
         //if (tkn.raw.items.len == 0) {
         //    try hsh.tty.out.print("\n", .{});
         //    return .prompt;
@@ -108,13 +129,14 @@ fn core(line: *Line, a: Allocator, io: Io) !Action {
         switch (input) {
             .char => |c| try line.char(c),
             .control => |ctrl| {
+                log.debug("control char = '{}'\n", .{ctrl});
                 switch (ctrl.c) {
                     .esc => {
                         // TODO reset many
                         continue;
                     },
-                    .up => line.findHistory(.up),
-                    .down => line.findHistory(.down),
+                    .up => try line.findHistory(.up),
+                    .down => try line.findHistory(.down),
                     .left => line.tkn.move(.dec),
                     .right => line.tkn.move(.inc),
                     .backspace => line.tkn.pop(),
@@ -144,7 +166,7 @@ pub fn do(line: *Line, a: Allocator, io: Io) ![]u8 {
             .empty => continue,
             .exec => {
                 try line.draw.unbuffered.writeByte('\n');
-                if (line.peek().len > 0) return try line.dupeText();
+                if (line.peek().len > 0) return try line.dupe();
                 line.draw.clear();
                 try line.prompt.render(line.draw, line.peek());
                 try line.draw.render();
@@ -154,8 +176,8 @@ pub fn do(line: *Line, a: Allocator, io: Io) ![]u8 {
     }
 }
 
-fn dupeText(line: Line) ![]u8 {
-    return try line.alloc.dupe(u8, line.text);
+fn dupe(line: Line) ![]u8 {
+    return try line.alloc.dupe(u8, line.bytes);
 }
 
 pub fn externEditor(line: *Line, io: Io) ![]u8 {
@@ -176,63 +198,54 @@ pub fn externEditorRead(line: *Line, io: Io) ![]u8 {
     defer file.close(io);
     var reader = file.reader(io, &.{});
 
-    line.text = reader.interface.allocRemaining(line.alloc, .limited(4096)) catch unreachable;
-    return line.text;
+    line.bytes = reader.interface.allocRemaining(line.alloc, .limited(4096)) catch unreachable;
+    return line.bytes;
 }
 
-fn findHistory(line: *Line, dr: enum { up, down }) void {
-    _ = line;
-    _ = dr;
-    return;
-    //var history = line.history;
-    //var tkn = &line.tkn;
+fn findHistory(line: *Line, dr: enum { up, down }) !void {
+    var history = line.history;
+    var tkn = &line.tkn;
 
-    //switch (dr) {
-    //    .up => {
-    //        if (line.history_position) |pos| {
-    //            _ = history.readAtFiltered(pos, line.history_search.?, tkn.lineReplaceHistory());
-    //            line.history_position.? = pos + 1;
-    //        } else {
-    //            line.history_position = 0;
-    //            if (tkn.raw.items.len == 0) {
-    //                if (tkn.prev_exec) |prvexe| {
-    //                    tkn.raw = prvexe;
-    //                    tkn.idx = tkn.raw.items.len;
-    //                    tkn.prev_exec = null;
-    //                    return;
-    //                }
-    //                line.history_search = line.alloc.dupe(u8, "") catch @panic("OOM");
-    //            } else if (line.history_search == null) {
-    //                if (tkn.user_data == true) {
-    //                    log.warn("clobbered userdata\n", .{});
-    //                }
-    //                line.history_search = line.alloc.dupe(u8, line.tkn.raw.items) catch @panic("OOM");
-    //            }
-    //            _ = history.readAtFiltered(0, line.history_search.?, tkn.lineReplaceHistory());
-    //        }
-    //        line.tkn.move(.end);
-    //        return;
-    //    },
-    //    .down => {
-    //        if (line.history_position) |pos| {
-    //            if (pos == 0) {
-    //                tkn.reset();
-    //                log.warn("todo restore userdata\n", .{});
-    //                tkn.reset();
-    //                line.history_position = null;
-    //                tkn.move(.end);
-    //            } else {
-    //                line.history_position.? -|= 1;
-    //                _ = history.readAtFiltered(pos, line.history_search.?, tkn.lineReplaceHistory());
-    //                //tkn.reset();
-    //                //tkn.consumes(&line.usr_line) catch unreachable;
-    //                tkn.move(.end);
-    //            }
-    //        }
+    if (line.hist_index == 0) {
+        if (dr == .down) return;
+        line.hist_index = 1;
+        if (line.bytes.len > 0) {
+            line.hist_search = line.bytes;
+        }
+    } else if (line.hist_index == 1) {
+        if (dr == .down) {
+            line.hist_index = 0;
+            if (line.hist_search) |hs| {
+                line.bytes = hs;
+                line.hist_search = null;
+            } else line.bytes = &.{};
+            tkn.reset();
+            try line.tkn.consumeSlice(line.bytes);
+            tkn.move(.end);
+            return;
+        } else line.hist_index += 1;
+    } else {
+        if (dr == .up) line.hist_index += 1 else line.hist_index -= 1;
+    }
 
-    //        return;
-    //    },
-    //}
+    const history_line: ?[]const u8 = if (line.hist_search) |search|
+        history.readLineFiltered(line.hist_index, search)
+    else
+        history.readLine(line.hist_index);
+
+    assert(line.hist_index > 0);
+    if (history_line) |hist_line| {
+        // TODO optimize
+        line.alloc.free(line.bytes);
+        line.bytes = try line.alloc.dupe(u8, hist_line);
+        tkn.reset();
+        try line.tkn.consumeSlice(line.bytes);
+        tkn.move(.end);
+    } else {
+        if (dr == .up) line.hist_index -= 1 else line.hist_index += 1;
+        line.draw.drawAfter(&[1]Lexeme{.styled("[ End of History ]", .red_bold)});
+        try line.draw.render();
+    }
 }
 
 const CompState = union(enum) {
@@ -255,9 +268,9 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
         .typing => |ks| {
             switch (ks) {
                 .char => |c| {
-                    line.hsh.draw.clear();
+                    line.draw.clear();
                     try line.prompt.render(line.draw, line.peek());
-                    try line.hsh.draw.render();
+                    try line.draw.render();
 
                     switch (c) {
                         0x00...0x1f => unreachable,
@@ -353,13 +366,13 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
         },
         .redraw => {
             line.draw.clear();
-            cmplt.drawAll(line.hsh.draw.term_size) catch |err| switch (err) {
+            cmplt.drawAll(line.draw.term_size) catch |err| switch (err) {
                 error.ItemCount => {},
                 else => return err,
             };
             for (cmplt.draw_cache) |grp| {
                 for (grp orelse continue) |row| {
-                    line.hsh.draw.drawAfter(row);
+                    line.draw.drawAfter(row);
                 }
             }
             try line.hsh.prompt.render(line.draw, line.peek());
@@ -390,9 +403,11 @@ const Tokenizer = @import("tokenizer.zig");
 const Fs = @import("fs.zig");
 const Hsh = @import("hsh.zig");
 const Complete = @import("completion.zig");
-//const History = @import("history.zig");
+const History = @import("History.zig");
 const Input = @import("input.zig");
 const Keys = @import("keys.zig");
 const Prompt = @import("Prompt.zig");
 
 const Draw = @import("draw.zig");
+const Lexeme = Draw.Lexeme;
+const assert = std.debug.assert;

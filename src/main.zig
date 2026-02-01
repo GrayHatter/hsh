@@ -2,7 +2,7 @@ fn core(hsh: *Hsh, a: Allocator, io: Io) ![]u8 {
     var array_alloc = std.heap.ArenaAllocator.init(a);
     defer array_alloc.deinit();
     const alloc = array_alloc.allocator();
-    var line = try Line.init(hsh, alloc, .{ .interactive = hsh.tty.dev != null });
+    var line = try Line.init(hsh, alloc, io, .{ .interactive = hsh.tty.dev != null });
 
     defer hsh.draw.reset();
     //try Context.update(hsh, &[_]Context.Contexts{.git});
@@ -139,17 +139,14 @@ pub fn main(init: std.process.Init) !void {
                 error.ExeNotFound => {
                     const first = Exec.execFromInput(str, a, io) catch @panic("memory");
                     defer a.free(first);
-                    const tree = [_]Draw.Lexeme{
-                        .styled("[ Unable to find ", .{ .attr = .bold, .fg = .red }),
-                        .styled(first, .{ .attr = .bold, .fg = .red }),
-                        .styled(" ]", .{ .attr = .bold, .fg = .red }),
-                    };
-                    Draw.drawAfter(&hsh.draw, tree[0..]);
-                    try Draw.render(&hsh.draw);
+                    hsh.draw.drawAfter(&[3]Draw.Lexeme{
+                        .styled("[ Unable to find ", .red_bold),
+                        .styled(first, .red_bold),
+                        .styled(" ]", .red_bold),
+                    });
+                    try hsh.draw.render();
                 },
-                error.StdIOError => {
-                    log.err("StdIoError\n", .{});
-                },
+                error.StdIOError => log.err("StdIoError\n", .{}),
                 else => {
                     log.err("Exec error {}\n", .{err});
                     unreachable;

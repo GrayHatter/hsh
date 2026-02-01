@@ -560,7 +560,7 @@ test "iterator nows" {
     var t: Tokenizer = Tokenizer.init(std.testing.allocator);
     defer t.raze();
 
-    try t.consumes("\"this is some text\" more text");
+    try t.consumeSlice("\"this is some text\" more text");
     var itr = t.iterator();
     const ts = try itr.toSlice(a);
     defer a.free(ts);
@@ -580,7 +580,7 @@ test "breaking" {
     var t = Tokenizer.init(std.testing.allocator);
     defer t.raze();
 
-    try t.consumes("alias la='ls -la'");
+    try t.consumeSlice("alias la='ls -la'");
     var titr = t.iterator();
     const tokens = try titr.toSlice(a);
     try expectEqual(tokens.len, 4);

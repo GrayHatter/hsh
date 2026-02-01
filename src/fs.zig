@@ -1,7 +1,7 @@
 cwd: Named.Dir,
 home: Named.Dir,
 paths: ArrayList(Named),
-conf: ?Named.Dir = null,
+config: ?Named.Dir = null,
 rc: ?Named.File = null,
 history: ?Named.File = null,
 inotify_fd: ?i32,
@@ -313,30 +313,43 @@ pub fn globAt(dir: Dir, search: []const u8, rule: GlobRule, a: Allocator, io: Io
     return names.toOwnedSlice(a);
 }
 
-/// Caller owns returned file
-/// TODO remove allocator
 fn findPath(fs: *Fs, name: []const u8, a: Allocator, io: Io, comptime cr: CreateRule) !Named.File {
-    if (fs.conf) |conf| {
+    if (fs.config) |conf| {
         const out = try allocPrint(a, "{s}/hsh", .{conf.name});
         log.debug("finding path '{s}'\n", .{out});
         if (Dir.openDirAbsolute(io, out, .{})) |d| {
-            if (writeFileAt(d, name, io, cr)) |file| return .{ .name = out, .file = file };
+            defer d.close(io);
+            if (writeFileAt(d, name, io, cr)) |file| {
+                return .{
+                    .name = try d.realPathFileAlloc(io, name, a),
+                    .file = file,
+                };
+            }
         } else |_| {
             log.debug("unable to open {s}\n", .{out});
         }
     } else {
-        const home = fs.home;
-        if (home.dir.openDir(io, ".config", .{})) |*hc| {
-            fs.conf = .{ .name = try home.dir.realPathFileAlloc(io, ".config", a), .dir = hc.* };
-            if (hc.openDir(io, "hsh", .{})) |hch| {
+        if (fs.home.dir.openDir(io, ".config", .{})) |home_cfg| {
+            fs.config = .{
+                .name = try fs.home.dir.realPathFileAlloc(io, ".config", a),
+                .dir = home_cfg,
+            };
+            if (home_cfg.openDir(io, "hsh", .{})) |hch| {
+                defer hch.close(io);
                 if (writeFileAt(hch, name[1..], io, cr)) |file| {
-                    return .{ .name = try a.dupe(u8, name[1..]), .file = file };
+                    return .{
+                        .name = try a.dupe(u8, name[1..]),
+                        .file = file,
+                    };
                 }
-            } else |e| log.debug("unable to open {s} {}\n", .{ "hsh", e });
+            } else |e| log.err("unable to open {s} {}\n", .{ "hsh", e });
             //return hc;
-        } else |e| log.debug("unable to open {s} {}\n", .{ "conf", e });
-        if (writeFileAt(home.dir, name, io, cr)) |file| {
-            return .{ .name = try a.dupe(u8, name), .file = file };
+        } else |e| log.err("unable to open {s} {}\n", .{ "conf", e });
+        if (writeFileAt(fs.home.dir, name, io, cr)) |file| {
+            return .{
+                .name = try a.dupe(u8, name),
+                .file = file,
+            };
         }
     }
 
@@ -404,7 +417,7 @@ pub fn testingFs() Fs {
         .cwd = .{ .dir = undefined, .name = "testing/cwd" },
         .home = .{ .name = "/home/user", .dir = Dir.cwd().openDir(std.testing.io, ".", .{}) catch unreachable },
         .paths = .{ .items = &paths.p },
-        .conf = undefined,
+        .config = undefined,
         .rc = undefined,
         .history = undefined,
         .inotify_fd = undefined,
