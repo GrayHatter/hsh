@@ -19,8 +19,8 @@ pub const Named = union(enum) {
         name: []const u8,
         file: Fs.File,
 
-        pub fn close(d: Named.Dir, io: Io) Named.Closed {
-            d.dir.close(io);
+        pub fn close(d: Named.File, io: Io) Named.Closed {
+            d.file.close(io);
             return .{ .name = d.name };
         }
 
@@ -48,32 +48,33 @@ pub const Named = union(enum) {
     pub const Closed = struct {
         name: []const u8,
 
-        pub fn openFile(_: *Closed, _: Io) !void {
-            unreachable;
+        pub fn openFile(c: *Closed, io: Io) !void {
+            const n: *Named = @fieldParentPtr("closed_dir", c);
+            const named: Named = .{ .file = .{
+                .name = c.name,
+                .file = try Fs.Dir.openFileAbsolute(io, c.name, .{}),
+            } };
+            n.* = named;
         }
 
         pub fn openDir(c: *Closed, io: Io) !void {
             const n: *Named = @fieldParentPtr("closed_dir", c);
-            n.* = .{ .dir = .{
+
+            const named: Named = .{ .dir = .{
                 .name = c.name,
                 .dir = try Fs.Dir.openDirAbsolute(io, c.name, .{}),
             } };
+            n.* = named;
         }
 
-        pub fn raze(n: *Named, a: Allocator, io: Io) void {
-            switch (n.*) {
-                .closed_file => {},
-                .closed_dir => {},
-                .dir => |*d| _ = d.close(io),
-                .file => |*f| _ = f.close(io),
-            }
+        pub fn raze(n: *Named.Closed, a: Allocator, _: Io) void {
             a.free(n.name);
         }
     };
 
     pub fn open(n: *Named, io: Io) !void {
         switch (n.*) {
-            .closed_file => unreachable,
+            .closed_file => |*f| try f.openFile(io),
             .closed_dir => |*d| try d.openDir(io),
             .dir => unreachable,
             .file => unreachable,
@@ -82,10 +83,10 @@ pub const Named = union(enum) {
 
     pub fn close(n: *Named, io: Io) void {
         switch (n.*) {
-            .closed_file => unreachable,
-            .closed_dir => unreachable,
+            .closed_file => {},
+            .closed_dir => {},
             .dir => |*d| _ = d.close(io),
-            .file => unreachable,
+            .file => |*f| _ = f.close(io),
         }
     }
 
@@ -107,28 +108,21 @@ pub fn init(env: Environ, a: Allocator, io: Io) !Fs {
     }
     for (paths.items) |*path| {
         path.open(io) catch |err| switch (err) {
-            error.FileNotFound => {},
+            error.FileNotFound => log.warn("Unable to open PATH entry '{s}'\n", .{path.closed_dir.name}),
             else => return err,
         };
     }
 
-    const cwd: Named.Dir = .{
-        .dir = try Dir.cwd().openDir(io, ".", .{ .iterate = true }),
-        .name = try Dir.cwd().realPathFileAlloc(io, ".", a),
-    };
+    var realpath: [2048]u8 = undefined;
+    const len = try Dir.cwd().realPathFile(io, ".", &realpath);
+    const cwd: Dir = try Dir.cwd().openDir(io, ".", .{ .iterate = true });
     var fs: Fs = .{
-        .cwd = cwd,
+        .cwd = .{ .name = try a.dupe(u8, realpath[0..len]), .dir = cwd },
         .paths = paths,
         .home = if (env.getPosix("HOME")) |home|
-            .{
-                .name = home,
-                .dir = try Dir.openDirAbsolute(io, home, .{}),
-            }
+            .{ .name = home, .dir = try Dir.openDirAbsolute(io, home, .{}) }
         else
-            .{
-                .name = try a.dupe(u8, cwd.name),
-                .dir = try Dir.openDirAbsolute(io, cwd.name, .{}),
-            },
+            .{ .name = try a.dupe(u8, realpath[0..len]), .dir = try Dir.openDirAbsolute(io, realpath[0..len], .{}) },
         .inotify_fd = @intCast((linux.inotify_init1(std.os.linux.IN.CLOEXEC | std.os.linux.IN.NONBLOCK))),
         .watches = .{},
     };
@@ -185,13 +179,16 @@ pub fn checkINotify(fs: *Fs, h: *Hsh, a: Allocator, io: Io) bool {
 }
 
 pub fn raze(fs: *Fs, a: Allocator, io: Io) void {
-    if (fs.rc) |rc| rc.file.close(io);
-    // TODO inotify_fd
-    for (fs.watches.items) |*watch| {
-        a.free(watch.path);
-    }
-    fs.watches.deinit(a);
+    fs.cwd.raze(a, io);
+    if (fs.rc) |*rc| rc.raze(a, io);
     if (fs.history) |*h| h.raze(a, io);
+    if (fs.config) |*c| c.raze(a, io);
+    // path names are just indexes into the PATH var
+    for (fs.paths.items) |*path| path.close(io);
+    fs.paths.deinit(a);
+    // TODO inotify_fd
+    for (fs.watches.items) |*watch| a.free(watch.path);
+    fs.watches.deinit(a);
 }
 
 pub fn cd(fs: *Fs, trgt: []const u8, a: Allocator, io: Io) !void {
@@ -315,25 +312,24 @@ pub fn globAt(dir: Dir, search: []const u8, rule: GlobRule, a: Allocator, io: Io
 
 fn findPath(fs: *Fs, name: []const u8, a: Allocator, io: Io, comptime cr: CreateRule) !Named.File {
     if (fs.config) |conf| {
-        const out = try allocPrint(a, "{s}/hsh", .{conf.name});
+        var hsh_b: [2048]u8 = undefined;
+        const out = try bufPrint(&hsh_b, "{s}/hsh", .{conf.name});
         log.debug("finding path '{s}'\n", .{out});
         if (Dir.openDirAbsolute(io, out, .{})) |d| {
             defer d.close(io);
             if (writeFileAt(d, name, io, cr)) |file| {
-                return .{
-                    .name = try d.realPathFileAlloc(io, name, a),
-                    .file = file,
-                };
+                var realpath: [2048]u8 = undefined;
+                const len = try d.realPathFile(io, name, &realpath);
+                return .{ .name = try a.dupe(u8, realpath[0..len]), .file = file };
             }
         } else |_| {
             log.debug("unable to open {s}\n", .{out});
         }
     } else {
         if (fs.home.dir.openDir(io, ".config", .{})) |home_cfg| {
-            fs.config = .{
-                .name = try fs.home.dir.realPathFileAlloc(io, ".config", a),
-                .dir = home_cfg,
-            };
+            var realpath: [2048]u8 = undefined;
+            const len = try fs.home.dir.realPathFile(io, ".config", &realpath);
+            fs.config = .{ .name = try a.dupe(u8, realpath[0..len]), .dir = home_cfg };
             if (home_cfg.openDir(io, "hsh", .{})) |hch| {
                 defer hch.close(io);
                 if (writeFileAt(hch, name[1..], io, cr)) |file| {
@@ -369,7 +365,7 @@ pub fn openFileStdout(name: []const u8, io: Io, append: bool) !File {
                 return error.NoClobber;
             } else |err| {
                 switch (err) {
-                    File.OpenError.FileNotFound => {
+                    error.FileNotFound => {
                         if (openFile(name, io, .create)) |file| {
                             return file;
                         }
@@ -441,5 +437,6 @@ const INotify = @import("inotify.zig");
 const Hsh = @import("hsh.zig");
 const vars = @import("variables.zig");
 const allocPrint = std.fmt.allocPrint;
+const bufPrint = std.fmt.bufPrint;
 const linux = std.os.linux;
 const builtin = @import("builtin");
