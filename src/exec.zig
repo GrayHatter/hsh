@@ -110,14 +110,18 @@ const Builtin = struct {
         };
     }
 
-    fn exec(b: *Builtin, h: *Hsh, a: Allocator, io: Io) noreturn {
+    fn oneshot(b: *Builtin, h: *Hsh, a: Allocator, io: Io) u8 {
         const bi_func = builtins.strExec(b.builtin);
         const res = bi_func(h, &b.argv, a, io) catch |err| {
             log.err("builtin error {}\n", .{err});
             system.exit(255);
         };
         b.argv.raze(a);
-        system.exit(res);
+        return res;
+    }
+
+    fn exec(b: *Builtin, h: *Hsh, a: Allocator, io: Io) noreturn {
+        system.exit(b.oneshot(h, a, io));
     }
 };
 
@@ -157,7 +161,7 @@ const CallableStack = struct {
 
     fn raze(s: *CallableStack, a: Allocator) void {
         switch (s.callable) {
-            .builtin => |b| a.free(b.argv.tokens),
+            .builtin => {}, // Free'd by the executor
             .binary => |bin| {
                 // TODO validate this clears all pointers correctly
                 for (bin.argv) |*marg| {
@@ -383,29 +387,21 @@ pub fn exec(input: []const u8, h: *Hsh, a: Allocator, io: Io) !void {
         log.debug("unable to make stack {}\n", .{e});
         return e;
     };
-    defer a.free(stack);
 
     // TODO replace this hack with real logic to determine what env builtins
     // need to execute in.
-    if (stack.len == 1 and stack[0].proc_io.isSimple()) {
+    if (stack.len == 1 and stack[0].proc_io.isSimple()) oneshot: {
+        log.debug("one shot {}\n", .{stack[0].callable});
         switch (stack[0].callable) {
-            .builtin => |*bi| {
-                _ = try bi.exec(h, a, io);
-                stack[0].raze(a);
-                _ = h.jobs.waitForFg();
-                tty.setRaw() catch log.err("Unable to setRaw after child event\n", .{});
-                tty.setOwner(null) catch log.err("Unable to setOwner after child event\n", .{});
-                return;
-            },
-            .logic => |*lg| {
-                lg.exec(h, a, io) catch return error.Unknown;
-                stack[0].raze(a);
-                _ = h.jobs.waitForFg();
-                return;
-            },
-            .binary => {},
+            .builtin => |*bi| _ = bi.oneshot(h, a, io),
+            .logic => |*lg| try lg.exec(h, a, io),
+            .binary => break :oneshot,
         }
+        _ = h.jobs.waitForFg();
+        stack[0].raze(a);
+        return;
     }
+    defer a.free(stack);
 
     tty.setOrig() catch |e| {
         log.err("TTY didn't respond {}\n", .{e});

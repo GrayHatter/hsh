@@ -192,18 +192,21 @@ pub fn raze(fs: *Fs, a: Allocator, io: Io) void {
 }
 
 pub fn cd(fs: *Fs, trgt: []const u8, a: Allocator, io: Io) !void {
-    log.err("cd path '{s}'\n", .{trgt});
-    const old_name = fs.cwd.name;
+    log.debug("cd path '{s}'\n", .{trgt});
+    const old_name: []const u8 = fs.cwd.name;
 
     const next = if (trgt.len == 0)
-        try fs.cwd.dir.openDir(io, fs.home.name, .{})
+        try Dir.openDirAbsolute(io, fs.home.name, .{})
     else
         try fs.cwd.dir.openDir(io, trgt, .{});
 
-    fs.cwd.name = try fs.cwd.dir.realPathFileAlloc(io, ".", a);
+    var realpath: [2048]u8 = undefined;
+    const len = try next.realPathFile(io, ".", &realpath);
+    fs.cwd.name = try a.dupe(u8, realpath[0..len]);
     a.free(old_name);
     fs.cwd.dir.close(io);
     fs.cwd.dir = next;
+    log.debug("cd now '{s}'\n", .{fs.cwd.name});
 }
 
 pub fn mktemp(data: ?[]const u8, a: Allocator, io: Io) ![]u8 {
