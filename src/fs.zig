@@ -206,6 +206,7 @@ pub fn cd(fs: *Fs, trgt: []const u8, a: Allocator, io: Io) !void {
     a.free(old_name);
     fs.cwd.dir.close(io);
     fs.cwd.dir = next;
+    if (linux.fchdir(fs.cwd.dir.handle) != 0) unreachable;
     log.debug("cd now '{s}'\n", .{fs.cwd.name});
 }
 
