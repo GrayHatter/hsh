@@ -27,6 +27,12 @@ pub const CursorMotion = enum(u8) {
     dec,
 };
 
+pub fn fromSlice(str: []const u8) Tokenizer {
+    var tzr: Tokenizer = .{};
+    tzr.consumeSlice(str) catch {};
+    return tzr;
+}
+
 pub fn getSlice(tkzr: Tokenizer) []const u8 {
     return tkzr.buffer[0..tkzr.len];
 }
@@ -79,7 +85,9 @@ pub fn cursorToken(tkzr: *Tokenizer) !Token {
     return error.TokenizeFailed;
 }
 
-pub fn iterator(tkzr: *Tokenizer) Token.Iterator {
+pub const iterator = iterate;
+
+pub fn iterate(tkzr: *const Tokenizer) Token.Iterator {
     return .{ .raw = tkzr.buffer[0..tkzr.len] };
 }
 
@@ -90,6 +98,13 @@ pub fn validate(tkzr: *Tokenizer) TokenError!void {
         const t = try Token.any(tkzr.buffer[i..tkzr.len]);
         i += t.str.len;
     }
+}
+
+pub fn count(tkzr: Tokenizer) usize {
+    var itr = tkzr.iterator();
+    var c: usize = 0;
+    while (itr.next()) |_| c += 1;
+    return c;
 }
 
 // completion commands
@@ -185,47 +200,43 @@ fn removeWhitespace(tkzr: *Tokenizer) usize {
     if (tkzr.idx == 0 or !isWhitespace(tkzr.buffer[tkzr.idx - 1])) {
         return 0;
     }
-    var count: usize = 0;
+    var c: usize = 0;
     var idx = tkzr.idx - 1;
     while (idx > 0 and isWhitespace(tkzr.buffer[idx])) {
         idx -= 1;
-        count += 1;
+        c += 1;
     }
 
-    tkzr.removeRange(count);
-    return count;
+    tkzr.removeRange(c);
+    return c;
 }
 
 fn removeAlphanum(tkzr: *Tokenizer) usize {
     if (tkzr.idx == 0)
         return 0;
 
-    std.debug.print("any {any} {}\n", .{ tkzr.getSlice(), tkzr.idx });
     var extra: u1 = 0;
     if (tkzr.buffer[tkzr.idx - 1] == '/') {
         tkzr.remove();
         extra = 1;
     }
     var idx = tkzr.idx;
-    var count: usize = 0;
+    var c: usize = 0;
     while (idx > 0 and (isAlphanumeric(tkzr.buffer[idx - 1]) or tkzr.buffer[idx - 1] == '-')) {
         idx -= 1;
-        count += 1;
+        c += 1;
     }
 
-    tkzr.removeRange(count);
-    return count + extra;
+    tkzr.removeRange(c);
+    return c + extra;
 }
 
 // this clearly needs a bit more love
 pub fn removeWord(tkzr: *Tokenizer) usize {
     if (tkzr.len == 0 or tkzr.idx == 0) return 0;
 
-    std.debug.print("any {any}\n", .{tkzr.getSlice()});
     const white = tkzr.removeWhitespace();
-    std.debug.print("any {any} {}\n", .{ tkzr.getSlice(), tkzr.idx });
     const word = tkzr.removeAlphanum();
-    std.debug.print("any {any}\n", .{tkzr.getSlice()});
     var extra: usize = 0;
     if (word > 0 and tkzr.idx > 0 and tkzr.buffer[tkzr.idx - 1] == ' ') {
         extra = tkzr.removeWhitespace();
@@ -253,24 +264,24 @@ pub fn removeReverse(tkzr: *Tokenizer) void {
     tkzr.remove();
 }
 
-pub fn removeRange(tkzr: *Tokenizer, count: usize) void {
-    if (count == 0) return;
+pub fn removeRange(tkzr: *Tokenizer, num: usize) void {
+    if (num == 0) return;
     if (tkzr.len == 0 or tkzr.idx == 0) return;
-    if (count > tkzr.len) {
+    if (num > tkzr.len) {
         tkzr.idx = 0;
         tkzr.len = 0;
         return;
     }
 
-    assert(tkzr.idx >= count);
+    assert(tkzr.idx >= num);
 
     if (tkzr.idx < tkzr.len) {
-        for (tkzr.buffer[tkzr.idx..tkzr.len], tkzr.buffer[tkzr.idx - count .. tkzr.len - count]) |s, *d|
+        for (tkzr.buffer[tkzr.idx..tkzr.len], tkzr.buffer[tkzr.idx - num .. tkzr.len - num]) |s, *d|
             d.* = s;
     }
     tkzr.user_data = true;
-    tkzr.idx -= count;
-    tkzr.len -= count;
+    tkzr.idx -= num;
+    tkzr.len -= num;
 }
 
 /// consumeSlice will swallow exec, assuming strings shouldn't be able to
@@ -777,9 +788,7 @@ test "token < file" {
 }
 
 test "token < file extra ws" {
-    var ti = Token.Iterator{
-        .raw = "ls <               file.txt",
-    };
+    var ti = Token.Iterator{ .raw = "ls <               file.txt" };
 
     var len: usize = 0;
     while (ti.next()) |_| {
@@ -889,10 +898,9 @@ test "token vari braces" {
     t = try Token.any("${STR_ING}extra");
     try expectEqualStrings("${STR_ING}", t.str);
 
-    var itr = Token.Iterator{ .raw = "${STR_ING}extra" };
-    var count: usize = 0;
-    while (itr.next()) |_| count += 1;
-    try expectEqual(count, 2);
+    var tzr: Tokenizer = .{};
+    try tzr.consumeSlice("${STR_ING}extra");
+    try expectEqual(2, tzr.count());
 }
 
 test "dollar posix" {
@@ -903,13 +911,13 @@ test "dollar posix" {
 
 test "all execs" {
     var tt = Token.Iterator{ .raw = "ls -with -some -params && files || thing | pipeline ; othercmd & screenshot && some/rel/exec" };
-    var count: usize = 0;
+    var num: usize = 0;
     while (tt.next()) |_| {
         while (tt.nextExec()) |_| {}
         _ = tt.next();
-        count += 1;
+        num += 1;
     }
-    try std.testing.expect(7 == count);
+    try expectEqual(7, num);
 }
 
 test "pop" {
@@ -1100,13 +1108,10 @@ test "comment" {
 }
 
 test "backslash" {
-    var itr = Token.Iterator{ .raw = "this\\ is some text" };
+    var tzr = fromSlice("this\\ is some text");
 
-    var count: usize = 0;
-    while (itr.next()) |_| {
-        count += 1;
-    }
-    try expectEqual(count, 7);
+    try expectEqual(7, tzr.count());
+    var itr = tzr.iterate();
 
     try expectEqualStrings("this", itr.first().str);
     try expectEqualStrings("\\ ", itr.next().?.str);
@@ -1268,14 +1273,8 @@ test "nested logic" {
 test "naughty strings" {
     const while_str = "thingy (b.argv.next()) |_| {}";
 
-    var itr = Token.Iterator{ .raw = while_str };
-
-    var count: usize = 0;
-    while (itr.next()) |t| {
-        if (false) log.err("{}\n", .{t});
-        count += 1;
-    }
-    try expectEqual(count, 10);
+    const tzr = fromSlice(while_str);
+    try expectEqual(10, tzr.count());
 }
 
 test "escape newline" {
@@ -1300,38 +1299,18 @@ test "build functions" {
     const a = std.testing.allocator;
     var tzr: Tokenizer = .{};
     defer tzr.raze(a);
-
     try tzr.consumeSlice("func () a");
-    var itr = tzr.iterator();
-
-    var count: usize = 0;
-    while (itr.next()) |t| {
-        if (false) log.dump(t);
-        count += 1;
-    }
-    try expectEqual(count, 5);
-
-    tzr.raze(a);
+    try expectEqual(5, tzr.count());
+    tzr.reset();
     try tzr.consumeSlice("func () {}");
-    itr = tzr.iterator();
-
-    count = 0;
-    while (itr.next()) |t| {
-        if (false) log.dump(t);
-        count += 1;
-    }
-    try expectEqual(count, 1);
+    var itr = tzr.iterator();
+    try expectEqual(1, tzr.count());
 
     tzr.raze(a);
     try tzr.consumeSlice("func () {   }   ");
     itr = tzr.iterator();
 
-    count = 0;
-    while (itr.next()) |t| {
-        if (false) log.dump(t);
-        count += 1;
-    }
-    try expectEqual(count, 2);
+    try expectEqual(2, tzr.count());
 
     tzr.raze(a);
     try tzr.consumeSlice(
@@ -1341,12 +1320,7 @@ test "build functions" {
     );
     itr = tzr.iterator();
 
-    count = 0;
-    while (itr.next()) |t| {
-        if (false) log.dump(t);
-        count += 1;
-    }
-    try expectEqual(count, 1);
+    try expectEqual(1, tzr.count());
 }
 
 test {
