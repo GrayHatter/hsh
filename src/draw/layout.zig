@@ -88,7 +88,7 @@ pub fn grid(a: Allocator, items: []const []const u8, wh: Cord) Error![][]Lexeme 
 
         for (row.*) |*col| {
             const char = items[i];
-            col.* = Lexeme{
+            col.* = .{
                 .bytes = char,
                 .padding = .{ .right = @intCast(largest - countPrintable(char)) },
             };
@@ -114,14 +114,14 @@ pub fn tableSize(a: Allocator, items: []const Lexeme, wh: Cord) Error![]u16 {
     var rows: u32 = 0;
 
     first: while (true) : (cols -= 1) {
-        if (cols == 0) return Error.LayoutUnable;
+        if (cols == 0) return error.LayoutUnable;
         if (countLexems(items[0..cols]) > wh.x) continue;
 
         colsize = try a.realloc(colsize, cols);
         @memset(colsize, 0);
         rows = @as(u32, @truncate(items.len / cols));
         if (items.len % cols > 0) rows += 1;
-        if (rows >= wh.y) return Error.ItemCount;
+        if (rows >= wh.y) return error.ItemCount;
 
         for (0..rows) |row| {
             const current = items[row * cols .. @min((row + 1) * cols, items.len)];
@@ -154,23 +154,23 @@ pub fn tableLexeme(a: Allocator, items: []const Lexeme, wh: Cord) Error![][]Lexe
         row.* = try a.alloc(Lexeme, row_num);
         for (row.*, 0..) |*col, j| {
             const offset = i * stride + j;
-            const bytes = try a.alloc(u8, colsz[j]);
-            col.bytes = bytes;
-            col.style = items[offset].style;
-            @memcpy(bytes[0..items[offset].bytes.len], items[offset].bytes);
-            @memset(bytes[items[offset].bytes.len..], ' ');
+            const padding: u16 = colsz[j] - @as(u16, @intCast(items[offset].bytes.len));
+            col.* = .{
+                .bytes = items[offset].bytes,
+                .style = items[offset].style,
+                .padding = .{ .right = padding },
+            };
         }
     }
     return rows;
 }
 
-/// Caller owns memory, strings **are** duplicated
 pub fn tableChar(a: Allocator, items: []const []const u8, wh: Cord) Error![][]Lexeme {
     const lexes = try a.alloc(Lexeme, items.len);
     defer a.free(lexes);
 
     for (items, lexes) |i, *l| {
-        l.bytes = i;
+        l.* = .{ .bytes = i };
     }
 
     return tableLexeme(a, lexes, wh);
@@ -206,13 +206,6 @@ test "table" {
 
     const rows = try tableChar(a, strs12[0..], Cord{ .x = 50, .y = 5 });
     //std.debug.print("rows {any}\n", .{rows});
-    for (rows) |row| {
-        //std.debug.print("  row {any}\n", .{row});
-        for (row) |col| {
-            //std.debug.print("    sib {s}\n", .{sib.char});
-            a.free(col.bytes);
-        }
-    }
 
     try std.testing.expect(rows.len == 3);
     try std.testing.expect(rows[0].len == 4);

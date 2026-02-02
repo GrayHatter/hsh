@@ -161,20 +161,84 @@ fn sortAscOption(ctx: void, a: Option, b: Option) bool {
 }
 
 pub const CompSet = struct {
-    alloc: Allocator,
     original: ?Option,
     /// Eventually groups should be dynamically allocated if it gets bigger
     groups: [Flavor.len]ArrayList(Option) = @splat(.{}),
     group: *ArrayList(Option),
     group_index: usize = 0,
     index: usize = 0,
-    search: ArrayList(u8),
+    search_str: [2048]u8 = undefined,
+    search_str_len: usize = 0,
     // actually using most of orig_token is much danger, such UB
     // the pointers contained within are likely already invalid!
     //orig_token: ?*const Token = null,
     kind: Token.Kind = .nos,
     err: bool = false,
     draw_cache: [Flavor.len]?[][]Draw.Lexeme = @splat(null),
+
+    pub fn init() CompSet {
+        var compset: CompSet = .{
+            .original = null,
+            .group = undefined,
+            .groups = @splat(.{}),
+        };
+        compset.group = &compset.groups[0];
+        return compset;
+    }
+
+    /// Caller owns nothing, memory is only guaranteed until `complete` is
+    /// called again.
+    pub fn complete(cs: *CompSet, tks: *Tokenizer, fs: Fs, a: Allocator, io: Io) !void {
+        cs.raze(a);
+
+        var iter = tks.iterator();
+        const ts = iter.toSlice(a) catch unreachable;
+        defer a.free(ts);
+
+        cs.kind = if (ts.len > 0) ts[0].kind else .nos;
+        cs.index = 0;
+
+        // TODO need the real bug here
+        var pair = findToken(tks);
+        const hint: Kind = if (ts.len <= 1) .path_exe else .any;
+
+        switch (hint) {
+            .path_exe => try completeFromPath(cs, pair.t.str, fs.paths, a, io),
+            else => {
+                switch (pair.t.kind) {
+                    .ws => {
+                        var dir = try Io.Dir.cwd().openDir(io, ".", .{ .iterate = true });
+                        defer dir.close(io);
+                        try completeDir(cs, dir, a, io);
+                    },
+                    .word, .path => {
+                        var t = try Resolver.word(pair.t);
+                        if (std.mem.indexOfScalar(u8, t.resolved.str, '/')) |_| {
+                            try completePath(cs, t.resolved.str, a, io);
+                        } else {
+                            var dir = try Io.Dir.cwd().openDir(io, ".", .{ .iterate = true });
+                            defer dir.close(io);
+                            try completeDirBase(cs, t.resolved.str, dir, a, io);
+                        }
+                    },
+                    .io => {
+                        // TODO pipeline integration
+                    },
+                    else => {},
+                }
+            },
+        }
+
+        if (cs.original) |orig| {
+            try tks.maybeReplace(orig, a);
+            try cs.searchStr(orig.str);
+            log.debug("Completion original is {s}\n\n", .{orig.str});
+        } else log.debug("Completion original is null\n\n", .{});
+
+        cs.sort();
+        cs.reset();
+        return;
+    }
 
     /// Intentionally excludes original from the count
     pub fn count(cs_: *const CompSet) usize {
@@ -190,7 +254,7 @@ pub const CompSet = struct {
         var c: usize = 0;
         for (cs_.groups) |grp| {
             for (grp.items) |item| {
-                if (searchMatch(item.str, cs_.search.items)) |_| {
+                if (searchMatch(item.str, cs_.search())) |_| {
                     c += 1;
                 }
             }
@@ -236,7 +300,7 @@ pub const CompSet = struct {
         assert(cs.count() > 0);
 
         cs.skip();
-        if (cs.search.items.len > 0 and cs.countFiltered() > 0) {
+        if (cs.search_str_len > 0 and cs.countFiltered() > 0) {
             while (!cs.curSearchMatch()) {
                 cs.skip();
             }
@@ -260,7 +324,7 @@ pub const CompSet = struct {
 
     fn curSearchMatch(cs_: *CompSet) bool {
         const curr = &cs_.group.items[cs_.index];
-        return searchMatch(curr.str, cs_.search.items) != null;
+        return searchMatch(curr.str, cs_.search()) != null;
     }
 
     pub fn revr(cs_: *CompSet) void {
@@ -295,25 +359,25 @@ pub const CompSet = struct {
         cs_.group = &cs_.groups[cs_.group_index];
     }
 
-    pub fn push(cs: *CompSet, o: Option) !void {
+    pub fn push(cs: *CompSet, o: Option, a: Allocator) !void {
         cs.groupSet(o.kind);
-        try cs.group.append(cs.alloc, o);
+        try cs.group.append(a, o);
     }
 
-    pub fn drawGroup(cs_: *CompSet, f: Flavor, wh: Cord) ![][]Draw.Lexeme {
-        const cache: *?[][]Draw.Lexeme = &cs_.draw_cache[@intFromEnum(f)];
-        const group = &cs_.groups[@intFromEnum(f)];
+    pub fn regenGroup(cs: *CompSet, f: Flavor, wh: Cord, a: Allocator) !void {
+        const cache: *?[][]Draw.Lexeme = &cs.draw_cache[@intFromEnum(f)];
+        const group = &cs.groups[@intFromEnum(f)];
 
         if (group.items.len == 0) return error.Empty;
 
         if (cache.*) |dcache| {
-            const mod: usize = if (dcache[0].len > 0) dcache[0].len else 1;
-            const this_row = (cs_.index) / mod;
-            const this_col = (cs_.index) % mod;
+            const mod: usize = @max(dcache[0].len, 1);
+            const this_row = (cs.index) / mod;
+            const this_col = (cs.index) % mod;
 
             for (dcache, 0..) |row, r| {
                 for (row) |*column| {
-                    if (searchMatch(column.bytes, cs_.search.items) == null) {
+                    if (searchMatch(column.bytes, cs.search()) == null) {
                         column.style.?.attr = .dim;
                     } else {
                         styleInactive(column);
@@ -323,37 +387,50 @@ pub const CompSet = struct {
                     styleActive(&row[this_col]);
                 }
             }
-            return dcache;
+        } else {
+            cache.* = try cs.genGroupLexeme(f, wh, a);
         }
-
-        cache.* = try cs_.buildDrawGroup(f, wh);
-        return cache.*.?;
     }
 
-    fn buildDrawGroup(cs: CompSet, f: Flavor, wh: Cord) ![][]Draw.Lexeme {
+    fn genGroupLexeme(cs: CompSet, f: Flavor, wh: Cord, a: Allocator) ![][]Draw.Lexeme {
         const group = &cs.groups[@intFromEnum(f)];
 
-        const list = try cs.alloc.alloc(Draw.Lexeme, group.items.len);
-        for (group.items, list) |itm, *dst| dst.* = itm.lexeme(false);
-        return try Draw.Layout.tableLexeme(cs.alloc, list, wh);
+        const list = try a.alloc(Draw.Lexeme, group.items.len);
+        for (group.items, list) |itm, *dst|
+            dst.* = itm.lexeme(false);
+        return try Draw.Layout.tableLexeme(a, list, wh);
     }
 
-    pub fn drawAll(cs_: *CompSet, wh: Cord) !void {
-        if (cs_.count() == 0) {
-            return;
-        }
+    pub fn regenAll(cs: *CompSet, wh: Cord, a: Allocator) !void {
+        if (cs.count() == 0) return;
 
-        for (0..Flavor.len) |flavor| {
-            // TODO Draw name
-            _ = cs_.drawGroup(@enumFromInt(flavor), wh) catch |err| switch (err) {
-                error.Empty => continue,
+        inline for (@typeInfo(Flavor).@"enum".fields) |f| {
+            cs.regenGroup(@enumFromInt(f.value), wh, a) catch |err| switch (err) {
+                error.Empty => {},
                 else => return err,
             };
         }
     }
 
+    pub fn drawAll(cs: *CompSet, draw: *Draw) !void {
+        inline for (@typeInfo(Flavor).@"enum".fields) |f| {
+            // TODO Draw name
+            const cache = cs.draw_cache[f.value];
+            if (cache) |grp| for (grp) |row| {
+                draw.drawAfter(row);
+            };
+            try draw.render();
+        }
+    }
+
+    pub fn search(cs: *const CompSet) []const u8 {
+        return cs.search_str[0..cs.search_str_len];
+    }
+
     pub fn searchChar(cs: *CompSet, char: u8) !void {
-        try cs.search.append(cs.alloc, char);
+        assert(cs.search_str_len < cs.search_str.len);
+        cs.search_str[cs.search_str_len] = char;
+        cs.search_str_len += 1;
         // TODO when searching, set to the lowest sum of search offsets
 
         cs.searchMove();
@@ -364,7 +441,7 @@ pub const CompSet = struct {
         var best_cost: usize = ~@as(usize, 0);
         for (cs_.groups, 0..) |grp, gi| {
             for (grp.items, 0..) |each, ei| {
-                if (searchMatch(each.str, cs_.search.items)) |cost| {
+                if (searchMatch(each.str, cs_.search())) |cost| {
                     mcount += 1;
                     if (cost < best_cost) {
                         cs_.group_index = gi;
@@ -378,57 +455,57 @@ pub const CompSet = struct {
         cs_.group = &cs_.groups[cs_.group_index];
     }
 
-    pub fn searchStr(cs_: *CompSet, str: []const u8) !void {
-        for (str) |c| try cs_.searchChar(c);
+    pub fn searchStr(cs: *CompSet, str: []const u8) !void {
+        for (str) |c| try cs.searchChar(c);
     }
 
-    pub fn searchPop(cs_: *CompSet) !void {
-        if (cs_.search.items.len == 0) {
+    pub fn searchPop(cs: *CompSet) !void {
+        if (cs.search_str_len == 0) {
             return error.SearchEmpty;
         }
-        _ = cs_.search.pop();
-        cs_.searchMove();
+        cs.search_str_len -= 1;
+        cs.searchMove();
     }
 
-    pub fn raze(cs: *CompSet) void {
+    pub fn raze(cs: *CompSet, a: Allocator) void {
         for (&cs.groups) |*group| {
             for (group.items) |opt| {
-                cs.alloc.free(opt.str);
+                a.free(opt.str);
             }
-            group.clearAndFree(cs.alloc);
+            group.clearAndFree(a);
         }
         if (cs.original) |o| {
-            cs.alloc.free(o.str);
+            a.free(o.str);
             cs.original = null;
         }
-        cs.search.clearAndFree(cs.alloc);
+        cs.search_str_len = 0;
     }
 };
 
-fn completeDir(cs: *CompSet, cwdi: Io.Dir, io: Io) !void {
+fn completeDir(cs: *CompSet, cwdi: Io.Dir, a: Allocator, io: Io) !void {
     var itr = cwdi.iterate();
-    cs.original = Option{ .str = try cs.alloc.dupe(u8, ""), .kind = .original };
+    cs.original = Option{ .str = try a.dupe(u8, ""), .kind = .original };
     while (try itr.next(io)) |each| {
-        try cs.push(Option{
-            .str = try cs.alloc.dupe(u8, each.name),
+        try cs.push(.{
+            .str = try a.dupe(u8, each.name),
             .kind = Kind{ .file_system = .fromFsKind(each.kind) },
-        });
+        }, a);
     }
 }
 
-fn completeDirBase(cs: *CompSet, base: []const u8, cwdi: Io.Dir, io: Io) !void {
+fn completeDirBase(cs: *CompSet, base: []const u8, cwdi: Io.Dir, a: Allocator, io: Io) !void {
     var itr = cwdi.iterate();
-    cs.original = Option{ .str = try cs.alloc.dupe(u8, base), .kind = .original };
+    cs.original = Option{ .str = try a.dupe(u8, base), .kind = .original };
     while (try itr.next(io)) |each| {
         if (!std.mem.startsWith(u8, each.name, base)) continue;
-        try cs.push(Option{
-            .str = try cs.alloc.dupe(u8, each.name),
+        try cs.push(.{
+            .str = try a.dupe(u8, each.name),
             .kind = .{ .file_system = .fromFsKind(each.kind) },
-        });
+        }, a);
     }
 }
 
-fn completePath(cs: *CompSet, target: []const u8, io: Io) !void {
+fn completePath(cs: *CompSet, target: []const u8, a: Allocator, io: Io) !void {
     if (target.len < 1) return;
 
     var whole = std.mem.splitBackwardsAny(u8, target, "/");
@@ -447,29 +524,28 @@ fn completePath(cs: *CompSet, target: []const u8, io: Io) !void {
     }
     defer dir.close(io);
 
-    cs.original = Option{ .str = try cs.alloc.dupe(u8, base), .kind = .original };
+    cs.original = Option{ .str = try a.dupe(u8, base), .kind = .original };
     var itr = dir.iterate();
     while (try itr.next(io)) |each| {
         if (!std.mem.startsWith(u8, each.name, base)) continue;
         if (each.name[0] == '.' and (base.len == 0 or base[0] != '.')) continue;
 
-        try cs.push(Option{
-            .str = try cs.alloc.dupe(u8, each.name),
-            .kind = Kind{
-                .file_system = FSKind.fromFsKind(each.kind),
-            },
-        });
+        try cs.push(.{
+            .str = try a.dupe(u8, each.name),
+            .kind = Kind{ .file_system = FSKind.fromFsKind(each.kind) },
+        }, a);
     }
 }
 
-fn completeFromPath(cs: *CompSet, target: []const u8, paths: ArrayList(Fs.Named), io: Io) !void {
+fn completeFromPath(cs: *CompSet, target: []const u8, paths: ArrayList(Fs.Named), a: Allocator, io: Io) !void {
     if (std.mem.indexOf(u8, target, "/")) |_| {
-        return completePath(cs, target, io);
+        return completePath(cs, target, a, io);
     }
 
-    cs.original = .{ .str = try cs.alloc.dupe(u8, target), .kind = .original };
+    cs.original = .{ .str = try a.dupe(u8, target), .kind = .original };
 
     for (paths.items) |path| {
+        if (path != .dir) continue;
         var dir = std.Io.Dir.openDirAbsolute(io, path.dir.name, .{ .iterate = true }) catch return;
         defer dir.close(io);
         var itr = dir.iterate();
@@ -488,10 +564,10 @@ fn completeFromPath(cs: *CompSet, target: []const u8, paths: ArrayList(Fs.Named)
                 return;
             }
 
-            try cs.push(Option{
-                .str = try cs.alloc.dupe(u8, each.name),
+            try cs.push(.{
+                .str = try a.dupe(u8, each.name),
                 .kind = Kind{ .path_exe = {} },
-            });
+            }, a);
         }
     }
 }
@@ -517,78 +593,6 @@ fn findToken(tkns: *Tokenizer) TknPair {
     }
     pair.t.str = pair.t.str[0..pair.offset];
     return pair;
-}
-
-/// Caller owns nothing, memory is only guaranteed until `complete` is
-/// called again.
-pub fn complete(cs: *CompSet, hsh: *Hsh, tks: *Tokenizer, io: Io) !void {
-    cs.raze();
-
-    var iter = tks.iterator();
-    const ts = iter.toSlice(cs.alloc) catch unreachable;
-    defer cs.alloc.free(ts);
-
-    cs.kind = if (ts.len > 0) ts[0].kind else .nos;
-    cs.index = 0;
-
-    // TODO need the real bug here
-    var pair = findToken(tks);
-    const hint: Kind = if (ts.len <= 1) .path_exe else .any;
-
-    switch (hint) {
-        .path_exe => {
-            try completeFromPath(cs, pair.t.str, hsh.fs.paths, io);
-        },
-        else => {
-            switch (pair.t.kind) {
-                .ws => {
-                    var dir = try Io.Dir.cwd().openDir(io, ".", .{ .iterate = true });
-                    defer dir.close(io);
-                    try completeDir(cs, dir, io);
-                },
-                .word, .path => {
-                    var t = try Resolver.word(pair.t);
-                    if (std.mem.indexOfScalar(u8, t.resolved.str, '/')) |_| {
-                        try completePath(cs, t.resolved.str, io);
-                    } else {
-                        var dir = try Io.Dir.cwd().openDir(io, ".", .{ .iterate = true });
-                        defer dir.close(io);
-                        try completeDirBase(cs, t.resolved.str, dir, io);
-                    }
-                },
-                .io => {
-                    // TODO pipeline integration
-                },
-                else => {},
-            }
-        },
-    }
-
-    if (cs.original) |orig| {
-        try tks.maybeReplace(orig, cs.alloc);
-        try cs.searchStr(orig.str);
-    }
-    if (cs.original) |orig| {
-        log.debug("Completion original is {s}\n\n", .{orig.str});
-    } else {
-        log.debug("Completion original is null\n\n", .{});
-    }
-
-    cs.sort();
-    cs.reset();
-    return;
-}
-
-pub fn init(a: Allocator) CompSet {
-    var compset: CompSet = .{
-        .alloc = a,
-        .original = null,
-        .group = undefined,
-        .groups = @splat(.{}),
-        .search = .{},
-    };
-    compset.group = &compset.groups[0];
-    return compset;
 }
 
 const std = @import("std");

@@ -38,14 +38,14 @@ pub fn init(hsh: *Hsh, a: Allocator, io: Io, options: Options) !Line {
         .prompt = &hsh.prompt,
         .input = .{ .stdin = &hsh.tty.in.r.interface, .spin = spin },
         .tkn = .{},
-        .completion = Complete.init(a),
+        .completion = .init(),
         .options = options,
         .history = try .init(hsh.fs.history, a, io),
     };
 }
 
 pub fn raze(line: Line) void {
-    if (line.completion) |comp| comp.raze();
+    if (line.completion) |comp| comp.raze(line.alloc);
 }
 
 fn spin(input: *const Input, a: Allocator, io: Io) bool {
@@ -262,7 +262,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
     sw: switch (CompState{ .start = {} }) {
         .pending => unreachable,
         .start => {
-            try Complete.complete(cmplt, line.hsh, &line.tkn, io);
+            try cmplt.complete(&line.tkn, line.hsh.fs, a, io);
             continue :sw .{ .redraw = {} };
         },
         .typing => |ks| {
@@ -276,7 +276,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                         0x00...0x1f => unreachable,
                         ' ' => {
                             try line.tkn.maybeCommit(null, a);
-                            cmplt.raze();
+                            cmplt.raze(a);
                             try line.tkn.consumeChar(' ');
                             continue :sw .{ .done = {} };
                         },
@@ -296,7 +296,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                             continue :sw .{ .redraw = {} };
                         },
                         else => {
-                            try Complete.complete(cmplt, line.hsh, &line.tkn, io);
+                            try cmplt.complete(&line.tkn, line.hsh.fs, a, io);
 
                             if (cmplt.count() == 0) {
                                 try line.tkn.consumeChar(c);
@@ -326,7 +326,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                                 try line.tkn.maybeAdd(o.str, a);
                                 try line.tkn.maybeCommit(null, a);
                             }
-                            cmplt.raze();
+                            cmplt.raze(a);
                             continue :sw .{ .done = {} };
                         },
                         .up, .down, .left, .right => {
@@ -338,19 +338,19 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                         },
                         .newline => {
                             try line.tkn.maybeCommit(null, a);
-                            cmplt.raze();
+                            cmplt.raze(a);
                             try line.tkn.consumeChar(' ');
                             continue :sw .{ .done = {} };
                         },
                         .backspace => {
                             cmplt.searchPop() catch {
-                                cmplt.raze();
+                                cmplt.raze(a);
                                 line.tkn.raw_maybe = null;
                                 continue :sw .{ .redraw = {} };
                             };
                             //line.mode = try doComplete(line.hsh, line.tkn, line.completion);
                             try line.tkn.maybeRemove(a);
-                            try line.tkn.maybeAdd(cmplt.search.items, a);
+                            try line.tkn.maybeAdd(cmplt.search(), a);
                             continue :sw .{ .redraw = {} };
                         },
                         .delete_word => {
@@ -369,15 +369,18 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
         },
         .redraw => {
             line.draw.clear();
-            cmplt.drawAll(line.draw.term_size) catch |err| switch (err) {
-                error.ItemCount => {},
+            cmplt.regenAll(line.draw.term_size, a) catch |err| switch (err) {
+                error.ItemCount => {
+                    var b: [128]u8 = undefined;
+                    const text = try bufPrint(&b, "[ Unable to print all {} options ]", .{cmplt.count()});
+                    line.draw.drawAfter(&[1]Draw.Lexeme{
+                        .styled(text, .red_bold),
+                    });
+                    try line.draw.render();
+                },
                 else => return err,
             };
-            for (cmplt.draw_cache) |grp| {
-                for (grp orelse continue) |row| {
-                    line.draw.drawAfter(row);
-                }
-            }
+            try cmplt.drawAll(line.draw);
             try line.hsh.prompt.render(line.draw, line.peek());
             try line.draw.render();
             continue :sw .{ .read = {} };
@@ -414,3 +417,4 @@ const Prompt = @import("Prompt.zig");
 const Draw = @import("draw.zig");
 const Lexeme = Draw.Lexeme;
 const assert = std.debug.assert;
+const bufPrint = std.fmt.bufPrint;

@@ -12,7 +12,7 @@ internal: []u8,
 
 pub const Layout = @import("draw/layout.zig");
 
-const draw_buffer_size = 8192 * 4;
+const draw_buffer_size = 8192 * 4 * 16;
 
 pub const Cord = struct {
     x: isize = 0,
