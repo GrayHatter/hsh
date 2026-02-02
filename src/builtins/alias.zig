@@ -61,7 +61,7 @@ pub fn call(_: *Hsh, titr: *ParsedIterator, a: Allocator, _: Io) Err!u8 {
 fn printAll() Err!u8 {
     var itr = aliases.iterator();
     while (itr.next()) |entry| {
-        try print("{s}={s}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
+        try print("{s}='{s}'\n", .{ entry.key_ptr.*, entry.value_ptr.* });
     }
     return 0;
 }
