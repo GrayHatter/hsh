@@ -17,8 +17,8 @@ pub const Error = error{
     StdIOerror,
 };
 
-const ARG = [*:0]u8;
-const ARGV = [:null]?ARG;
+const Arg = [*:0]u8;
+const ArgV = [:null]?Arg;
 
 const StdIo = struct {
     in: fd_t = STDIN_FD,
@@ -28,8 +28,8 @@ const StdIo = struct {
 };
 
 const Binary = struct {
-    arg: ARG,
-    argv: ARGV,
+    arg: Arg,
+    argv: ArgV,
 };
 
 const Builtin = struct {
@@ -135,7 +135,7 @@ pub fn makeAbsExecutable(str: []const u8, fs: Fs, a: Allocator, io: Io) ![]u8 {
 }
 
 /// Caller will own memory
-fn makeExeZ(str: []const u8, fs: Fs, a: Allocator, io: Io) !ARG {
+fn makeExeZ(str: []const u8, fs: Fs, a: Allocator, io: Io) !Arg {
     var exe = try makeAbsExecutable(str, fs, a, io);
     if (a.resize(exe, exe.len + 1)) {
         exe.len += 1;
@@ -156,7 +156,7 @@ fn prepareBuiltin(parsed: ParsedIterator, a: Allocator) !Callable {
 
 /// Caller owns memory of argv, and the open fds
 fn prepareBinary(itr: *ParsedIterator, fs: Fs, a: Allocator, io: Io) !Callable {
-    var argv: ArrayList(?ARG) = .{};
+    var argv: ArrayList(?Arg) = .{};
     errdefer argv.deinit(a);
     errdefer for (argv.items) |arg| {
         a.free(std.mem.span(arg.?));
