@@ -139,7 +139,7 @@ pub fn do(hsh: *Hsh) SigEvent {
                         //_ = child.forground(&hsh.tty);
                     },
                     .DUMPED, .TRAPPED => {
-                        log.err("CHLD CRASH on {}\n", .{pid});
+                        log.err("SIGNAL CHLD CRASH on {}\n", .{pid});
                         child.crash(@intCast(sig.info.fields.common.second.sigchld.status));
                     },
                 }
