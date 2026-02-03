@@ -204,29 +204,8 @@ pub fn raze(d: *Drawable, a: Allocator) void {
     a.free(d.internal);
 }
 
-//fn drawLexeme(buf: *Writer, _: usize, _: usize, l: Lexeme) void {
-//    if (l.bytes.len == 0) return;
-//    if (colorize) {
-//        if (l.style) |style| {
-//            setAttr(buf, style.attr);
-//            fgColor(buf, style.fg);
-//            bgColor(buf, style.bg);
-//        }
-//    }
-//    buf.appendSliceBounded(l.bytes) catch unreachable;
-//    if (colorize and l.style != null) {
-//        bgColor(buf, .none);
-//        fgColor(buf, .none);
-//        setAttr(buf, .reset);
-//    }
-//}
-
 fn drawLexemeMany(buf: *Writer, _: usize, _: usize, s: []const Lexeme) void {
     for (s) |sib| buf.print("{f}", .{sib}) catch unreachable;
-}
-
-fn drawLexemeTree(buf: *Writer, _: usize, _: usize, tree: []const []const Lexeme) void {
-    for (tree) |t| buf.print("{f}", .{t}) catch unreachable;
 }
 
 pub fn drawBefore(d: *Drawable, t: []const Lexeme) void {
