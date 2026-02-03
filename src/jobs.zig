@@ -98,15 +98,11 @@ pub const Job = struct {
 };
 
 pub fn init() Jobs {
-    return .{
-        .jobs = .{},
-    };
+    return .{ .jobs = .{} };
 }
 
 pub fn raze(j: *Jobs, a: Allocator) void {
-    for (j.jobs.items) |job| {
-        a.free(job.name.?);
-    }
+    for (j.jobs.items) |job| a.free(job.name.?);
     j.jobs.clearAndFree(a);
 }
 
