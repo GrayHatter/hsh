@@ -194,7 +194,7 @@ pub fn externEditorRead(line: *Line, io: Io) ![]u8 {
     defer line.alloc.free(tmp);
     defer unreachable;
 
-    var file = Fs.openFile(tmp, io, .create) orelse return error.io;
+    var file = Fs.writable(tmp, io, .create) orelse return error.io;
     defer file.close(io);
     var reader = file.reader(io, &.{});
 

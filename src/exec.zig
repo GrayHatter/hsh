@@ -224,7 +224,7 @@ pub fn executable(str: []const u8, fs: Fs, a: Allocator, io: Io) bool {
 }
 
 fn validPath(path: []const u8, io: Io) bool {
-    const file = Fs.openFile(path, io, .open) orelse return false;
+    const file = Fs.open(path, io) orelse return false;
     defer file.close(io);
     if (file.stat(io)) |stat| {
         if (stat.kind != .file) return false;
@@ -347,7 +347,7 @@ fn mkCallableStack(itr: *TokenIterator, fs: Fs, a: Allocator, io: Io) ![]Callabl
                             if (system.close(out) != 0) unreachable;
                             prev_stdout = null;
                         }
-                        if (Fs.openFile(maybeio.str, io, .create)) |file| {
+                        if (Fs.writable(maybeio.str, io, .create)) |file| {
                             io_mode.in = file.handle;
                         }
                     },

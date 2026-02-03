@@ -576,7 +576,7 @@ fn completeFromPath(cs: *Completion, target: []const u8, paths: ArrayList(Fs.Nam
             if (!std.mem.startsWith(u8, each.name, target)) continue;
             if (each.name[0] == '.' and (target.len == 0 or target[0] != '.')) continue;
             if (each.kind != .file) continue; // TODO probably a bug
-            const file = Fs.openFileAt(dir, each.name, io, .open) orelse continue;
+            const file = Fs.openFrom(dir, each.name, io, .open) orelse continue;
             defer file.close(io);
             if (file.stat(io)) |_| {
                 // TODO check executable bit

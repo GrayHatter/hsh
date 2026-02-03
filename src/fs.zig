@@ -235,7 +235,7 @@ pub fn mktemp(data: ?[]const u8, a: Allocator, io: Io) ![]u8 {
     return name;
 }
 
-fn fileAt(
+fn fileFrom(
     dir: Dir,
     name: []const u8,
     io: Io,
@@ -246,36 +246,38 @@ fn fileAt(
     return switch (cr) {
         .create => dir.createFile(io, name, .{ .read = true, .truncate = truncate }) catch null,
         .open => dir.openFile(io, name, .{ .mode = mode }) catch null,
+        .any => unreachable,
     };
 }
 
 pub const CreateRule = enum {
     create,
     open,
+    any,
 };
 
-pub fn writeFileAt(dir: Dir, name: []const u8, io: Io, comptime cr: CreateRule) ?File {
-    return fileAt(dir, name, io, cr, .read_write, false);
+pub fn writableFrom(dir: Dir, name: []const u8, io: Io, comptime cr: CreateRule) ?File {
+    return fileFrom(dir, name, io, cr, .read_write, false);
 }
 
-pub fn writeFile(name: []const u8, io: Io, comptime cr: CreateRule) ?File {
-    return fileAt(Dir.cwd(), name, io, cr, .read_write, false);
+pub fn writable(name: []const u8, io: Io, comptime cr: CreateRule) ?File {
+    return fileFrom(Dir.cwd(), name, io, cr, .read_write, false);
 }
 
-pub fn openFileAt(dir: Dir, name: []const u8, io: Io, comptime cr: CreateRule) ?File {
-    return fileAt(dir, name, io, cr, .read_only, false);
+pub fn openFrom(dir: Dir, name: []const u8, io: Io, comptime cr: CreateRule) ?File {
+    return fileFrom(dir, name, io, cr, .read_only, false);
 }
 
-pub fn openFile(name: []const u8, io: Io, comptime cr: CreateRule) ?File {
-    return fileAt(Dir.cwd(), name, io, cr, .read_only, false);
+pub fn open(name: []const u8, io: Io) ?File {
+    return fileFrom(Dir.cwd(), name, io, .open, .read_only, false);
 }
 
 pub fn create(name: []const u8, io: Io) ?File {
-    return fileAt(Dir.cwd(), name, io, .create, .read_only, false);
+    return fileFrom(Dir.cwd(), name, io, .create, .read_only, false);
 }
 
 pub fn reCreate(name: []const u8, io: Io) ?File {
-    return fileAt(Dir.cwd(), name, io, .create, .read_only, true);
+    return fileFrom(Dir.cwd(), name, io, .create, .read_only, true);
 }
 
 pub const GlobRule = enum {
@@ -314,14 +316,14 @@ pub fn globAt(dir: Dir, search: []const u8, rule: GlobRule, a: Allocator, io: Io
     return names.toOwnedSlice(a);
 }
 
-fn findPath(fs: *Fs, name: []const u8, a: Allocator, io: Io, comptime cr: CreateRule) !Named.File {
+fn findHshPath(fs: *Fs, name: []const u8, a: Allocator, io: Io, comptime cr: CreateRule) !Named.File {
     if (fs.config) |conf| {
         var hsh_b: [2048]u8 = undefined;
         const out = try bufPrint(&hsh_b, "{s}/hsh", .{conf.name});
         log.debug("finding path '{s}'\n", .{out});
         if (Dir.openDirAbsolute(io, out, .{})) |d| {
             defer d.close(io);
-            if (writeFileAt(d, name, io, cr)) |file| {
+            if (writableFrom(d, name, io, cr)) |file| {
                 var realpath: [2048]u8 = undefined;
                 const len = try d.realPathFile(io, name, &realpath);
                 return .{ .name = try a.dupe(u8, realpath[0..len]), .file = file };
@@ -336,7 +338,7 @@ fn findPath(fs: *Fs, name: []const u8, a: Allocator, io: Io, comptime cr: Create
             fs.config = .{ .name = try a.dupe(u8, realpath[0..len]), .dir = home_cfg };
             if (home_cfg.openDir(io, "hsh", .{})) |hch| {
                 defer hch.close(io);
-                if (writeFileAt(hch, name[1..], io, cr)) |file| {
+                if (writableFrom(hch, name[1..], io, cr)) |file| {
                     return .{
                         .name = try a.dupe(u8, name[1..]),
                         .file = file,
@@ -345,7 +347,7 @@ fn findPath(fs: *Fs, name: []const u8, a: Allocator, io: Io, comptime cr: Create
             } else |e| log.err("unable to open {s} {}\n", .{ "hsh", e });
             //return hc;
         } else |e| log.err("unable to open {s} {}\n", .{ "conf", e });
-        if (writeFileAt(fs.home.dir, name, io, cr)) |file| {
+        if (writableFrom(fs.home.dir, name, io, cr)) |file| {
             return .{
                 .name = try a.dupe(u8, name),
                 .file = file,
@@ -358,7 +360,7 @@ fn findPath(fs: *Fs, name: []const u8, a: Allocator, io: Io, comptime cr: Create
 
 pub fn openFileStdout(name: []const u8, io: Io, append: bool) !File {
     if (append) {
-        return openFile(name, io, .create) orelse unreachable;
+        return writable(name, io, .create) orelse unreachable;
     }
 
     // TODO don't use string here
@@ -370,7 +372,7 @@ pub fn openFileStdout(name: []const u8, io: Io, append: bool) !File {
             } else |err| {
                 switch (err) {
                     error.FileNotFound => {
-                        if (openFile(name, io, .create)) |file| {
+                        if (writable(name, io, .create)) |file| {
                             return file;
                         }
                     },
@@ -388,13 +390,13 @@ pub fn openFileStdout(name: []const u8, io: Io, append: bool) !File {
 }
 
 fn openRcFile(fs: *Fs, a: Allocator, io: Io) !Named.File {
-    return try fs.findPath(".hshrc", a, io, .open);
+    return try fs.findHshPath(".hshrc", a, io, .open);
 }
 
 fn openHistFile(fs: *Fs, a: Allocator, io: Io) !Named.File {
-    const p = fs.findPath(".hsh_history", a, io, .open) catch |e| {
+    const p = fs.findHshPath(".hsh_history", a, io, .open) catch |e| {
         if (e != error.Missing) return e;
-        return try fs.findPath(".hsh_history", a, io, .create);
+        return try fs.findHshPath(".hsh_history", a, io, .create);
     };
     // I've been seeing some strange behavior in history I don't fully
     // understand. This probably won't fix it, but I'm gonna try it anyways
