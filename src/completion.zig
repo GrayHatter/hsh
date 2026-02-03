@@ -14,7 +14,6 @@ err: bool = false,
 draw_cache: [Flavor.len]?[][]Draw.Lexeme = @splat(null),
 
 const Completion = @This();
-const CompSet = @This();
 
 pub const FSKind = enum {
     file,
@@ -176,8 +175,8 @@ fn sortAscOption(ctx: void, a: Option, b: Option) bool {
     return sortAscStr(ctx, a.str, b.str);
 }
 
-pub fn init() CompSet {
-    var compset: CompSet = .{
+pub fn init() Completion {
+    var compset: Completion = .{
         .original = null,
         .group = undefined,
         .groups = @splat(.{}),
@@ -188,7 +187,7 @@ pub fn init() CompSet {
 
 /// Caller owns nothing, memory is only guaranteed until `complete` is
 /// called again.
-pub fn complete(cs: *CompSet, tks: *Tokenizer, fs: Fs, a: Allocator, io: Io) !void {
+pub fn complete(cs: *Completion, tks: *Tokenizer, fs: Fs, a: Allocator, io: Io) !void {
     cs.raze(a);
 
     var iter = tks.iterator();
@@ -241,7 +240,7 @@ pub fn complete(cs: *CompSet, tks: *Tokenizer, fs: Fs, a: Allocator, io: Io) !vo
 }
 
 /// Intentionally excludes original from the count
-pub fn count(cs_: *const CompSet) usize {
+pub fn count(cs_: *const Completion) usize {
     var c: usize = 0;
     for (cs_.groups) |grp| {
         c += grp.items.len;
@@ -250,7 +249,7 @@ pub fn count(cs_: *const CompSet) usize {
 }
 
 // TODO cache
-pub fn countFiltered(cs_: *const CompSet) usize {
+pub fn countFiltered(cs_: *const Completion) usize {
     var c: usize = 0;
     for (cs_.groups) |grp| {
         for (grp.items) |item| {
@@ -264,7 +263,7 @@ pub fn countFiltered(cs_: *const CompSet) usize {
 
 /// Returns the "only" completion if there's a single option known completion,
 /// ignoring the original. If there's multiple or only the original, null.
-pub fn known(cs_: *CompSet) ?*const Option {
+pub fn known(cs_: *Completion) ?*const Option {
     if (cs_.count() == 1) {
         cs_.reset();
         _ = cs_.next();
@@ -279,24 +278,24 @@ pub fn known(cs_: *CompSet) ?*const Option {
     return null;
 }
 
-pub fn reset(cs_: *CompSet) void {
+pub fn reset(cs_: *Completion) void {
     cs_.index = 0;
     cs_.groupSet(.any);
 }
 
-pub fn sort(cs_: *CompSet) void {
+pub fn sort(cs_: *Completion) void {
     for (cs_.groups) |group| {
         std.sort.heap(Option, group.items, {}, sortAscOption);
     }
 }
 
-pub fn first(cs_: *CompSet) *const Option {
+pub fn first(cs_: *Completion) *const Option {
     cs_.reset();
     return cs_.next();
 }
 
 // behavior is undefined when count <= 0
-pub fn next(cs: *CompSet) Option {
+pub fn next(cs: *Completion) Option {
     assert(cs.count() > 0);
 
     cs.skip();
@@ -308,12 +307,12 @@ pub fn next(cs: *CompSet) Option {
     return cs.group.items[cs.index];
 }
 
-pub fn current(cs: *const CompSet) *const Option {
+pub fn current(cs: *const Completion) *const Option {
     if (cs.group.items.len == 0) return &cs.original.?;
     return &cs.group.items[cs.index];
 }
 
-pub fn skip(cs_: *CompSet) void {
+pub fn skip(cs_: *Completion) void {
     std.debug.assert(cs_.count() > 0);
     cs_.index += 1;
     while (cs_.index >= cs_.group.items.len) {
@@ -322,12 +321,12 @@ pub fn skip(cs_: *CompSet) void {
     }
 }
 
-fn curSearchMatch(cs_: *CompSet) bool {
+fn curSearchMatch(cs_: *Completion) bool {
     const curr = &cs_.group.items[cs_.index];
     return searchMatch(curr.str, cs_.search()) != null;
 }
 
-pub fn revr(cs_: *CompSet) void {
+pub fn revr(cs_: *Completion) void {
     if (cs_.countFiltered() < 3) return;
     while (true) {
         if (cs_.index == 0) {
@@ -350,7 +349,7 @@ pub fn revr(cs_: *CompSet) void {
     }
 }
 
-pub fn groupSet(cs_: *CompSet, grp: ?Flavor) void {
+pub fn groupSet(cs_: *Completion, grp: ?Flavor) void {
     if (grp) |g| {
         cs_.group_index = @intFromEnum(g);
     } else {
@@ -359,12 +358,12 @@ pub fn groupSet(cs_: *CompSet, grp: ?Flavor) void {
     cs_.group = &cs_.groups[cs_.group_index];
 }
 
-pub fn push(cs: *CompSet, o: Option, a: Allocator) !void {
+pub fn push(cs: *Completion, o: Option, a: Allocator) !void {
     cs.groupSet(o.kind);
     try cs.group.append(a, o);
 }
 
-pub fn regenGroup(cs: *CompSet, f: Flavor, wh: Cord, a: Allocator) !void {
+pub fn regenGroup(cs: *Completion, f: Flavor, wh: Cord, a: Allocator) !void {
     const cache: *?[][]Draw.Lexeme = &cs.draw_cache[@intFromEnum(f)];
     const group = &cs.groups[@intFromEnum(f)];
 
@@ -392,7 +391,7 @@ pub fn regenGroup(cs: *CompSet, f: Flavor, wh: Cord, a: Allocator) !void {
     }
 }
 
-fn genGroupLexeme(cs: CompSet, f: Flavor, wh: Cord, a: Allocator) ![][]Draw.Lexeme {
+fn genGroupLexeme(cs: Completion, f: Flavor, wh: Cord, a: Allocator) ![][]Draw.Lexeme {
     const group = &cs.groups[@intFromEnum(f)];
 
     const list = try a.alloc(Draw.Lexeme, group.items.len);
@@ -401,7 +400,7 @@ fn genGroupLexeme(cs: CompSet, f: Flavor, wh: Cord, a: Allocator) ![][]Draw.Lexe
     return try Draw.Layout.tableLexeme(a, list, wh);
 }
 
-pub fn regenAll(cs: *CompSet, wh: Cord, a: Allocator) !void {
+pub fn regenAll(cs: *Completion, wh: Cord, a: Allocator) !void {
     if (cs.count() == 0) return;
 
     inline for (@typeInfo(Flavor).@"enum".fields) |f| {
@@ -412,7 +411,7 @@ pub fn regenAll(cs: *CompSet, wh: Cord, a: Allocator) !void {
     }
 }
 
-pub fn drawAll(cs: *CompSet, draw: *Draw) !void {
+pub fn drawAll(cs: *Completion, draw: *Draw) !void {
     inline for (@typeInfo(Flavor).@"enum".fields) |f| {
         // TODO Draw name
         const cache = cs.draw_cache[f.value];
@@ -423,11 +422,11 @@ pub fn drawAll(cs: *CompSet, draw: *Draw) !void {
     }
 }
 
-pub fn search(cs: *const CompSet) []const u8 {
+pub fn search(cs: *const Completion) []const u8 {
     return cs.search_str[0..cs.search_str_len];
 }
 
-pub fn searchChar(cs: *CompSet, char: u8) !void {
+pub fn searchChar(cs: *Completion, char: u8) !void {
     assert(cs.search_str_len < cs.search_str.len);
     cs.search_str[cs.search_str_len] = char;
     cs.search_str_len += 1;
@@ -436,7 +435,7 @@ pub fn searchChar(cs: *CompSet, char: u8) !void {
     cs.searchMove();
 }
 
-fn searchMove(cs_: *CompSet) void {
+fn searchMove(cs_: *Completion) void {
     var mcount: usize = 0;
     var best_cost: usize = ~@as(usize, 0);
     for (cs_.groups, 0..) |grp, gi| {
@@ -455,11 +454,11 @@ fn searchMove(cs_: *CompSet) void {
     cs_.group = &cs_.groups[cs_.group_index];
 }
 
-pub fn searchStr(cs: *CompSet, str: []const u8) !void {
+pub fn searchStr(cs: *Completion, str: []const u8) !void {
     for (str) |c| try cs.searchChar(c);
 }
 
-pub fn searchPop(cs: *CompSet) !void {
+pub fn searchPop(cs: *Completion) !void {
     if (cs.search_str_len == 0) {
         return error.SearchEmpty;
     }
@@ -467,7 +466,7 @@ pub fn searchPop(cs: *CompSet) !void {
     cs.searchMove();
 }
 
-pub fn raze(cs: *CompSet, a: Allocator) void {
+pub fn raze(cs: *Completion, a: Allocator) void {
     for (&cs.groups) |*group| {
         for (group.items) |opt| {
             a.free(opt.str);
@@ -481,7 +480,7 @@ pub fn raze(cs: *CompSet, a: Allocator) void {
     cs.search_str_len = 0;
 }
 
-fn completeDir(cs: *CompSet, cwdi: Io.Dir, a: Allocator, io: Io) !void {
+fn completeDir(cs: *Completion, cwdi: Io.Dir, a: Allocator, io: Io) !void {
     var itr = cwdi.iterate();
     cs.original = Option{ .str = try a.dupe(u8, ""), .kind = .original };
     while (try itr.next(io)) |each| {
@@ -492,7 +491,7 @@ fn completeDir(cs: *CompSet, cwdi: Io.Dir, a: Allocator, io: Io) !void {
     }
 }
 
-fn completeDirBase(cs: *CompSet, base: []const u8, cwdi: Io.Dir, a: Allocator, io: Io) !void {
+fn completeDirBase(cs: *Completion, base: []const u8, cwdi: Io.Dir, a: Allocator, io: Io) !void {
     var itr = cwdi.iterate();
     cs.original = Option{ .str = try a.dupe(u8, base), .kind = .original };
     while (try itr.next(io)) |each| {
@@ -504,7 +503,7 @@ fn completeDirBase(cs: *CompSet, base: []const u8, cwdi: Io.Dir, a: Allocator, i
     }
 }
 
-fn completePath(cs: *CompSet, target: []const u8, a: Allocator, io: Io) !void {
+fn completePath(cs: *Completion, target: []const u8, a: Allocator, io: Io) !void {
     if (target.len < 1) return;
 
     var whole = std.mem.splitBackwardsAny(u8, target, "/");
@@ -536,7 +535,7 @@ fn completePath(cs: *CompSet, target: []const u8, a: Allocator, io: Io) !void {
     }
 }
 
-fn completeFromPath(cs: *CompSet, target: []const u8, paths: ArrayList(Fs.Named), a: Allocator, io: Io) !void {
+fn completeFromPath(cs: *Completion, target: []const u8, paths: ArrayList(Fs.Named), a: Allocator, io: Io) !void {
     if (std.mem.indexOf(u8, target, "/")) |_| {
         return completePath(cs, target, a, io);
     }
