@@ -149,10 +149,23 @@ pub fn init(env: Environ, a: Allocator, io: Io) !Hsh {
     shellbuiltin.init(a);
     try Context.init(a);
 
+    if (Fs.open("/etc/hostname", io)) |*file| {
+        defer file.close(io);
+        var b: [128]u8 = undefined;
+        var r = file.reader(io, &b);
+        if (r.interface.takeDelimiter('\n') catch null) |host_w| {
+            const host = trim(u8, host_w, " \t");
+            if (host.len > 0) {
+                try Variables.put("HOSTNAME", host, a);
+            }
+        }
+    } else log.err("unable to read hostname\n", .{});
+    const hostname: ?[]const u8 = Variables.get("HOSTNAME");
+
     // TODO there's errors other than just mem here
     var hsh: Hsh = .{
         .features = .{},
-        .prompt = .init(env.getPosix("USER") orelse "[env error]", null),
+        .prompt = .init(env.getPosix("USER") orelse "[env error]", hostname),
         .env = env,
         .pid = os.getpid(),
         .jobs = .init(),
@@ -251,3 +264,4 @@ const Fs = @import("fs.zig");
 const Jobs = @import("jobs.zig");
 const shellbuiltin = @import("builtins.zig");
 const os = std.os.linux; // TODO add support for other oses
+const trim = std.mem.trim;
