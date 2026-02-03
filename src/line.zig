@@ -14,7 +14,7 @@ prompt: *Prompt,
 history: History,
 hist_index: usize = 0,
 hist_search: ?[]u8 = null,
-completion: Complete.CompSet,
+completion: Completion,
 
 const Line = @This();
 
@@ -258,7 +258,7 @@ const CompState = union(enum) {
 };
 
 fn complete(line: *Line, a: Allocator, io: Io) !void {
-    const cmplt: *Complete.CompSet = &line.completion;
+    const cmplt: *Completion = &line.completion;
     sw: switch (CompState{ .start = {} }) {
         .pending => unreachable,
         .start => {
@@ -408,7 +408,7 @@ const log = @import("log.zig");
 const Tokenizer = @import("tokenizer.zig");
 const Fs = @import("fs.zig");
 const Hsh = @import("hsh.zig");
-const Complete = @import("completion.zig");
+const Completion = @import("completion.zig");
 const History = @import("History.zig");
 const Input = @import("input.zig");
 const Keys = @import("keys.zig");

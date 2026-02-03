@@ -1,4 +1,20 @@
+original: ?Option,
+/// Eventually groups should be dynamically allocated if it gets bigger
+groups: [Flavor.len]ArrayList(Option) = @splat(.{}),
+group: *ArrayList(Option),
+group_index: usize = 0,
+index: usize = 0,
+search_str: [2048]u8 = undefined,
+search_str_len: usize = 0,
+// actually using most of orig_token is much danger, such UB
+// the pointers contained within are likely already invalid!
+//orig_token: ?*const Token = null,
+kind: Token.Kind = .nos,
+err: bool = false,
+draw_cache: [Flavor.len]?[][]Draw.Lexeme = @splat(null),
+
 const Completion = @This();
+const CompSet = @This();
 
 pub const FSKind = enum {
     file,
@@ -80,12 +96,12 @@ pub const Option = struct {
     }
 };
 
-fn searchMatch(items: []const u8, search: []const u8) ?usize {
-    if (search.len == 0) return 0;
-    if (search.len > items.len) return null;
+fn searchMatch(items: []const u8, search_str: []const u8) ?usize {
+    if (search_str.len == 0) return 0;
+    if (search_str.len > items.len) return null;
 
     var offset: usize = 0;
-    for (search) |s| {
+    for (search_str) |s| {
         if (offset >= items.len) return null;
         if (indexOfScalar(u8, items[offset..], s)) |i| {
             offset += i + 1;
@@ -97,7 +113,7 @@ fn searchMatch(items: []const u8, search: []const u8) ?usize {
         }
         return null;
     }
-    return offset - search.len;
+    return offset - search_str.len;
 }
 
 test "search match" {
@@ -160,327 +176,310 @@ fn sortAscOption(ctx: void, a: Option, b: Option) bool {
     return sortAscStr(ctx, a.str, b.str);
 }
 
-pub const CompSet = struct {
-    original: ?Option,
-    /// Eventually groups should be dynamically allocated if it gets bigger
-    groups: [Flavor.len]ArrayList(Option) = @splat(.{}),
-    group: *ArrayList(Option),
-    group_index: usize = 0,
-    index: usize = 0,
-    search_str: [2048]u8 = undefined,
-    search_str_len: usize = 0,
-    // actually using most of orig_token is much danger, such UB
-    // the pointers contained within are likely already invalid!
-    //orig_token: ?*const Token = null,
-    kind: Token.Kind = .nos,
-    err: bool = false,
-    draw_cache: [Flavor.len]?[][]Draw.Lexeme = @splat(null),
+pub fn init() CompSet {
+    var compset: CompSet = .{
+        .original = null,
+        .group = undefined,
+        .groups = @splat(.{}),
+    };
+    compset.group = &compset.groups[0];
+    return compset;
+}
 
-    pub fn init() CompSet {
-        var compset: CompSet = .{
-            .original = null,
-            .group = undefined,
-            .groups = @splat(.{}),
-        };
-        compset.group = &compset.groups[0];
-        return compset;
-    }
+/// Caller owns nothing, memory is only guaranteed until `complete` is
+/// called again.
+pub fn complete(cs: *CompSet, tks: *Tokenizer, fs: Fs, a: Allocator, io: Io) !void {
+    cs.raze(a);
 
-    /// Caller owns nothing, memory is only guaranteed until `complete` is
-    /// called again.
-    pub fn complete(cs: *CompSet, tks: *Tokenizer, fs: Fs, a: Allocator, io: Io) !void {
-        cs.raze(a);
+    var iter = tks.iterator();
+    const ts = iter.toSlice(a) catch unreachable;
+    defer a.free(ts);
 
-        var iter = tks.iterator();
-        const ts = iter.toSlice(a) catch unreachable;
-        defer a.free(ts);
+    cs.kind = if (ts.len > 0) ts[0].kind else .nos;
+    cs.index = 0;
 
-        cs.kind = if (ts.len > 0) ts[0].kind else .nos;
-        cs.index = 0;
+    // TODO need the real bug here
+    var pair = findToken(tks);
+    const hint: Kind = if (ts.len <= 1) .path_exe else .any;
 
-        // TODO need the real bug here
-        var pair = findToken(tks);
-        const hint: Kind = if (ts.len <= 1) .path_exe else .any;
-
-        switch (hint) {
-            .path_exe => try completeFromPath(cs, pair.t.str, fs.paths, a, io),
-            else => {
-                switch (pair.t.kind) {
-                    .ws => {
+    switch (hint) {
+        .path_exe => try completeFromPath(cs, pair.t.str, fs.paths, a, io),
+        else => {
+            switch (pair.t.kind) {
+                .ws => {
+                    var dir = try Io.Dir.cwd().openDir(io, ".", .{ .iterate = true });
+                    defer dir.close(io);
+                    try completeDir(cs, dir, a, io);
+                },
+                .word, .path => {
+                    var t = try Resolver.word(pair.t);
+                    if (std.mem.indexOfScalar(u8, t.resolved.str, '/')) |_| {
+                        try completePath(cs, t.resolved.str, a, io);
+                    } else {
                         var dir = try Io.Dir.cwd().openDir(io, ".", .{ .iterate = true });
                         defer dir.close(io);
-                        try completeDir(cs, dir, a, io);
-                    },
-                    .word, .path => {
-                        var t = try Resolver.word(pair.t);
-                        if (std.mem.indexOfScalar(u8, t.resolved.str, '/')) |_| {
-                            try completePath(cs, t.resolved.str, a, io);
-                        } else {
-                            var dir = try Io.Dir.cwd().openDir(io, ".", .{ .iterate = true });
-                            defer dir.close(io);
-                            try completeDirBase(cs, t.resolved.str, dir, a, io);
-                        }
-                    },
-                    .io => {
-                        // TODO pipeline integration
-                    },
-                    else => {},
-                }
-            },
-        }
-
-        if (cs.original) |orig| {
-            try tks.maybeReplace(orig, a);
-            try cs.searchStr(orig.str);
-            log.debug("Completion original is {s}\n\n", .{orig.str});
-        } else log.debug("Completion original is null\n\n", .{});
-
-        cs.sort();
-        cs.reset();
-        return;
+                        try completeDirBase(cs, t.resolved.str, dir, a, io);
+                    }
+                },
+                .io => {
+                    // TODO pipeline integration
+                },
+                else => {},
+            }
+        },
     }
 
-    /// Intentionally excludes original from the count
-    pub fn count(cs_: *const CompSet) usize {
-        var c: usize = 0;
-        for (cs_.groups) |grp| {
-            c += grp.items.len;
-        }
-        return c;
-    }
+    if (cs.original) |orig| {
+        try tks.maybeReplace(orig, a);
+        try cs.searchStr(orig.str);
+        log.debug("Completion original is {s}\n\n", .{orig.str});
+    } else log.debug("Completion original is null\n\n", .{});
 
-    // TODO cache
-    pub fn countFiltered(cs_: *const CompSet) usize {
-        var c: usize = 0;
-        for (cs_.groups) |grp| {
-            for (grp.items) |item| {
-                if (searchMatch(item.str, cs_.search())) |_| {
-                    c += 1;
-                }
+    cs.sort();
+    cs.reset();
+    return;
+}
+
+/// Intentionally excludes original from the count
+pub fn count(cs_: *const CompSet) usize {
+    var c: usize = 0;
+    for (cs_.groups) |grp| {
+        c += grp.items.len;
+    }
+    return c;
+}
+
+// TODO cache
+pub fn countFiltered(cs_: *const CompSet) usize {
+    var c: usize = 0;
+    for (cs_.groups) |grp| {
+        for (grp.items) |item| {
+            if (searchMatch(item.str, cs_.search())) |_| {
+                c += 1;
             }
         }
-        return c;
+    }
+    return c;
+}
+
+/// Returns the "only" completion if there's a single option known completion,
+/// ignoring the original. If there's multiple or only the original, null.
+pub fn known(cs_: *CompSet) ?*const Option {
+    if (cs_.count() == 1) {
+        cs_.reset();
+        _ = cs_.next();
+        return cs_.next();
     }
 
-    /// Returns the "only" completion if there's a single option known completion,
-    /// ignoring the original. If there's multiple or only the original, null.
-    pub fn known(cs_: *CompSet) ?*const Option {
-        if (cs_.count() == 1) {
-            cs_.reset();
-            _ = cs_.next();
-            return cs_.next();
-        }
-
-        if (cs_.search.items.len > 0 and cs_.countFiltered() == 1) {
-            cs_.reset();
-            return cs_.next();
-        }
-
-        return null;
-    }
-
-    pub fn reset(cs_: *CompSet) void {
-        cs_.index = 0;
-        cs_.groupSet(.any);
-    }
-
-    pub fn sort(cs_: *CompSet) void {
-        for (cs_.groups) |group| {
-            std.sort.heap(Option, group.items, {}, sortAscOption);
-        }
-    }
-
-    pub fn first(cs_: *CompSet) *const Option {
+    if (cs_.search.items.len > 0 and cs_.countFiltered() == 1) {
         cs_.reset();
         return cs_.next();
     }
 
-    // behavior is undefined when count <= 0
-    pub fn next(cs: *CompSet) Option {
-        assert(cs.count() > 0);
+    return null;
+}
 
-        cs.skip();
-        if (cs.search_str_len > 0 and cs.countFiltered() > 0) {
-            while (!cs.curSearchMatch()) {
-                cs.skip();
+pub fn reset(cs_: *CompSet) void {
+    cs_.index = 0;
+    cs_.groupSet(.any);
+}
+
+pub fn sort(cs_: *CompSet) void {
+    for (cs_.groups) |group| {
+        std.sort.heap(Option, group.items, {}, sortAscOption);
+    }
+}
+
+pub fn first(cs_: *CompSet) *const Option {
+    cs_.reset();
+    return cs_.next();
+}
+
+// behavior is undefined when count <= 0
+pub fn next(cs: *CompSet) Option {
+    assert(cs.count() > 0);
+
+    cs.skip();
+    if (cs.search_str_len > 0 and cs.countFiltered() > 0) {
+        while (!cs.curSearchMatch()) {
+            cs.skip();
+        }
+    }
+    return cs.group.items[cs.index];
+}
+
+pub fn current(cs: *const CompSet) *const Option {
+    if (cs.group.items.len == 0) return &cs.original.?;
+    return &cs.group.items[cs.index];
+}
+
+pub fn skip(cs_: *CompSet) void {
+    std.debug.assert(cs_.count() > 0);
+    cs_.index += 1;
+    while (cs_.index >= cs_.group.items.len) {
+        cs_.index = 0;
+        cs_.groupSet(null);
+    }
+}
+
+fn curSearchMatch(cs_: *CompSet) bool {
+    const curr = &cs_.group.items[cs_.index];
+    return searchMatch(curr.str, cs_.search()) != null;
+}
+
+pub fn revr(cs_: *CompSet) void {
+    if (cs_.countFiltered() < 3) return;
+    while (true) {
+        if (cs_.index == 0) {
+            while (true) {
+                if (cs_.group_index == 0) {
+                    cs_.group_index = cs_.groups.len - 1;
+                } else {
+                    cs_.group_index -= 1;
+                }
+                cs_.group = &cs_.groups[cs_.group_index];
+                if (cs_.group.items.len == 0) continue;
+
+                cs_.index = cs_.group.items.len - 1;
+                if (cs_.curSearchMatch()) return;
+                break;
             }
         }
-        return cs.group.items[cs.index];
+        cs_.index -|= 1;
+        if (cs_.curSearchMatch()) break;
     }
+}
 
-    pub fn current(cs: *const CompSet) *const Option {
-        if (cs.group.items.len == 0) return &cs.original.?;
-        return &cs.group.items[cs.index];
+pub fn groupSet(cs_: *CompSet, grp: ?Flavor) void {
+    if (grp) |g| {
+        cs_.group_index = @intFromEnum(g);
+    } else {
+        cs_.group_index = (cs_.group_index + 1) % cs_.groups.len;
     }
+    cs_.group = &cs_.groups[cs_.group_index];
+}
 
-    pub fn skip(cs_: *CompSet) void {
-        std.debug.assert(cs_.count() > 0);
-        cs_.index += 1;
-        while (cs_.index >= cs_.group.items.len) {
-            cs_.index = 0;
-            cs_.groupSet(null);
-        }
-    }
+pub fn push(cs: *CompSet, o: Option, a: Allocator) !void {
+    cs.groupSet(o.kind);
+    try cs.group.append(a, o);
+}
 
-    fn curSearchMatch(cs_: *CompSet) bool {
-        const curr = &cs_.group.items[cs_.index];
-        return searchMatch(curr.str, cs_.search()) != null;
-    }
+pub fn regenGroup(cs: *CompSet, f: Flavor, wh: Cord, a: Allocator) !void {
+    const cache: *?[][]Draw.Lexeme = &cs.draw_cache[@intFromEnum(f)];
+    const group = &cs.groups[@intFromEnum(f)];
 
-    pub fn revr(cs_: *CompSet) void {
-        if (cs_.countFiltered() < 3) return;
-        while (true) {
-            if (cs_.index == 0) {
-                while (true) {
-                    if (cs_.group_index == 0) {
-                        cs_.group_index = cs_.groups.len - 1;
-                    } else {
-                        cs_.group_index -= 1;
-                    }
-                    cs_.group = &cs_.groups[cs_.group_index];
-                    if (cs_.group.items.len == 0) continue;
+    if (group.items.len == 0) return error.Empty;
 
-                    cs_.index = cs_.group.items.len - 1;
-                    if (cs_.curSearchMatch()) return;
-                    break;
+    if (cache.*) |dcache| {
+        const mod: usize = @max(dcache[0].len, 1);
+        const this_row = (cs.index) / mod;
+        const this_col = (cs.index) % mod;
+
+        for (dcache, 0..) |row, r| {
+            for (row) |*column| {
+                if (searchMatch(column.bytes, cs.search()) == null) {
+                    column.style.?.attr = .dim;
+                } else {
+                    styleInactive(column);
                 }
             }
-            cs_.index -|= 1;
-            if (cs_.curSearchMatch()) break;
-        }
-    }
-
-    pub fn groupSet(cs_: *CompSet, grp: ?Flavor) void {
-        if (grp) |g| {
-            cs_.group_index = @intFromEnum(g);
-        } else {
-            cs_.group_index = (cs_.group_index + 1) % cs_.groups.len;
-        }
-        cs_.group = &cs_.groups[cs_.group_index];
-    }
-
-    pub fn push(cs: *CompSet, o: Option, a: Allocator) !void {
-        cs.groupSet(o.kind);
-        try cs.group.append(a, o);
-    }
-
-    pub fn regenGroup(cs: *CompSet, f: Flavor, wh: Cord, a: Allocator) !void {
-        const cache: *?[][]Draw.Lexeme = &cs.draw_cache[@intFromEnum(f)];
-        const group = &cs.groups[@intFromEnum(f)];
-
-        if (group.items.len == 0) return error.Empty;
-
-        if (cache.*) |dcache| {
-            const mod: usize = @max(dcache[0].len, 1);
-            const this_row = (cs.index) / mod;
-            const this_col = (cs.index) % mod;
-
-            for (dcache, 0..) |row, r| {
-                for (row) |*column| {
-                    if (searchMatch(column.bytes, cs.search()) == null) {
-                        column.style.?.attr = .dim;
-                    } else {
-                        styleInactive(column);
-                    }
-                }
-                if (r == this_row and row.len > 0) {
-                    styleActive(&row[this_col]);
-                }
+            if (r == this_row and row.len > 0) {
+                styleActive(&row[this_col]);
             }
-        } else {
-            cache.* = try cs.genGroupLexeme(f, wh, a);
         }
+    } else {
+        cache.* = try cs.genGroupLexeme(f, wh, a);
     }
+}
 
-    fn genGroupLexeme(cs: CompSet, f: Flavor, wh: Cord, a: Allocator) ![][]Draw.Lexeme {
-        const group = &cs.groups[@intFromEnum(f)];
+fn genGroupLexeme(cs: CompSet, f: Flavor, wh: Cord, a: Allocator) ![][]Draw.Lexeme {
+    const group = &cs.groups[@intFromEnum(f)];
 
-        const list = try a.alloc(Draw.Lexeme, group.items.len);
-        for (group.items, list) |itm, *dst|
-            dst.* = itm.lexeme(false);
-        return try Draw.Layout.tableLexeme(a, list, wh);
+    const list = try a.alloc(Draw.Lexeme, group.items.len);
+    for (group.items, list) |itm, *dst|
+        dst.* = itm.lexeme(false);
+    return try Draw.Layout.tableLexeme(a, list, wh);
+}
+
+pub fn regenAll(cs: *CompSet, wh: Cord, a: Allocator) !void {
+    if (cs.count() == 0) return;
+
+    inline for (@typeInfo(Flavor).@"enum".fields) |f| {
+        cs.regenGroup(@enumFromInt(f.value), wh, a) catch |err| switch (err) {
+            error.Empty => {},
+            else => return err,
+        };
     }
+}
 
-    pub fn regenAll(cs: *CompSet, wh: Cord, a: Allocator) !void {
-        if (cs.count() == 0) return;
-
-        inline for (@typeInfo(Flavor).@"enum".fields) |f| {
-            cs.regenGroup(@enumFromInt(f.value), wh, a) catch |err| switch (err) {
-                error.Empty => {},
-                else => return err,
-            };
-        }
+pub fn drawAll(cs: *CompSet, draw: *Draw) !void {
+    inline for (@typeInfo(Flavor).@"enum".fields) |f| {
+        // TODO Draw name
+        const cache = cs.draw_cache[f.value];
+        if (cache) |grp| for (grp) |row| {
+            draw.drawAfter(row);
+        };
+        try draw.render();
     }
+}
 
-    pub fn drawAll(cs: *CompSet, draw: *Draw) !void {
-        inline for (@typeInfo(Flavor).@"enum".fields) |f| {
-            // TODO Draw name
-            const cache = cs.draw_cache[f.value];
-            if (cache) |grp| for (grp) |row| {
-                draw.drawAfter(row);
-            };
-            try draw.render();
-        }
-    }
+pub fn search(cs: *const CompSet) []const u8 {
+    return cs.search_str[0..cs.search_str_len];
+}
 
-    pub fn search(cs: *const CompSet) []const u8 {
-        return cs.search_str[0..cs.search_str_len];
-    }
+pub fn searchChar(cs: *CompSet, char: u8) !void {
+    assert(cs.search_str_len < cs.search_str.len);
+    cs.search_str[cs.search_str_len] = char;
+    cs.search_str_len += 1;
+    // TODO when searching, set to the lowest sum of search offsets
 
-    pub fn searchChar(cs: *CompSet, char: u8) !void {
-        assert(cs.search_str_len < cs.search_str.len);
-        cs.search_str[cs.search_str_len] = char;
-        cs.search_str_len += 1;
-        // TODO when searching, set to the lowest sum of search offsets
+    cs.searchMove();
+}
 
-        cs.searchMove();
-    }
-
-    fn searchMove(cs_: *CompSet) void {
-        var mcount: usize = 0;
-        var best_cost: usize = ~@as(usize, 0);
-        for (cs_.groups, 0..) |grp, gi| {
-            for (grp.items, 0..) |each, ei| {
-                if (searchMatch(each.str, cs_.search())) |cost| {
-                    mcount += 1;
-                    if (cost < best_cost) {
-                        cs_.group_index = gi;
-                        cs_.index = ei;
-                        cs_.index -|= 1;
-                        best_cost = cost;
-                    }
+fn searchMove(cs_: *CompSet) void {
+    var mcount: usize = 0;
+    var best_cost: usize = ~@as(usize, 0);
+    for (cs_.groups, 0..) |grp, gi| {
+        for (grp.items, 0..) |each, ei| {
+            if (searchMatch(each.str, cs_.search())) |cost| {
+                mcount += 1;
+                if (cost < best_cost) {
+                    cs_.group_index = gi;
+                    cs_.index = ei;
+                    cs_.index -|= 1;
+                    best_cost = cost;
                 }
             }
         }
-        cs_.group = &cs_.groups[cs_.group_index];
     }
+    cs_.group = &cs_.groups[cs_.group_index];
+}
 
-    pub fn searchStr(cs: *CompSet, str: []const u8) !void {
-        for (str) |c| try cs.searchChar(c);
-    }
+pub fn searchStr(cs: *CompSet, str: []const u8) !void {
+    for (str) |c| try cs.searchChar(c);
+}
 
-    pub fn searchPop(cs: *CompSet) !void {
-        if (cs.search_str_len == 0) {
-            return error.SearchEmpty;
-        }
-        cs.search_str_len -= 1;
-        cs.searchMove();
+pub fn searchPop(cs: *CompSet) !void {
+    if (cs.search_str_len == 0) {
+        return error.SearchEmpty;
     }
+    cs.search_str_len -= 1;
+    cs.searchMove();
+}
 
-    pub fn raze(cs: *CompSet, a: Allocator) void {
-        for (&cs.groups) |*group| {
-            for (group.items) |opt| {
-                a.free(opt.str);
-            }
-            group.clearAndFree(a);
+pub fn raze(cs: *CompSet, a: Allocator) void {
+    for (&cs.groups) |*group| {
+        for (group.items) |opt| {
+            a.free(opt.str);
         }
-        if (cs.original) |o| {
-            a.free(o.str);
-            cs.original = null;
-        }
-        cs.search_str_len = 0;
+        group.clearAndFree(a);
     }
-};
+    if (cs.original) |o| {
+        a.free(o.str);
+        cs.original = null;
+    }
+    cs.search_str_len = 0;
+}
 
 fn completeDir(cs: *CompSet, cwdi: Io.Dir, a: Allocator, io: Io) !void {
     var itr = cwdi.iterate();
