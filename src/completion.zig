@@ -95,86 +95,6 @@ pub const Option = struct {
     }
 };
 
-fn searchMatch(items: []const u8, search_str: []const u8) ?usize {
-    if (search_str.len == 0) return 0;
-    if (search_str.len > items.len) return null;
-
-    var offset: usize = 0;
-    for (search_str) |s| {
-        if (offset >= items.len) return null;
-        if (indexOfScalar(u8, items[offset..], s)) |i| {
-            offset += i + 1;
-            continue;
-        }
-        if (indexOfScalar(u8, items[offset..], toUpper(s))) |i| {
-            offset += i + 1;
-            continue;
-        }
-        return null;
-    }
-    return offset - search_str.len;
-}
-
-test "search match" {
-    const n: ?usize = null;
-    try std.testing.expectEqual(0, comptime searchMatch("string", "s").?);
-    try std.testing.expectEqual(1, comptime searchMatch("string", "t").?);
-    try std.testing.expectEqual(0, comptime searchMatch("string", "str").?);
-    try std.testing.expectEqual(1, comptime searchMatch("string", "tri").?);
-    try std.testing.expectEqual(n, comptime searchMatch("string", "strI"));
-    try std.testing.expectEqual(0, comptime searchMatch("STRINg", "strI").?);
-    try std.testing.expectEqual(n, comptime searchMatch("string", "q"));
-    try std.testing.expectEqual(0, comptime searchMatch("string", "").?);
-}
-
-fn styleToggle(lex: *Draw.Lexeme) void {
-    lex.style.attr = switch (lex.style.attr.?) {
-        .reset => .reverse,
-        .reverse => .reset,
-        .reverse_bold => .bold,
-        .bold => .reverse_bold,
-        .dim => .reverse_dim,
-        .reverse_dim => .dim,
-        else => .reset,
-    };
-}
-
-fn styleActive(lex: *Draw.Lexeme) void {
-    if (lex.style) |*style| if (style.attr) |*attr| {
-        attr.* = switch (attr.*) {
-            .reset => .reverse,
-            .bold => .reverse_bold,
-            .dim => .reverse,
-            else => .reset,
-        };
-    };
-}
-
-fn styleInactive(lex: *Draw.Lexeme) void {
-    if (lex.style) |*style| if (style.attr) |*attr| {
-        attr.* = switch (attr.*) {
-            .reverse => .reset,
-            .reverse_bold => .bold,
-            .reverse_dim => .dim,
-            .dim => if (style.fg != null) .bold else .reset, // TODO fixme
-            else => attr.*,
-        };
-    };
-}
-
-fn sortAscStr(_: void, a: []const u8, b: []const u8) bool {
-    const end = @min(a.len, b.len);
-
-    for (a[0..end], b[0..end]) |l, r| {
-        if (l != r) return l < r;
-    }
-    return false;
-}
-
-fn sortAscOption(ctx: void, a: Option, b: Option) bool {
-    return sortAscStr(ctx, a.str, b.str);
-}
-
 pub fn init() Completion {
     var compset: Completion = .{
         .original = null,
@@ -237,6 +157,88 @@ pub fn complete(cs: *Completion, tks: *Tokenizer, fs: Fs, a: Allocator, io: Io) 
     cs.sort();
     cs.reset();
     return;
+}
+
+pub fn raze(cs: *Completion, a: Allocator) void {
+    for (&cs.groups) |*group| {
+        for (group.items) |opt| {
+            a.free(opt.str);
+        }
+        group.clearAndFree(a);
+    }
+    if (cs.original) |o| {
+        a.free(o.str);
+        cs.original = null;
+    }
+    cs.search_str_len = 0;
+}
+
+fn searchMatch(items: []const u8, search_str: []const u8) ?usize {
+    if (search_str.len == 0) return 0;
+    if (search_str.len > items.len) return null;
+
+    var offset: usize = 0;
+    for (search_str) |s| {
+        if (offset >= items.len) return null;
+        if (indexOfScalar(u8, items[offset..], s)) |i| {
+            offset += i + 1;
+            continue;
+        }
+        if (indexOfScalar(u8, items[offset..], toUpper(s))) |i| {
+            offset += i + 1;
+            continue;
+        }
+        return null;
+    }
+    return offset - search_str.len;
+}
+
+fn styleToggle(lex: *Draw.Lexeme) void {
+    lex.style.attr = switch (lex.style.attr.?) {
+        .reset => .reverse,
+        .reverse => .reset,
+        .reverse_bold => .bold,
+        .bold => .reverse_bold,
+        .dim => .reverse_dim,
+        .reverse_dim => .dim,
+        else => .reset,
+    };
+}
+
+fn styleActive(lex: *Draw.Lexeme) void {
+    if (lex.style) |*style| if (style.attr) |*attr| {
+        attr.* = switch (attr.*) {
+            .reset => .reverse,
+            .bold => .reverse_bold,
+            .dim => .reverse,
+            else => .reset,
+        };
+    };
+}
+
+fn styleInactive(lex: *Draw.Lexeme) void {
+    if (lex.style) |*style| if (style.attr) |*attr| {
+        attr.* = switch (attr.*) {
+            .reverse => .reset,
+            .reverse_bold => .bold,
+            .reverse_dim => .dim,
+            .dim => if (style.fg != null) .bold else .reset, // TODO fixme
+            else => attr.*,
+        };
+    };
+}
+
+fn sortAscStr(_: void, a: []const u8, b: []const u8) bool {
+    const end = @min(a.len, b.len);
+
+    for (a[0..end], b[0..end]) |l, r| {
+        if (l != r) return l < r;
+    }
+    return false;
+}
+
+fn sortAscOption(ctx: void, a: Option, b: Option) bool {
+    return sortAscStr(ctx, a.str, b.str);
 }
 
 /// Intentionally excludes original from the count
@@ -466,20 +468,6 @@ pub fn searchPop(cs: *Completion) !void {
     cs.searchMove();
 }
 
-pub fn raze(cs: *Completion, a: Allocator) void {
-    for (&cs.groups) |*group| {
-        for (group.items) |opt| {
-            a.free(opt.str);
-        }
-        group.clearAndFree(a);
-    }
-    if (cs.original) |o| {
-        a.free(o.str);
-        cs.original = null;
-    }
-    cs.search_str_len = 0;
-}
-
 fn completeDir(cs: *Completion, cwdi: Io.Dir, a: Allocator, io: Io) !void {
     var itr = cwdi.iterate();
     cs.original = Option{ .str = try a.dupe(u8, ""), .kind = .original };
@@ -591,6 +579,18 @@ fn findToken(tkns: *Tokenizer) TknPair {
     }
     pair.t.str = pair.t.str[0..pair.offset];
     return pair;
+}
+
+test "search match" {
+    const n: ?usize = null;
+    try std.testing.expectEqual(0, comptime searchMatch("string", "s").?);
+    try std.testing.expectEqual(1, comptime searchMatch("string", "t").?);
+    try std.testing.expectEqual(0, comptime searchMatch("string", "str").?);
+    try std.testing.expectEqual(1, comptime searchMatch("string", "tri").?);
+    try std.testing.expectEqual(n, comptime searchMatch("string", "strI"));
+    try std.testing.expectEqual(0, comptime searchMatch("STRINg", "strI").?);
+    try std.testing.expectEqual(n, comptime searchMatch("string", "q"));
+    try std.testing.expectEqual(0, comptime searchMatch("string", "").?);
 }
 
 const std = @import("std");
