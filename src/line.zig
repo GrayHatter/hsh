@@ -275,21 +275,20 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                     switch (c) {
                         0x00...0x1f => unreachable,
                         ' ' => {
-                            try line.tkn.maybeCommit(null, a);
+                            try line.tkn.maybeCommit(' ', a);
                             cmplt.raze(a);
-                            try line.tkn.consumeChar(' ');
                             continue :sw .{ .done = {} };
                         },
                         '/' => |chr| {
                             // IFF this is an existing directory,
                             // completion should continue
                             if (cmplt.count() > 1) {
-                                switch (cmplt.current().kind) {
+                                switch (cmplt.current().*) {
                                     .original => {},
                                     .any => {},
-                                    .path_exe => {},
-                                    .file_system => |kind| {
-                                        if (kind == .dir) try line.tkn.consumeChar(chr);
+                                    .executable => {},
+                                    .file => |file| {
+                                        if (file.kind == .dir) try line.tkn.consumeChar(chr);
                                     },
                                 }
                             }
@@ -318,12 +317,12 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                                 cmplt.revr();
                             }
                             //_ = try doComplete(line.hsh, &line.tkn, &cmplt);
-                            try line.tkn.maybeReplace(cmplt.next(), a);
+                            try line.tkn.maybeReplace(cmplt.next().str(), a);
                         },
                         .esc => {
                             try line.tkn.maybeRemove(a);
-                            if (cmplt.original) |o| {
-                                try line.tkn.maybeAdd(o.str, a);
+                            if (cmplt.originalStr()) |o| {
+                                try line.tkn.maybeAdd(o, a);
                                 try line.tkn.maybeCommit(null, a);
                             }
                             cmplt.raze(a);
@@ -381,7 +380,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                 else => return err,
             };
             try cmplt.drawAll(line.draw);
-            try line.hsh.prompt.render(line.draw, line.peek());
+            //try line.hsh.prompt.render(line.draw, line.peek());
             try line.draw.render();
             continue :sw .{ .read = {} };
         },

@@ -1,88 +1,191 @@
-original: ?Option,
-/// Eventually groups should be dynamically allocated if it gets bigger
-groups: [Flavor.len]ArrayList(Option) = @splat(.{}),
-group: *ArrayList(Option),
-group_index: usize = 0,
-index: usize = 0,
+options: ArrayList(Option) = .{},
+cursor_index: usize = 0,
 search_str: [2048]u8 = undefined,
 search_str_len: usize = 0,
-// actually using most of orig_token is much danger, such UB
-// the pointers contained within are likely already invalid!
-//orig_token: ?*const Token = null,
 kind: Token.Kind = .nos,
 err: bool = false,
-draw_cache: [Flavor.len]?[][]Draw.Lexeme = @splat(null),
+cache: Cache = .empty,
 
 const Completion = @This();
 
-pub const FSKind = enum {
-    file,
-    dir,
-    link,
-    pipe,
-    device,
-    socket,
-    whiteout,
-    door,
-    event_port,
-    unknown,
+const Cache = struct {
+    original: []LexemeRow,
+    any: []LexemeRow,
+    executable: []LexemeRow,
+    file: []LexemeRow,
 
-    pub fn color(k: FSKind) ?Draw.Color {
-        return switch (k) {
-            .dir => .blue,
-            .unknown => .red,
-            else => null,
-        };
+    const LexemeRow = []Lexeme;
+
+    pub const empty: Cache = .{
+        .original = &.{},
+        .any = &.{},
+        .executable = &.{},
+        .file = &.{},
+    };
+
+    pub fn regenGroup(
+        c: *Cache,
+        comptime row_name: []const u8,
+        group: []Option,
+        cursor: usize,
+        search_str: []const u8,
+        wh: Cord,
+        a: Allocator,
+    ) !void {
+        if (group.len == 0) return;
+
+        const target: *[]LexemeRow = &@field(c, row_name);
+        if (target.len == 0) {
+            target.* = try genGroupLexeme(group, wh, a);
+            return;
+        }
+
+        log.err("group {s} group {} target {}\n", .{ row_name, group.len, target.*.len });
+        const mod: usize = @max(target.*[0].len, 1);
+        const this_row = (cursor) / mod;
+        const this_col = (cursor) % mod;
+        log.err("group {s} cursor {} % {} row {} col {}\n", .{ row_name, cursor, mod, this_row, this_col });
+
+        for (target.*, 0..) |row, r| {
+            for (row) |*column| {
+                if (searchMatch(column.bytes, search_str) == null) {
+                    column.style.?.attr = .dim;
+                } else {
+                    styleInactive(column);
+                }
+            }
+            if (r == this_row and row.len > 0) {
+                styleActive(&row[this_col]);
+            }
+        }
     }
 
-    pub fn fromFsKind(k: Io.File.Kind) FSKind {
-        return switch (k) {
-            .file => .file,
-            .directory => .dir,
-            .sym_link => .link,
-            .named_pipe => .pipe,
-            .unix_domain_socket => .socket,
-            .block_device, .character_device => .device,
-            .whiteout => .whiteout,
-            .door => .door,
-            .event_port => .event_port,
-            .unknown => .unknown,
-        };
+    fn genGroupLexeme(group: []Option, wh: Cord, a: Allocator) ![][]Draw.Lexeme {
+        const list = try a.alloc(Draw.Lexeme, group.len);
+        for (group, list) |itm, *dst|
+            dst.* = itm.lexeme(false);
+        return try Draw.Layout.tableLexeme(a, list, wh);
+    }
+
+    pub fn regenAll(
+        c: *Cache,
+        options: ArrayList(Option),
+        cursor: usize,
+        str: []const u8,
+        wh: Cord,
+        a: Allocator,
+    ) !void {
+        log.err("comp regen cursor {}\n", .{cursor});
+        var start: usize = 0;
+        for (options.items, 0..) |opt, i| {
+            switch (opt) {
+                .original => {},
+                .any => {
+                    log.err("comp regen original {} {}\n", .{ start, i });
+                    try c.regenGroup(@tagName(.original), options.items[start..i], cursor, str, wh, a);
+                    start = i;
+                },
+                .executable => {
+                    log.err("comp regen any {} {}\n", .{ start, i });
+                    try c.regenGroup(@tagName(.any), options.items[start..i], cursor, str, wh, a);
+                    start = i;
+                },
+                .file => {
+                    if (i > start) {
+                        log.err("comp regen exec {} {}\n", .{ start, i });
+                        try c.regenGroup(@tagName(.executable), options.items[start..i], cursor, str, wh, a);
+                    }
+                    if (options.items.len > i) {
+                        log.err("comp regen file {} {}\n", .{ start, options.items.len });
+                        try c.regenGroup(@tagName(.file), options.items[i..], cursor, str, wh, a);
+                    }
+                    break;
+                },
+            }
+        }
+
+        //const target: *[]LexemeRow = @field(c, f.name);
     }
 };
 
 pub const Flavor = enum(u8) {
     original,
     any,
-    path_exe,
-    file_system,
+    executable,
+    file,
 
     pub const len = @typeInfo(Flavor).@"enum".fields.len;
 };
 
-pub const Kind = union(Flavor) {
-    original: void,
-    any: void,
-    path_exe: void,
-    file_system: FSKind,
-};
+pub const Option = union(Flavor) {
+    original: Base,
+    any: Base,
+    executable: Base,
+    file: File,
 
-pub const Option = struct {
-    str: []const u8,
-    kind: Kind = Kind{ .any = {} },
+    pub fn str(opt: Option) []const u8 {
+        return switch (opt) {
+            inline else => |el| el.str,
+        };
+    }
 
-    pub fn style(cs_: Option, active: bool) Draw.Style {
+    pub const Base = struct {
+        str: []const u8,
+    };
+
+    pub const File = struct {
+        str: []const u8,
+        kind: File.Kind,
+
+        pub const Kind = enum {
+            file,
+            dir,
+            link,
+            pipe,
+            device,
+            socket,
+            whiteout,
+            door,
+            event_port,
+            unknown,
+
+            pub fn color(k: File.Kind) ?Draw.Color {
+                return switch (k) {
+                    .dir => .blue,
+                    .unknown => .red,
+                    else => null,
+                };
+            }
+
+            pub fn fromFs(k: Io.File.Kind) File.Kind {
+                return switch (k) {
+                    .file => .file,
+                    .directory => .dir,
+                    .sym_link => .link,
+                    .named_pipe => .pipe,
+                    .unix_domain_socket => .socket,
+                    .block_device, .character_device => .device,
+                    .whiteout => .whiteout,
+                    .door => .door,
+                    .event_port => .event_port,
+                    .unknown => .unknown,
+                };
+            }
+        };
+    };
+
+    pub fn style(opt: Option, active: bool) Draw.Style {
         const default: Draw.Style = .{ .attr = if (active) .reverse else .reset };
-        switch (cs_.kind) {
-            .file_system => |f_s| {
-                switch (f_s) {
+        switch (opt) {
+            .file => |file| {
+                switch (file.kind) {
                     .dir => return .{
                         .attr = if (active) .reverse_bold else .bold,
-                        .fg = f_s.color(),
+                        .fg = file.kind.color(),
                     },
                     else => return .{
                         .attr = .reset,
-                        .fg = f_s.color(),
+                        .fg = file.kind.color(),
                     },
                 }
             },
@@ -90,19 +193,13 @@ pub const Option = struct {
         }
     }
 
-    pub fn lexeme(cs_: Option, active: bool) Draw.Lexeme {
-        return .styled(cs_.str, cs_.style(active));
+    pub fn lexeme(opt: Option, active: bool) Draw.Lexeme {
+        return .styled(opt.str(), opt.style(active));
     }
 };
 
 pub fn init() Completion {
-    var compset: Completion = .{
-        .original = null,
-        .group = undefined,
-        .groups = @splat(.{}),
-    };
-    compset.group = &compset.groups[0];
-    return compset;
+    return .{};
 }
 
 /// Caller owns nothing, memory is only guaranteed until `complete` is
@@ -115,14 +212,14 @@ pub fn complete(cs: *Completion, tks: *Tokenizer, fs: Fs, a: Allocator, io: Io) 
     defer a.free(ts);
 
     cs.kind = if (ts.len > 0) ts[0].kind else .nos;
-    cs.index = 0;
+    cs.cursor_index = 0;
 
     // TODO need the real bug here
     var pair = findToken(tks);
-    const hint: Kind = if (ts.len <= 1) .path_exe else .any;
+    const hint: Flavor = if (ts.len <= 1) .executable else .any;
 
     switch (hint) {
-        .path_exe => try completeFromPath(cs, pair.t.str, fs.paths, a, io),
+        .executable => try completeFromPath(cs, pair.t.str, fs.paths, a, io),
         else => {
             switch (pair.t.kind) {
                 .ws => {
@@ -131,13 +228,10 @@ pub fn complete(cs: *Completion, tks: *Tokenizer, fs: Fs, a: Allocator, io: Io) 
                     try completeDir(cs, dir, a, io);
                 },
                 .word, .path => {
-                    var t = try Resolver.word(pair.t);
-                    if (std.mem.indexOfScalar(u8, t.resolved.str, '/')) |_| {
-                        try completePath(cs, t.resolved.str, a, io);
-                    } else {
-                        var dir = try Io.Dir.cwd().openDir(io, ".", .{ .iterate = true });
-                        defer dir.close(io);
-                        try completeDirBase(cs, t.resolved.str, dir, a, io);
+                    switch ((try Resolver.word(pair.t)).parsed) {
+                        .word => |w| try completeDirBase(cs, w.str, fs.cwd.dir, a, io),
+                        .path => |p| try completePath(cs, p.str, a, io),
+                        else => unreachable,
                     }
                 },
                 .io => {
@@ -148,10 +242,10 @@ pub fn complete(cs: *Completion, tks: *Tokenizer, fs: Fs, a: Allocator, io: Io) 
         },
     }
 
-    if (cs.original) |orig| {
-        try tks.maybeReplace(orig, a);
-        try cs.searchStr(orig.str);
-        log.debug("Completion original is {s}\n\n", .{orig.str});
+    if (cs.originalStr()) |str| {
+        try tks.maybeReplace(str, a);
+        try cs.searchStr(str);
+        log.debug("Completion original is {s}\n\n", .{str});
     } else log.debug("Completion original is null\n\n", .{});
 
     cs.sort();
@@ -159,18 +253,26 @@ pub fn complete(cs: *Completion, tks: *Tokenizer, fs: Fs, a: Allocator, io: Io) 
     return;
 }
 
-pub fn raze(cs: *Completion, a: Allocator) void {
-    for (&cs.groups) |*group| {
-        for (group.items) |opt| {
-            a.free(opt.str);
+pub fn raze(comp: *Completion, a: Allocator) void {
+    for (comp.options.items) |opt| {
+        switch (opt) {
+            inline else => |el| a.free(el.str),
         }
-        group.clearAndFree(a);
     }
-    if (cs.original) |o| {
-        a.free(o.str);
-        cs.original = null;
-    }
-    cs.search_str_len = 0;
+    comp.options.clearAndFree(a);
+    comp.search_str_len = 0;
+}
+
+pub fn originalStr(comp: Completion) ?[]const u8 {
+    if (comp.options.items.len > 0) switch (comp.options.items[0]) {
+        .original => |orig| return orig.str,
+        else => return &.{},
+    };
+    return null;
+}
+
+pub fn regenAll(comp: *Completion, wh: Cord, a: Allocator) !void {
+    try comp.cache.regenAll(comp.options, comp.cursor_index, comp.search(), wh, a);
 }
 
 fn searchMatch(items: []const u8, search_str: []const u8) ?usize {
@@ -180,11 +282,11 @@ fn searchMatch(items: []const u8, search_str: []const u8) ?usize {
     var offset: usize = 0;
     for (search_str) |s| {
         if (offset >= items.len) return null;
-        if (indexOfScalar(u8, items[offset..], s)) |i| {
+        if (findScalar(u8, items[offset..], s)) |i| {
             offset += i + 1;
             continue;
         }
-        if (indexOfScalar(u8, items[offset..], toUpper(s))) |i| {
+        if (findScalar(u8, items[offset..], toUpper(s))) |i| {
             offset += i + 1;
             continue;
         }
@@ -238,26 +340,28 @@ fn sortAscStr(_: void, a: []const u8, b: []const u8) bool {
 }
 
 fn sortAscOption(ctx: void, a: Option, b: Option) bool {
-    return sortAscStr(ctx, a.str, b.str);
+    const l = switch (a) {
+        inline else => |_, t| @intFromEnum(t),
+    };
+    const r = switch (b) {
+        inline else => |_, t| @intFromEnum(t),
+    };
+    if (l < r) return true;
+    return sortAscStr(ctx, a.str(), b.str());
 }
 
 /// Intentionally excludes original from the count
-pub fn count(cs_: *const Completion) usize {
-    var c: usize = 0;
-    for (cs_.groups) |grp| {
-        c += grp.items.len;
-    }
-    return c;
+pub fn count(comp: *const Completion) usize {
+    return comp.options.items.len;
 }
 
 // TODO cache
-pub fn countFiltered(cs_: *const Completion) usize {
+pub fn countFiltered(comp: *const Completion) usize {
     var c: usize = 0;
-    for (cs_.groups) |grp| {
-        for (grp.items) |item| {
-            if (searchMatch(item.str, cs_.search())) |_| {
-                c += 1;
-            }
+    const str = comp.search();
+    for (comp.options.items) |item| {
+        if (searchMatch(item.str(), str)) |_| {
+            c += 1;
         }
     }
     return c;
@@ -265,14 +369,14 @@ pub fn countFiltered(cs_: *const Completion) usize {
 
 /// Returns the "only" completion if there's a single option known completion,
 /// ignoring the original. If there's multiple or only the original, null.
-pub fn known(cs_: *Completion) ?*const Option {
+pub fn known(cs_: *Completion) ?Option {
     if (cs_.count() == 1) {
         cs_.reset();
         _ = cs_.next();
         return cs_.next();
     }
 
-    if (cs_.search.items.len > 0 and cs_.countFiltered() == 1) {
+    if (cs_.search().len > 0 and cs_.countFiltered() == 1) {
         cs_.reset();
         return cs_.next();
     }
@@ -281,147 +385,74 @@ pub fn known(cs_: *Completion) ?*const Option {
 }
 
 pub fn reset(cs_: *Completion) void {
-    cs_.index = 0;
-    cs_.groupSet(.any);
+    cs_.cursor_index = 0;
 }
 
-pub fn sort(cs_: *Completion) void {
-    for (cs_.groups) |group| {
-        std.sort.heap(Option, group.items, {}, sortAscOption);
-    }
-}
-
-pub fn first(cs_: *Completion) *const Option {
-    cs_.reset();
-    return cs_.next();
+pub fn sort(comp: *Completion) void {
+    std.sort.heap(Option, comp.options.items, {}, sortAscOption);
 }
 
 // behavior is undefined when count <= 0
-pub fn next(cs: *Completion) Option {
-    assert(cs.count() > 0);
+pub fn next(comp: *Completion) Option {
+    assert(comp.count() > 0);
 
-    cs.skip();
-    if (cs.search_str_len > 0 and cs.countFiltered() > 0) {
-        while (!cs.curSearchMatch()) {
-            cs.skip();
+    comp.skip();
+    if (comp.search_str_len > 0 and comp.countFiltered() > 0) {
+        while (!comp.curSearchMatch()) {
+            comp.skip();
         }
     }
-    return cs.group.items[cs.index];
+    return comp.options.items[comp.cursor_index];
 }
 
-pub fn current(cs: *const Completion) *const Option {
-    if (cs.group.items.len == 0) return &cs.original.?;
-    return &cs.group.items[cs.index];
+pub fn current(comp: *const Completion) *const Option {
+    return &comp.options.items[comp.cursor_index];
 }
 
-pub fn skip(cs_: *Completion) void {
-    std.debug.assert(cs_.count() > 0);
-    cs_.index += 1;
-    while (cs_.index >= cs_.group.items.len) {
-        cs_.index = 0;
-        cs_.groupSet(null);
+pub fn skip(comp: *Completion) void {
+    std.debug.assert(comp.count() > 0);
+    comp.cursor_index += 1;
+    while (comp.cursor_index >= comp.options.items.len) {
+        comp.cursor_index = 0;
     }
 }
 
-fn curSearchMatch(cs_: *Completion) bool {
-    const curr = &cs_.group.items[cs_.index];
-    return searchMatch(curr.str, cs_.search()) != null;
+fn curSearchMatch(comp: *Completion) bool {
+    const curr = &comp.options.items[comp.cursor_index];
+    return searchMatch(curr.str(), comp.search()) != null;
 }
 
-pub fn revr(cs_: *Completion) void {
-    if (cs_.countFiltered() < 3) return;
+pub fn revr(comp: *Completion) void {
+    if (comp.countFiltered() < 3) return;
     while (true) {
-        if (cs_.index == 0) {
+        if (comp.cursor_index == 0) {
             while (true) {
-                if (cs_.group_index == 0) {
-                    cs_.group_index = cs_.groups.len - 1;
-                } else {
-                    cs_.group_index -= 1;
-                }
-                cs_.group = &cs_.groups[cs_.group_index];
-                if (cs_.group.items.len == 0) continue;
-
-                cs_.index = cs_.group.items.len - 1;
-                if (cs_.curSearchMatch()) return;
+                if (comp.options.items.len == 0) continue;
+                comp.cursor_index = comp.options.items.len - 1;
+                if (comp.curSearchMatch()) return;
                 break;
             }
         }
-        cs_.index -|= 1;
-        if (cs_.curSearchMatch()) break;
+        comp.cursor_index -|= 1;
+        if (comp.curSearchMatch()) break;
     }
-}
-
-pub fn groupSet(cs_: *Completion, grp: ?Flavor) void {
-    if (grp) |g| {
-        cs_.group_index = @intFromEnum(g);
-    } else {
-        cs_.group_index = (cs_.group_index + 1) % cs_.groups.len;
-    }
-    cs_.group = &cs_.groups[cs_.group_index];
 }
 
 pub fn push(cs: *Completion, o: Option, a: Allocator) !void {
-    cs.groupSet(o.kind);
-    try cs.group.append(a, o);
-}
-
-pub fn regenGroup(cs: *Completion, f: Flavor, wh: Cord, a: Allocator) !void {
-    const cache: *?[][]Draw.Lexeme = &cs.draw_cache[@intFromEnum(f)];
-    const group = &cs.groups[@intFromEnum(f)];
-
-    if (group.items.len == 0) return error.Empty;
-
-    if (cache.*) |dcache| {
-        const mod: usize = @max(dcache[0].len, 1);
-        const this_row = (cs.index) / mod;
-        const this_col = (cs.index) % mod;
-
-        for (dcache, 0..) |row, r| {
-            for (row) |*column| {
-                if (searchMatch(column.bytes, cs.search()) == null) {
-                    column.style.?.attr = .dim;
-                } else {
-                    styleInactive(column);
-                }
-            }
-            if (r == this_row and row.len > 0) {
-                styleActive(&row[this_col]);
-            }
-        }
-    } else {
-        cache.* = try cs.genGroupLexeme(f, wh, a);
-    }
-}
-
-fn genGroupLexeme(cs: Completion, f: Flavor, wh: Cord, a: Allocator) ![][]Draw.Lexeme {
-    const group = &cs.groups[@intFromEnum(f)];
-
-    const list = try a.alloc(Draw.Lexeme, group.items.len);
-    for (group.items, list) |itm, *dst|
-        dst.* = itm.lexeme(false);
-    return try Draw.Layout.tableLexeme(a, list, wh);
-}
-
-pub fn regenAll(cs: *Completion, wh: Cord, a: Allocator) !void {
-    if (cs.count() == 0) return;
-
-    inline for (@typeInfo(Flavor).@"enum".fields) |f| {
-        cs.regenGroup(@enumFromInt(f.value), wh, a) catch |err| switch (err) {
-            error.Empty => {},
-            else => return err,
-        };
-    }
+    try cs.options.append(a, o);
 }
 
 pub fn drawAll(cs: *Completion, draw: *Draw) !void {
     inline for (@typeInfo(Flavor).@"enum".fields) |f| {
         // TODO Draw name
-        const cache = cs.draw_cache[f.value];
-        if (cache) |grp| for (grp) |row| {
-            draw.drawAfter(row);
-        };
-        try draw.render();
+        const cache = @field(cs.cache, f.name);
+        if (cache.len > 0) {
+            for (cache) |row| {
+                draw.drawAfter(row);
+            }
+        }
     }
+    try draw.render();
 }
 
 pub fn search(cs: *const Completion) []const u8 {
@@ -437,23 +468,20 @@ pub fn searchChar(cs: *Completion, char: u8) !void {
     cs.searchMove();
 }
 
-fn searchMove(cs_: *Completion) void {
+fn searchMove(comp: *Completion) void {
     var mcount: usize = 0;
+    const str = comp.search();
     var best_cost: usize = ~@as(usize, 0);
-    for (cs_.groups, 0..) |grp, gi| {
-        for (grp.items, 0..) |each, ei| {
-            if (searchMatch(each.str, cs_.search())) |cost| {
-                mcount += 1;
-                if (cost < best_cost) {
-                    cs_.group_index = gi;
-                    cs_.index = ei;
-                    cs_.index -|= 1;
-                    best_cost = cost;
-                }
+    for (comp.options.items, 0..) |each, ei| {
+        if (searchMatch(each.str(), str)) |cost| {
+            mcount += 1;
+            if (cost < best_cost) {
+                comp.cursor_index = ei;
+                comp.cursor_index -|= 1;
+                best_cost = cost;
             }
         }
     }
-    cs_.group = &cs_.groups[cs_.group_index];
 }
 
 pub fn searchStr(cs: *Completion, str: []const u8) !void {
@@ -470,24 +498,30 @@ pub fn searchPop(cs: *Completion) !void {
 
 fn completeDir(cs: *Completion, cwdi: Io.Dir, a: Allocator, io: Io) !void {
     var itr = cwdi.iterate();
-    cs.original = Option{ .str = try a.dupe(u8, ""), .kind = .original };
+
+    //const original = &cs.groups[@intFromEnum(Flavor.original)];
+    //original.appendBounded(Option{ .original = .{ .str = &.{} } }) catch unreachable;
+
     while (try itr.next(io)) |each| {
-        try cs.push(.{
+        try cs.push(.{ .file = .{
             .str = try a.dupe(u8, each.name),
-            .kind = Kind{ .file_system = .fromFsKind(each.kind) },
-        }, a);
+            .kind = .fromFs(each.kind),
+        } }, a);
     }
 }
 
 fn completeDirBase(cs: *Completion, base: []const u8, cwdi: Io.Dir, a: Allocator, io: Io) !void {
     var itr = cwdi.iterate();
-    cs.original = Option{ .str = try a.dupe(u8, base), .kind = .original };
+
+    //const original = &cs.groups[@intFromEnum(Flavor.original)];
+    //original.appendBounded(Option{ .original = .{ .str = try a.dupe(u8, base) } }) catch unreachable;
+
     while (try itr.next(io)) |each| {
         if (!std.mem.startsWith(u8, each.name, base)) continue;
-        try cs.push(.{
+        try cs.push(.{ .file = .{
             .str = try a.dupe(u8, each.name),
-            .kind = .{ .file_system = .fromFsKind(each.kind) },
-        }, a);
+            .kind = .fromFs(each.kind),
+        } }, a);
     }
 }
 
@@ -510,25 +544,28 @@ fn completePath(cs: *Completion, target: []const u8, a: Allocator, io: Io) !void
     }
     defer dir.close(io);
 
-    cs.original = Option{ .str = try a.dupe(u8, base), .kind = .original };
+    //const original = &cs.groups[@intFromEnum(Flavor.original)];
+    //original.appendBounded(Option{ .original = .{ .str = try a.dupe(u8, base) } }) catch unreachable;
+
     var itr = dir.iterate();
     while (try itr.next(io)) |each| {
         if (!std.mem.startsWith(u8, each.name, base)) continue;
         if (each.name[0] == '.' and (base.len == 0 or base[0] != '.')) continue;
 
-        try cs.push(.{
+        try cs.push(.{ .file = .{
             .str = try a.dupe(u8, each.name),
-            .kind = Kind{ .file_system = FSKind.fromFsKind(each.kind) },
-        }, a);
+            .kind = .fromFs(each.kind),
+        } }, a);
     }
 }
 
 fn completeFromPath(cs: *Completion, target: []const u8, paths: ArrayList(Fs.Named), a: Allocator, io: Io) !void {
-    if (std.mem.indexOf(u8, target, "/")) |_| {
+    if (findScalar(u8, target, '/')) |_| {
         return completePath(cs, target, a, io);
     }
 
-    cs.original = .{ .str = try a.dupe(u8, target), .kind = .original };
+    //const original = &cs.groups[@intFromEnum(Flavor.original)];
+    //original.appendBounded(Option{ .original = .{ .str = try a.dupe(u8, target) } }) catch unreachable;
 
     for (paths.items) |path| {
         if (path != .dir) continue;
@@ -550,10 +587,9 @@ fn completeFromPath(cs: *Completion, target: []const u8, paths: ArrayList(Fs.Nam
                 return;
             }
 
-            try cs.push(.{
+            try cs.push(.{ .executable = .{
                 .str = try a.dupe(u8, each.name),
-                .kind = Kind{ .path_exe = {} },
-            }, a);
+            } }, a);
         }
     }
 }
@@ -593,11 +629,14 @@ test "search match" {
     try std.testing.expectEqual(0, comptime searchMatch("string", "").?);
 }
 
+test {
+    _ = &std.testing.refAllDecls(@This());
+}
+
 const std = @import("std");
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
-const indexOfScalar = std.mem.indexOfScalar;
 const toUpper = std.ascii.toUpper;
 const log = @import("log.zig");
 
@@ -607,8 +646,10 @@ const Tokenizer = @import("tokenizer.zig");
 const Token = @import("token.zig");
 const Resolver = @import("parse.zig").Resolver;
 const Draw = @import("draw.zig");
+const Lexeme = Draw.Lexeme;
 const Cord = Draw.Cord;
 const S = @import("strings.zig");
 const ERRSTR_TOOBIG = S.COMPLETE_TOOBIG;
 const ERRSTR_NOOPTS = S.COMPLETE_NOOPTS;
 const assert = std.debug.assert;
+const findScalar = std.mem.findScalar;

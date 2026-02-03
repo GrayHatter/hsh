@@ -123,9 +123,9 @@ pub fn maybeClear(tkzr: *Tokenizer, a: Allocator) void {
     tkzr.raw_maybe = null;
 }
 
-pub fn maybeSetOriginal(tkzr: *Tokenizer, orig: Option, a: Allocator) !void {
+pub fn maybeSetOriginal(tkzr: *Tokenizer, orig: []const u8, a: Allocator) !void {
     assert(tkzr.raw_maybe == null);
-    tkzr.raw_maybe = try a.dupe(u8, orig.str);
+    tkzr.raw_maybe = try a.dupe(u8, orig);
 }
 
 pub fn maybeAdd(tkzr: *Tokenizer, str: []const u8, a: Allocator) !void {
@@ -141,27 +141,28 @@ pub fn maybeAdd(tkzr: *Tokenizer, str: []const u8, a: Allocator) !void {
 
 /// This function edits user text, so extra care must be taken to ensure
 /// it's something the user asked for!
-pub fn maybeReplace(tkzr: *Tokenizer, new: Option, a: Allocator) !void {
+pub fn maybeReplace(tkzr: *Tokenizer, new: []const u8, a: Allocator) !void {
     try tkzr.maybeRemove(a);
     //if (new.kind == .original) return;
-    tkzr.raw_maybe = try dupeSafe(new.str, a);
+    tkzr.raw_maybe = try dupeSafe(new, a);
     try tkzr.consumeSlice(tkzr.raw_maybe.?);
 }
 
-pub fn maybeCommit(tkzr: *Tokenizer, new: ?Option, a: Allocator) !void {
+pub fn maybeCommit(tkzr: *Tokenizer, trailing: ?u8, a: Allocator) !void {
     tkzr.maybeClear(a);
-    if (new) |n| switch (n.kind) {
-        .original => {},
-        .file_system => |f_s| {
-            switch (f_s) {
-                .dir => try tkzr.consumeChar('/'),
-                .file, .link, .pipe => try tkzr.consumeChar(' '),
-                else => {},
-            }
-        },
-        .path_exe => try tkzr.consumeChar(' '),
-        .any => unreachable,
-    };
+    //if (new) |n| switch (n.kind) {
+    //    .original => {},
+    //    .file_system => |f_s| {
+    //        switch (f_s) {
+    //            .dir => try tkzr.consumeChar('/'),
+    //            .file, .link, .pipe => try tkzr.consumeChar(' '),
+    //            else => {},
+    //        }
+    //    },
+    //    .path_exe => try tkzr.consumeChar(' '),
+    //    .any => unreachable,
+    //};
+    if (trailing) |t| try tkzr.consumeChar(t);
 }
 
 pub fn checkSafe(str: []const u8) bool {
@@ -477,9 +478,9 @@ test "replace token" {
 
     try std.testing.expectEqualStrings(tokens[2].str, "two");
     t.idx = 7;
-    try t.maybeSetOriginal(Option{ .str = "two", .kind = .original }, a);
+    try t.maybeSetOriginal("two", a);
 
-    try t.maybeReplace(Option{ .str = "TWO" }, a);
+    try t.maybeReplace("TWO", a);
     titr = t.iterator();
     a.free(tokens);
     tokens = try titr.toSlice(a);
@@ -488,7 +489,7 @@ test "replace token" {
     try expectEqualStrings(tokens[2].str, "TWO");
     try expectEqual(5, tokens.len);
 
-    try t.maybeReplace(Option{ .str = "TWO FOUR" }, a);
+    try t.maybeReplace("TWO FOUR", a);
     titr = t.iterator();
     a.free(tokens);
     tokens = try titr.toSlice(a);
@@ -1332,7 +1333,6 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const io = std.Io;
 const log = @import("log.zig");
-const Option = @import("completion.zig").Option;
 const Token = @import("token.zig");
 const isWhitespace = std.ascii.isWhitespace;
 const assert = std.debug.assert;
