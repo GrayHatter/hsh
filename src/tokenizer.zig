@@ -217,7 +217,7 @@ fn removeAlphanum(tkzr: *Tokenizer) usize {
         return 0;
 
     var extra: u1 = 0;
-    if (tkzr.buffer[tkzr.idx - 1] == '/') {
+    if (tkzr.buffer[tkzr.idx - 1] == '/' or tkzr.buffer[tkzr.idx - 1] == '.') {
         tkzr.remove();
         extra = 1;
     }
@@ -1002,6 +1002,23 @@ test "removeWord" {
     try expectEqualStrings("ls -la /", t.buffer[0..t.len]);
     try expectEqual(1, t.removeWord());
     try expectEqualStrings("ls -la ", t.buffer[0..t.len]);
+}
+
+test "removeWord2" {
+    var t: Tokenizer = .{};
+    try t.consumeSlice("git add build.ziggg");
+
+    try expectEqualStrings("git add build.ziggg", t.buffer[0..t.len]);
+    try expectEqual(5, t.removeWord());
+    try expectEqualStrings("git add build.", t.buffer[0..t.len]);
+    try expectEqual(6, t.removeWord());
+    try expectEqualStrings("git add ", t.buffer[0..t.len]);
+    try expectEqual(4, t.removeWord());
+    try expectEqualStrings("git ", t.buffer[0..t.len]);
+    try expectEqual(4, t.removeWord());
+    try expectEqualStrings("", t.buffer[0..t.len]);
+    try expectEqual(0, t.removeWord());
+    try expectEqual(0, t.removeWord());
 }
 
 test "ualphanum" {
