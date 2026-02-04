@@ -18,13 +18,23 @@ pub const Error = error{
     OutOfMemory,
 };
 
-pub const CursorMotion = enum(u8) {
-    home,
-    end,
-    back,
-    word,
-    inc,
-    dec,
+pub const Cursor = enum(usize) {
+    _,
+
+    pub const Motion = enum(u8) {
+        home,
+        end,
+        back, // backwards boundary
+        word, // forward boundary
+        inc,
+        dec,
+
+        prev_line,
+        next_line,
+
+        pub const left: Motion = .dec;
+        pub const right: Motion = .inc;
+    };
 };
 
 pub fn fromSlice(str: []const u8) Tokenizer {
@@ -58,7 +68,7 @@ fn cToBoundry(tkzr: *Tokenizer, comptime forward: bool) void {
     if (!forward and tkzr.idx != 0) tkzr.move(.inc);
 }
 
-pub fn move(tkzr: *Tokenizer, motion: CursorMotion) void {
+pub fn move(tkzr: *Tokenizer, motion: Cursor.Motion) void {
     if (tkzr.len == 0) return;
     switch (motion) {
         .home => tkzr.idx = 0,
@@ -67,6 +77,9 @@ pub fn move(tkzr: *Tokenizer, motion: CursorMotion) void {
         .word => tkzr.cToBoundry(true),
         .inc => tkzr.idx +|= 1,
         .dec => tkzr.idx -|= 1,
+
+        .prev_line => unreachable,
+        .next_line => unreachable,
     }
     tkzr.idx = @min(tkzr.idx, tkzr.len);
 }
@@ -117,9 +130,7 @@ pub fn maybeRemove(tkzr: *Tokenizer, a: Allocator) !void {
 }
 
 pub fn maybeClear(tkzr: *Tokenizer, a: Allocator) void {
-    if (tkzr.raw_maybe) |rm| {
-        a.free(rm);
-    }
+    if (tkzr.raw_maybe) |rm| a.free(rm);
     tkzr.raw_maybe = null;
 }
 
@@ -291,12 +302,10 @@ pub fn consumeSlice(tkzr: *Tokenizer, str: []const u8) Error!void {
     assert(tkzr.len + str.len < tkzr.buffer.len);
 
     if (tkzr.idx < tkzr.len) {
-        for (
-            tkzr.buffer[tkzr.idx..][0..str.len],
-            tkzr.buffer[tkzr.idx + str.len ..][0..str.len],
-        ) |s, *d| d.* = s;
+        const len = tkzr.len - tkzr.idx;
+        @memmove(tkzr.buffer[tkzr.idx + str.len ..][0..len], tkzr.buffer[tkzr.idx..][0..len]);
     }
-    for (str, tkzr.buffer[tkzr.idx .. tkzr.idx + str.len]) |s, *d| d.* = s;
+    @memcpy(tkzr.buffer[tkzr.idx .. tkzr.idx + str.len], str[0..]);
     tkzr.user_data = true;
     tkzr.idx += str.len;
     tkzr.len += str.len;
@@ -305,8 +314,9 @@ pub fn consumeSlice(tkzr: *Tokenizer, str: []const u8) Error!void {
 pub fn consumeChar(tkzr: *Tokenizer, c: u8) Error!void {
     assert(tkzr.len < tkzr.buffer.len);
 
-    if (tkzr.idx < tkzr.len) {
-        for (tkzr.buffer[tkzr.idx..], tkzr.buffer[tkzr.idx + 1 ..]) |s, *d| d.* = s;
+    if (tkzr.len > tkzr.idx) {
+        const len = tkzr.len - tkzr.idx;
+        @memmove(tkzr.buffer[tkzr.idx + 1 ..][0..len], tkzr.buffer[tkzr.idx..][0..len]);
     }
     tkzr.buffer[tkzr.idx] = c;
     tkzr.user_data = true;
@@ -348,6 +358,38 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;
 const expectEqualStrings = std.testing.expectEqualStrings;
+
+test consumeChar {
+    var t: Tokenizer = .{};
+    try expectEqual(0, t.idx);
+    try expectEqual(0, t.len);
+    try t.consumeSlice("01256");
+    try expectEqualStrings("01256", t.getSlice());
+    try expectEqual(5, t.idx);
+    try expectEqual(5, t.len);
+    t.move(.left);
+    t.move(.dec);
+    try expectEqual(3, t.idx);
+    try expectEqualStrings("01256", t.getSlice());
+    try t.consumeChar('3');
+    try expectEqual(4, t.idx);
+    try expectEqual(6, t.len);
+    try expectEqualStrings("012356", t.getSlice());
+    try t.consumeChar('4');
+    try expectEqual(5, t.idx);
+    try expectEqual(7, t.len);
+    try expectEqualStrings("0123456", t.getSlice());
+    t.move(.home);
+    try expectEqual(0, t.idx);
+    try t.consumeChar('_');
+    try expectEqual(1, t.idx);
+    try expectEqual(8, t.len);
+    try expectEqualStrings("_0123456", t.getSlice());
+    try t.consumeChar('-');
+    try expectEqual(2, t.idx);
+    try expectEqual(9, t.len);
+    try expectEqualStrings("_-0123456", t.getSlice());
+}
 
 test "quotes tokened" {
     var a = std.testing.allocator;
@@ -481,6 +523,7 @@ test "replace token" {
     try t.maybeSetOriginal("two", a);
 
     try t.maybeReplace("TWO", a);
+    try expectEqual(7, t.idx);
     titr = t.iterator();
     a.free(tokens);
     tokens = try titr.toSlice(a);
@@ -490,10 +533,11 @@ test "replace token" {
     try expectEqual(5, tokens.len);
 
     try t.maybeReplace("TWO FOUR", a);
+    try expectEqual(13, t.idx);
+
     titr = t.iterator();
     a.free(tokens);
     tokens = try titr.toSlice(a);
-
     for (tokens) |tkn| if (false) std.debug.print("--- {s} {}\n", .{ tkn.str, tkn });
 
     try expectEqual(7, tokens.len);
@@ -501,6 +545,14 @@ test "replace token" {
     try expectEqualStrings(tokens[3].str, "\\ ");
     try expectEqualStrings(tokens[4].str, "FOUR");
     try expectEqualStrings(t.buffer[0..t.len], "one TWO\\ FOUR three");
+
+    try expectEqual(13, t.idx);
+    try expectEqual('R', t.buffer[t.idx - 1]);
+    try expectEqual(' ', t.buffer[t.idx]);
+    try t.maybeCommit(' ', a);
+    try expectEqual(14, t.idx);
+    try expectEqualStrings("one TWO\\ FOUR  three", t.buffer[0..t.len]);
+
     a.free(tokens);
 }
 
