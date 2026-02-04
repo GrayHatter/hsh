@@ -32,7 +32,6 @@ fn usage() void {
 /// No, I don't really like this hack either, but autoformatting :/
 /// return 255 == unknown
 /// return   1 == exec error
-/// return   2 == alloc error
 fn execTacC(mini: std.process.Init.Minimal, io: Io) u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const a = gpa.allocator();
@@ -44,8 +43,8 @@ fn execTacC(mini: std.process.Init.Minimal, io: Io) u8 {
 
     var tkzr: Tokenizer = .{};
     while (args.next()) |arg| {
-        tkzr.consumeChar(' ') catch return 255;
-        tkzr.consumeSlice(arg) catch return 255;
+        tkzr.consumeChar(' ') catch unreachable;
+        tkzr.consumeSlice(arg);
     }
     const str = tkzr.getSlice();
     Exec.exec(str, &hsh, a, io) catch |err| {

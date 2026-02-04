@@ -560,7 +560,7 @@ test "iterator nows" {
     var t: Tokenizer = Tokenizer{};
     defer t.raze(a);
 
-    try t.consumeSlice("\"this is some text\" more text");
+    t.consumeSlice("\"this is some text\" more text");
     var itr = t.iterator();
     const ts = try itr.toSlice(a);
     defer a.free(ts);
@@ -580,7 +580,7 @@ test "breaking" {
     var t = Tokenizer{};
     defer t.raze(a);
 
-    try t.consumeSlice("alias la='ls -la'");
+    t.consumeSlice("alias la='ls -la'");
     var titr = t.iterator();
     const tokens = try titr.toSlice(a);
     //try expectEqual(tokens.len, 4);

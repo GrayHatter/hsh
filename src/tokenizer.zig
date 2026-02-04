@@ -10,13 +10,7 @@ editor_mktmp: ?[]u8 = null,
 
 const Tokenizer = @This();
 
-pub const TokenError = Token.Error;
-
-pub const Error = error{
-    Empty,
-    Exec,
-    OutOfMemory,
-};
+pub const Iterator = Token.Iterator;
 
 pub const Cursor = enum(usize) {
     _,
@@ -39,7 +33,7 @@ pub const Cursor = enum(usize) {
 
 pub fn fromSlice(str: []const u8) Tokenizer {
     var tzr: Tokenizer = .{};
-    tzr.consumeSlice(str) catch {};
+    tzr.consumeSlice(str);
     return tzr;
 }
 
@@ -87,7 +81,7 @@ pub fn move(tkzr: *Tokenizer, motion: Cursor.Motion) void {
 pub fn cursorToken(tkzr: *Tokenizer) !Token {
     var i: usize = 0;
     tkzr.c_tkn = 0;
-    if (tkzr.len == 0) return Error.Empty;
+    if (tkzr.len == 0) return error.Empty;
     while (i < tkzr.len) {
         const t = Token.any(tkzr.getSlice()[i..]) catch break;
         if (t.str.len == 0) break;
@@ -100,12 +94,12 @@ pub fn cursorToken(tkzr: *Tokenizer) !Token {
 
 pub const iterator = iterate;
 
-pub fn iterate(tkzr: *const Tokenizer) Token.Iterator {
+pub fn iterate(tkzr: *const Tokenizer) Iterator {
     return .{ .raw = tkzr.buffer[0..tkzr.len] };
 }
 
 /// Returns a Token error
-pub fn validate(tkzr: *Tokenizer) TokenError!void {
+pub fn validate(tkzr: *Tokenizer) !void {
     var i: usize = 0;
     while (i < tkzr.len) {
         const t = try Token.any(tkzr.buffer[i..tkzr.len]);
@@ -141,13 +135,13 @@ pub fn maybeSetOriginal(tkzr: *Tokenizer, orig: []const u8, a: Allocator) !void 
 
 pub fn maybeAdd(tkzr: *Tokenizer, str: []const u8, a: Allocator) !void {
     if (checkSafe(str)) {
-        try tkzr.consumeSlice(str);
+        tkzr.consumeSlice(str);
         return;
     }
 
     const safe = try dupeSafe(str, a);
     defer a.free(safe);
-    try tkzr.consumeSlice(safe);
+    tkzr.consumeSlice(safe);
 }
 
 /// This function edits user text, so extra care must be taken to ensure
@@ -156,7 +150,7 @@ pub fn maybeReplace(tkzr: *Tokenizer, new: []const u8, a: Allocator) !void {
     try tkzr.maybeRemove(a);
     //if (new.kind == .original) return;
     tkzr.raw_maybe = try dupeSafe(new, a);
-    try tkzr.consumeSlice(tkzr.raw_maybe.?);
+    tkzr.consumeSlice(tkzr.raw_maybe.?);
 }
 
 pub fn maybeCommit(tkzr: *Tokenizer, trailing: ?u8, a: Allocator) !void {
@@ -299,7 +293,7 @@ pub fn removeRange(tkzr: *Tokenizer, num: usize) void {
 
 /// consumeSlice will swallow exec, assuming strings shouldn't be able to
 /// start execution
-pub fn consumeSlice(tkzr: *Tokenizer, str: []const u8) Error!void {
+pub fn consumeSlice(tkzr: *Tokenizer, str: []const u8) void {
     assert(tkzr.len + str.len < tkzr.buffer.len);
 
     if (tkzr.idx < tkzr.len) {
@@ -312,7 +306,7 @@ pub fn consumeSlice(tkzr: *Tokenizer, str: []const u8) Error!void {
     tkzr.len += str.len;
 }
 
-pub fn consumeChar(tkzr: *Tokenizer, c: u8) Error!void {
+pub fn consumeChar(tkzr: *Tokenizer, c: u8) !void {
     assert(tkzr.len < tkzr.buffer.len);
 
     if (tkzr.len > tkzr.idx) {
@@ -364,7 +358,7 @@ test consumeChar {
     var t: Tokenizer = .{};
     try expectEqual(0, t.idx);
     try expectEqual(0, t.len);
-    try t.consumeSlice("01256");
+    t.consumeSlice("01256");
     try expectEqualStrings("01256", t.getSlice());
     try expectEqual(5, t.idx);
     try expectEqual(5, t.len);
@@ -397,14 +391,14 @@ test "quotes tokened" {
     var t: Tokenizer = .{};
     defer t.raze(a);
 
-    try t.consumeSlice("\"\"");
+    t.consumeSlice("\"\"");
     var titr = t.iterator();
     var tokens = try titr.toSlice(a);
     try expectEqual(t.len, 2);
     try expectEqual(1, tokens.len);
 
     t.reset();
-    try t.consumeSlice("\"a\"");
+    t.consumeSlice("\"a\"");
     titr = t.iterator();
     a.free(tokens);
     tokens = try titr.toSlice(a);
@@ -416,10 +410,10 @@ test "quotes tokened" {
     var terr = Token.group(
         \\"this is invalid
     );
-    try expectError(TokenError.OpenGroup, terr);
+    try expectError(error.OpenGroup, terr);
 
     t.reset();
-    try t.consumeSlice("\"this is some text\" more text");
+    t.consumeSlice("\"this is some text\" more text");
     titr = t.iterator();
     a.free(tokens);
     tokens = try titr.toSlice(a);
@@ -428,7 +422,7 @@ test "quotes tokened" {
     try expectEqualStrings(tokens[0].str, "\"this is some text\"");
 
     t.reset();
-    try t.consumeSlice("`this is some text` more text");
+    t.consumeSlice("`this is some text` more text");
     titr = t.iterator();
     a.free(tokens);
     tokens = try titr.toSlice(a);
@@ -437,7 +431,7 @@ test "quotes tokened" {
     try expectEqualStrings(tokens[0].str, "`this is some text`");
 
     t.reset();
-    try t.consumeSlice("\"this is some text\" more text");
+    t.consumeSlice("\"this is some text\" more text");
     a.free(tokens);
     titr = t.iterator();
     tokens = try titr.toSlice(a);
@@ -448,10 +442,10 @@ test "quotes tokened" {
     terr = Token.group(
         \\"this is some text\" more text
     );
-    try expectError(TokenError.OpenGroup, terr);
+    try expectError(error.OpenGroup, terr);
 
     t.reset();
-    try t.consumeSlice(
+    t.consumeSlice(
         \\"this is some text\" more text"
     );
     a.free(tokens);
@@ -488,7 +482,7 @@ test "tokenize path" {
     var t: Tokenizer = .{};
     defer t.raze(a);
 
-    try t.consumeSlice("blerg ~/dir");
+    t.consumeSlice("blerg ~/dir");
     var titr = t.iterator();
     var tokens = try titr.toSlice(a);
     try expectEqual(t.len, "blerg ~/dir".len);
@@ -498,7 +492,7 @@ test "tokenize path" {
     a.free(tokens);
 
     t.reset();
-    try t.consumeSlice("blerg /home/user/something");
+    t.consumeSlice("blerg /home/user/something");
     titr = t.iterator();
     tokens = try titr.toSlice(a);
     try expectEqual(t.len, "blerg /home/user/something".len);
@@ -514,7 +508,7 @@ test "replace token" {
     defer t.raze(a);
     try expectEqualStrings(t.buffer[0..t.len], "");
 
-    try t.consumeSlice("one two three");
+    t.consumeSlice("one two three");
     var titr = t.iterator();
     var tokens = try titr.toSlice(a);
     try expect(tokens.len == 5);
@@ -561,7 +555,7 @@ test "breaking" {
     var a = std.testing.allocator;
     var t: Tokenizer = .{};
 
-    try t.consumeSlice("alias la='ls -la'");
+    t.consumeSlice("alias la='ls -la'");
     var titr = t.iterator();
     const tokens = try titr.toSlice(a);
     try expectEqual(tokens.len, 4);
@@ -953,7 +947,7 @@ test "token vari braces" {
     try expectEqualStrings("${STR_ING}", t.str);
 
     var tzr: Tokenizer = .{};
-    try tzr.consumeSlice("${STR_ING}extra");
+    tzr.consumeSlice("${STR_ING}extra");
     try expectEqual(2, tzr.count());
 }
 
@@ -987,13 +981,13 @@ test "pop" {
 test "removeWhitespace" {
     var t: Tokenizer = .{};
     //defer t.raze(a);
-    try t.consumeSlice("a      ");
+    t.consumeSlice("a      ");
     try expect(t.len == 7);
     try expect(t.removeWhitespace() == 6);
     try expect(t.len == 1);
 
     t.reset();
-    try t.consumeSlice("a      b      ");
+    t.consumeSlice("a      b      ");
     try expect(t.len == 14);
     try expect(t.removeWhitespace() == 6);
     try expect(t.len == 8);
@@ -1006,13 +1000,13 @@ test "removeWhitespace" {
 
 test "removeAlpha" {
     var t: Tokenizer = .{};
-    try t.consumeSlice("a      aoeu");
+    t.consumeSlice("a      aoeu");
     try expectEqual(11, t.len);
     try expectEqual(4, t.removeAlphanum());
     try expectEqual(7, t.len);
 
     t.reset();
-    try t.consumeSlice("a      b      aoeu");
+    t.consumeSlice("a      b      aoeu");
     try expect(t.len == 18);
     try expect(t.removeAlphanum() == 4);
     try expect(t.len == 14);
@@ -1026,13 +1020,13 @@ test "removeAlpha" {
 test "removeWord" {
     var t: Tokenizer = .{};
     //defer t.raze(a);
-    try t.consumeSlice("a      ");
+    t.consumeSlice("a      ");
     try expectEqual(7, t.len);
     try expectEqual(7, t.removeWord());
     try expectEqual(0, t.len);
 
     t.reset();
-    try t.consumeSlice("a      b      aoeu aoeu");
+    t.consumeSlice("a      b      aoeu aoeu");
     try expectEqual(23, t.len);
     try expectEqual(4, t.removeWord());
     try expectEqual(19, t.len);
@@ -1040,7 +1034,7 @@ test "removeWord" {
     try expectEqual(9, t.len);
 
     t.reset();
-    try t.consumeSlice("ls -la /some/abs/directory/thats/long");
+    t.consumeSlice("ls -la /some/abs/directory/thats/long");
 
     try expectEqualStrings("ls -la /some/abs/directory/thats/long", t.buffer[0..t.len]);
     try expectEqual(4, t.removeWord());
@@ -1059,7 +1053,7 @@ test "removeWord" {
 
 test "removeWord2" {
     var t: Tokenizer = .{};
-    try t.consumeSlice("git add build.ziggg");
+    t.consumeSlice("git add build.ziggg");
 
     try expectEqualStrings("git add build.ziggg", t.buffer[0..t.len]);
     try expectEqual(5, t.removeWord());
@@ -1249,7 +1243,7 @@ test "invalid logic" {
     ;
 
     const ifs = Token.logic(if_str);
-    try expectError(TokenError.OpenLogic, ifs);
+    try expectError(error.OpenLogic, ifs);
 
     const case_str =
         \\case $WORD in
@@ -1260,7 +1254,7 @@ test "invalid logic" {
     ;
 
     const cases = Token.logic(case_str);
-    try expectError(TokenError.OpenLogic, cases);
+    try expectError(error.OpenLogic, cases);
 
     const for_str =
         \\for num in $NUMS
@@ -1270,7 +1264,7 @@ test "invalid logic" {
     ;
 
     const fors = Token.logic(for_str);
-    try expectError(TokenError.OpenLogic, fors);
+    try expectError(error.OpenLogic, fors);
 
     const while_str =
         \\while false;
@@ -1280,7 +1274,7 @@ test "invalid logic" {
     ;
 
     const whiles = Token.logic(while_str);
-    try expectError(TokenError.OpenLogic, whiles);
+    try expectError(error.OpenLogic, whiles);
 }
 
 test "nested logic" {
@@ -1352,39 +1346,37 @@ test "escape newline" {
     var tzr: Tokenizer = .{};
     //defer tzr.raze(a);
 
-    try tzr.consumeSlice("zig build test");
+    tzr.consumeSlice("zig build test");
     const e = tzr.consumeChar('\n');
     try expectError(error.Exec, e);
     //const ee = tzr.consumeSlice("\n");
     //try expectError(Error.Exec, ee);
     // This API is mildly unstable, if you need string to err.exec create a new
     // handler
-    tzr.consumeSlice("\n") catch {
-        try expect(false); // consume string doesn't error
-    };
+    tzr.consumeSlice("\n");
     _ = try tzr.consumeChar('\\');
-    try tzr.consumeSlice("\n"); // expect no error
+    tzr.consumeSlice("\n"); // expect no error
 }
 
 test "build functions" {
     const a = std.testing.allocator;
     var tzr: Tokenizer = .{};
     defer tzr.raze(a);
-    try tzr.consumeSlice("func () a");
+    tzr.consumeSlice("func () a");
     try expectEqual(5, tzr.count());
     tzr.reset();
-    try tzr.consumeSlice("func () {}");
+    tzr.consumeSlice("func () {}");
     var itr = tzr.iterator();
     try expectEqual(1, tzr.count());
 
     tzr.raze(a);
-    try tzr.consumeSlice("func () {   }   ");
+    tzr.consumeSlice("func () {   }   ");
     itr = tzr.iterator();
 
     try expectEqual(2, tzr.count());
 
     tzr.raze(a);
-    try tzr.consumeSlice(
+    tzr.consumeSlice(
         \\func () {
         \\    some function call here
         \\}

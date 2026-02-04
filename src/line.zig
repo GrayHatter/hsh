@@ -174,49 +174,48 @@ pub fn externEditorRead(line: *Line, io: Io) ![]u8 {
     return line.bytes;
 }
 
-fn findHistory(line: *Line, dr: enum { up, down }) !void {
-    var history = line.history;
-    var tkn = &line.tkn;
+fn findHistory(l: *Line, dr: enum { up, down }) !void {
+    var history = l.history;
 
-    if (line.hist_index == 0) {
+    if (l.hist_index == 0) {
         if (dr == .down) return;
-        line.hist_index = 1;
-        if (line.bytes.len > 0) {
-            line.hist_search = line.bytes;
+        l.hist_index = 1;
+        if (l.bytes.len > 0) {
+            l.hist_search = l.bytes;
         }
-    } else if (line.hist_index == 1) {
+    } else if (l.hist_index == 1) {
         if (dr == .down) {
-            line.hist_index = 0;
-            if (line.hist_search) |hs| {
-                line.bytes = hs;
-                line.hist_search = null;
-            } else line.bytes = &.{};
-            tkn.reset();
-            try line.tkn.consumeSlice(line.bytes);
-            tkn.move(.end);
+            l.hist_index = 0;
+            if (l.hist_search) |hs| {
+                l.bytes = hs;
+                l.hist_search = null;
+            } else l.bytes = &.{};
+            l.tkn.reset();
+            l.tkn.consumeSlice(l.bytes);
+            l.cursorMove(.end);
             return;
-        } else line.hist_index += 1;
+        } else l.hist_index += 1;
     } else {
-        if (dr == .up) line.hist_index += 1 else line.hist_index -= 1;
+        if (dr == .up) l.hist_index += 1 else l.hist_index -= 1;
     }
 
-    const history_line: ?[]const u8 = if (line.hist_search) |search|
-        history.readLineFiltered(line.hist_index, search)
+    const history_l: ?[]const u8 = if (l.hist_search) |search|
+        history.readLineFiltered(l.hist_index, search)
     else
-        history.readLine(line.hist_index);
+        history.readLine(l.hist_index);
 
-    assert(line.hist_index > 0);
-    if (history_line) |hist_line| {
+    assert(l.hist_index > 0);
+    if (history_l) |hist_line| {
         // TODO optimize
-        line.alloc.free(line.bytes);
-        line.bytes = try line.alloc.dupe(u8, hist_line);
-        tkn.reset();
-        try line.tkn.consumeSlice(line.bytes);
-        tkn.move(.end);
+        l.alloc.free(l.bytes);
+        l.bytes = try l.alloc.dupe(u8, hist_line);
+        l.tkn.reset();
+        l.tkn.consumeSlice(l.bytes);
+        l.tkn.move(.end);
     } else {
-        if (dr == .up) line.hist_index -= 1 else line.hist_index += 1;
-        line.draw.drawAfter(&[1]Lexeme{.styled("[ End of History ]", .red_bold)});
-        try line.draw.render();
+        if (dr == .up) l.hist_index -= 1 else l.hist_index += 1;
+        l.draw.drawAfter(&[1]Lexeme{.styled("[ End of History ]", .red_bold)});
+        try l.draw.render();
     }
 }
 
