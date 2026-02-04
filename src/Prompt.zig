@@ -69,7 +69,7 @@ fn userText(_: Prompt, draw: *Draw, good: []const u8, bad: []const u8) !void {
 fn prompt(p: Prompt, draw: *Draw.Drawable) !void {
     draw.draw(
         &[_]Lexeme{
-            .styled(p.username, .bold_blue), .str("@"),           .str(p.hostname),
+            .styled(p.username, .blue_bold), .str("@"),           .str(p.hostname),
             .str(" "),                       .alt(p.cwd.*, .dir), .str(p.brace),
         },
     );

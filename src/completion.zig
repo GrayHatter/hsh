@@ -9,12 +9,13 @@ cache: Cache = .empty,
 const Completion = @This();
 
 const Cache = struct {
-    original: []LexemeRow,
-    any: []LexemeRow,
-    executable: []LexemeRow,
-    file: []LexemeRow,
+    original: LexemeGrid,
+    any: LexemeGrid,
+    executable: LexemeGrid,
+    file: LexemeGrid,
 
     const LexemeRow = []Lexeme;
+    const LexemeGrid = []LexemeRow;
 
     pub const empty: Cache = .{
         .original = &.{},
@@ -25,7 +26,7 @@ const Cache = struct {
 
     pub fn regenGroup(
         c: *Cache,
-        comptime row_name: []const u8,
+        comptime name: Flavor,
         group: []Option,
         cursor: usize,
         search_str: []const u8,
@@ -34,16 +35,15 @@ const Cache = struct {
     ) !void {
         if (group.len == 0) return;
 
-        const target: *[]LexemeRow = &@field(c, row_name);
+        const target: *LexemeGrid = &@field(c, @tagName(name));
         if (target.len == 0) {
             target.* = try genGroupLexeme(group, wh, a);
-            return;
         }
 
         const mod: usize = @max(target.*[0].len, 1);
         const this_row = (cursor) / mod;
         const this_col = (cursor) % mod;
-        log.debug("group {s} cursor {} % {} row {} col {}\n", .{ row_name, cursor, mod, this_row, this_col });
+        log.debug("group {s} cursor {} % {} row {} col {}\n", .{ @tagName(name), cursor, mod, this_row, this_col });
 
         for (target.*, 0..) |row, r| {
             for (row) |*column| {
@@ -66,33 +66,34 @@ const Cache = struct {
         return try Draw.Layout.tableLexeme(a, list, wh);
     }
 
-    pub fn regenAll(
-        c: *Cache,
-        options: ArrayList(Option),
-        cursor: usize,
-        str: []const u8,
-        wh: Cord,
-        a: Allocator,
-    ) !void {
-        log.err("comp regen cursor {}\n", .{cursor});
-        var start: usize = 0;
-        for (options.items, 0..) |opt, i| {
+    pub fn regenAll(c: *Cache, options: []Option, cursor: usize, str: []const u8, wh: Cord, a: Allocator) !void {
+        var mode: Flavor = .original;
+        var group_start: usize = 0;
+        for (options, 0..) |opt, i| {
             switch (opt) {
                 .original => {},
                 .any => {
-                    try c.regenGroup(@tagName(.original), options.items[start..i], cursor, str, wh, a);
-                    start = i;
+                    if (mode == .original) {
+                        try c.regenGroup(.original, options[group_start..i], cursor, str, wh, a);
+                        mode = .any;
+                    }
+                    group_start = i;
                 },
                 .executable => {
-                    try c.regenGroup(@tagName(.any), options.items[start..i], cursor, str, wh, a);
-                    start = i;
+                    if (mode == .any) {
+                        try c.regenGroup(.any, options[group_start..i], cursor, str, wh, a);
+                        mode = .executable;
+                    }
+                    group_start = i;
                 },
                 .file => {
-                    if (i > start) {
-                        try c.regenGroup(@tagName(.executable), options.items[start..i], cursor, str, wh, a);
+                    if (mode == .executable) {
+                        if (i > group_start) {
+                            try c.regenGroup(.executable, options[group_start..i], cursor, str, wh, a);
+                        }
                     }
-                    if (options.items.len > i) {
-                        try c.regenGroup(@tagName(.file), options.items[i..], cursor, str, wh, a);
+                    if (options.len > i) {
+                        try c.regenGroup(.file, options[i..], cursor, str, wh, a);
                     }
                     break;
                 },
@@ -100,6 +101,29 @@ const Cache = struct {
         }
 
         //const target: *[]LexemeRow = @field(c, f.name);
+    }
+
+    fn styleActive(lex: *Draw.Lexeme) void {
+        if (lex.style.?.attr) |*attr| {
+            attr.* = switch (attr.*) {
+                .reset => .reverse,
+                .bold => .reverse_bold,
+                .dim => .reverse,
+                else => .reset,
+            };
+        } else lex.style.?.attr = .reverse;
+    }
+
+    fn styleInactive(lex: *Draw.Lexeme) void {
+        if (lex.style.?.attr) |*attr| {
+            attr.* = switch (attr.*) {
+                .reverse => .reset,
+                .reverse_bold => .bold,
+                .reverse_dim => .dim,
+                .dim => if (lex.style.?.fg != null) .bold else .reset, // TODO fixme
+                else => attr.*,
+            };
+        } else lex.style.?.attr = .reset;
     }
 };
 
@@ -170,22 +194,16 @@ pub const Option = union(Flavor) {
     };
 
     pub fn style(opt: Option, active: bool) Draw.Style {
-        const default: Draw.Style = .{ .attr = if (active) .reverse else .reset };
-        switch (opt) {
-            .file => |file| {
-                switch (file.kind) {
-                    .dir => return .{
-                        .attr = if (active) .reverse_bold else .bold,
-                        .fg = file.kind.color(),
-                    },
-                    else => return .{
-                        .attr = .reset,
-                        .fg = file.kind.color(),
-                    },
-                }
+        var sty: Draw.Style = switch (opt) {
+            .file => |file| switch (file.kind) {
+                .dir => .{ .attr = .bold, .fg = file.kind.color() },
+                .file => .fromName(opt.str()),
+                else => .{ .fg = file.kind.color() },
             },
-            else => return default,
-        }
+            else => .none,
+        };
+        if (active) sty.reverse();
+        return sty;
     }
 
     pub fn lexeme(opt: Option, active: bool) Draw.Lexeme {
@@ -199,7 +217,7 @@ pub fn init() Completion {
 
 /// Caller owns nothing, memory is only guaranteed until `complete` is
 /// called again.
-pub fn complete(cs: *Completion, tks: *Tokenizer, fs: Fs, a: Allocator, io: Io) !void {
+pub fn start(cs: *Completion, tks: *Tokenizer, fs: Fs, a: Allocator, io: Io) !void {
     cs.raze(a);
 
     var iter = tks.iterator();
@@ -267,7 +285,7 @@ pub fn originalStr(comp: Completion) ?[]const u8 {
 }
 
 pub fn regenAll(comp: *Completion, wh: Cord, a: Allocator) !void {
-    try comp.cache.regenAll(comp.options, comp.cursor_index, comp.search(), wh, a);
+    try comp.cache.regenAll(comp.options.items, comp.cursor_index, comp.search(), wh, a);
 }
 
 fn searchMatch(items: []const u8, search_str: []const u8) ?usize {
@@ -288,41 +306,6 @@ fn searchMatch(items: []const u8, search_str: []const u8) ?usize {
         return null;
     }
     return offset - search_str.len;
-}
-
-fn styleToggle(lex: *Draw.Lexeme) void {
-    lex.style.attr = switch (lex.style.attr.?) {
-        .reset => .reverse,
-        .reverse => .reset,
-        .reverse_bold => .bold,
-        .bold => .reverse_bold,
-        .dim => .reverse_dim,
-        .reverse_dim => .dim,
-        else => .reset,
-    };
-}
-
-fn styleActive(lex: *Draw.Lexeme) void {
-    if (lex.style) |*style| if (style.attr) |*attr| {
-        attr.* = switch (attr.*) {
-            .reset => .reverse,
-            .bold => .reverse_bold,
-            .dim => .reverse,
-            else => .reset,
-        };
-    };
-}
-
-fn styleInactive(lex: *Draw.Lexeme) void {
-    if (lex.style) |*style| if (style.attr) |*attr| {
-        attr.* = switch (attr.*) {
-            .reverse => .reset,
-            .reverse_bold => .bold,
-            .reverse_dim => .dim,
-            .dim => if (style.fg != null) .bold else .reset, // TODO fixme
-            else => attr.*,
-        };
-    };
 }
 
 fn sortAscStr(_: void, a: []const u8, b: []const u8) bool {
@@ -433,10 +416,6 @@ pub fn revr(comp: *Completion) void {
     }
 }
 
-pub fn push(cs: *Completion, o: Option, a: Allocator) !void {
-    try cs.options.append(a, o);
-}
-
 pub fn drawAll(cs: *Completion, draw: *Draw) !void {
     inline for (@typeInfo(Flavor).@"enum".fields) |f| {
         // TODO Draw name
@@ -447,7 +426,6 @@ pub fn drawAll(cs: *Completion, draw: *Draw) !void {
             }
         }
     }
-    try draw.render();
 }
 
 pub fn search(cs: *const Completion) []const u8 {
@@ -498,10 +476,10 @@ fn completeDir(cs: *Completion, cwdi: Io.Dir, a: Allocator, io: Io) !void {
     //original.appendBounded(Option{ .original = .{ .str = &.{} } }) catch unreachable;
 
     while (try itr.next(io)) |each| {
-        try cs.push(.{ .file = .{
+        try cs.options.append(a, .{ .file = .{
             .str = try a.dupe(u8, each.name),
             .kind = .fromFs(each.kind),
-        } }, a);
+        } });
     }
 }
 
@@ -513,10 +491,10 @@ fn completeDirBase(cs: *Completion, base: []const u8, cwdi: Io.Dir, a: Allocator
 
     while (try itr.next(io)) |each| {
         if (!std.mem.startsWith(u8, each.name, base)) continue;
-        try cs.push(.{ .file = .{
+        try cs.options.append(a, .{ .file = .{
             .str = try a.dupe(u8, each.name),
             .kind = .fromFs(each.kind),
-        } }, a);
+        } });
     }
 }
 
@@ -547,10 +525,10 @@ fn genCompletionDir(cs: *Completion, target: []const u8, a: Allocator, io: Io) !
         if (!std.mem.startsWith(u8, each.name, base)) continue;
         if (each.name[0] == '.' and (base.len == 0 or base[0] != '.')) continue;
 
-        try cs.push(.{ .file = .{
+        try cs.options.append(a, .{ .file = .{
             .str = try a.dupe(u8, each.name),
             .kind = .fromFs(each.kind),
-        } }, a);
+        } });
     }
 }
 
@@ -582,9 +560,9 @@ fn genPathBinary(cs: *Completion, target: []const u8, paths: ArrayList(Fs.Named)
                 return;
             }
 
-            try cs.push(.{ .executable = .{
+            try cs.options.append(a, .{ .executable = .{
                 .str = try a.dupe(u8, each.name),
-            } }, a);
+            } });
         }
     }
 }

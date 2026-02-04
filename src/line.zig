@@ -262,7 +262,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
     sw: switch (CompState{ .start = {} }) {
         .pending => unreachable,
         .start => {
-            try cmplt.complete(&line.tkn, line.hsh.fs, a, io);
+            try cmplt.start(&line.tkn, line.hsh.fs, a, io);
             continue :sw .{ .redraw = {} };
         },
         .typing => |ks| {
@@ -295,7 +295,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                             continue :sw .{ .redraw = {} };
                         },
                         else => {
-                            try cmplt.complete(&line.tkn, line.hsh.fs, a, io);
+                            try cmplt.start(&line.tkn, line.hsh.fs, a, io);
 
                             if (cmplt.count() == 0) {
                                 try line.tkn.consumeChar(c);
@@ -316,7 +316,6 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                                 cmplt.revr();
                                 cmplt.revr();
                             }
-                            //_ = try doComplete(line.hsh, &line.tkn, &cmplt);
                             try line.tkn.maybeReplace(cmplt.next().str(), a);
                         },
                         .esc => {
@@ -329,6 +328,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                             continue :sw .{ .done = {} };
                         },
                         .up, .down, .left, .right => {
+                            log.err("Completion arrows not yet implemented\n", .{});
                             // TODO implement arrows
                         },
                         .home, .end => |h_e| {
@@ -380,7 +380,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                 else => return err,
             };
             try cmplt.drawAll(line.draw);
-            //try line.hsh.prompt.render(line.draw, line.peek());
+            try line.hsh.prompt.render(line.draw, line.peek());
             try line.draw.render();
             continue :sw .{ .read = {} };
         },
