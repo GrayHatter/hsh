@@ -95,8 +95,11 @@ fn core(line: *Line, a: Allocator, io: Io) !Action {
         } catch |err| switch (err) {
             error.Io => return err,
             error.Signaled => {
+                log.err("signaled \n", .{});
+                line.tkn.len = 0;
                 line.draw.clearCtx();
                 try line.draw.render();
+
                 return .empty;
             },
             //error.end_of_text => return error.FIXME,
@@ -144,6 +147,7 @@ fn core(line: *Line, a: Allocator, io: Io) !Action {
                     .end_of_text => return .exec,
                     .delete_word => _ = line.tkn.removeWord(),
                     .tab => try line.complete(a, io),
+                    .end => line.tkn.move(.end),
                     else => |els| log.warn("unknown {}\n", .{els}),
                 }
                 line.draw.clear();
@@ -254,6 +258,7 @@ const CompState = union(enum) {
     input: void,
     key: Input.Event,
     redraw: void,
+    empty: void,
     finish: ?u8,
     exit: void,
 };
@@ -271,7 +276,8 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
             continue :sw .start;
         },
         .start => {
-            try cmplt.start(tokens, tokens.len - 1, line.hsh.fs, a, io);
+            try cmplt.start(tokens, tokens.len -| 1, line.hsh.fs, a, io);
+            try line.tkn.maybeSetOriginal(tokens[tokens.len - 1].str, a);
             continue :sw .redraw;
         },
         .input => continue :sw .{ .key = line.input.interactive(a, io) catch |err| switch (err) {
@@ -309,11 +315,14 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
             },
             .control => |k| switch (k.c) {
                 .tab => {
+                    if (cmplt.count() == 0) continue :sw .empty;
+                    if (cmplt.count() == 1) continue :sw .{ .finish = ' ' };
                     if (k.mod.shift) {
                         cmplt.revr();
                         cmplt.revr();
                     }
                     try line.tkn.maybeReplace(cmplt.next().str(), a);
+
                     continue :sw .redraw;
                 },
                 .up, .down, .left, .right => {
@@ -369,14 +378,20 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
             try line.draw.render();
             continue :sw .input;
         },
+        .empty => {
+            line.draw.drawAfter(&[1]Draw.Lexeme{.styled("[ No completions found ]", .red_bold)});
+            try line.hsh.prompt.render(line.draw, line.peek());
+            try line.draw.render();
+            continue :sw .exit;
+        },
         .finish => |extra| {
             log.err("completion finish\n", .{});
             try line.tkn.maybeCommit(extra, a);
+            line.draw.clearCtx();
             continue :sw .exit;
         },
         .exit => {
             cmplt.raze(a);
-            line.draw.clearCtx();
             log.err("completion exit\n", .{});
             return;
         },
