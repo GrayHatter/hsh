@@ -40,11 +40,10 @@ const Cache = struct {
             return;
         }
 
-        log.err("group {s} group {} target {}\n", .{ row_name, group.len, target.*.len });
         const mod: usize = @max(target.*[0].len, 1);
         const this_row = (cursor) / mod;
         const this_col = (cursor) % mod;
-        log.err("group {s} cursor {} % {} row {} col {}\n", .{ row_name, cursor, mod, this_row, this_col });
+        log.debug("group {s} cursor {} % {} row {} col {}\n", .{ row_name, cursor, mod, this_row, this_col });
 
         for (target.*, 0..) |row, r| {
             for (row) |*column| {
@@ -81,22 +80,18 @@ const Cache = struct {
             switch (opt) {
                 .original => {},
                 .any => {
-                    log.err("comp regen original {} {}\n", .{ start, i });
                     try c.regenGroup(@tagName(.original), options.items[start..i], cursor, str, wh, a);
                     start = i;
                 },
                 .executable => {
-                    log.err("comp regen any {} {}\n", .{ start, i });
                     try c.regenGroup(@tagName(.any), options.items[start..i], cursor, str, wh, a);
                     start = i;
                 },
                 .file => {
                     if (i > start) {
-                        log.err("comp regen exec {} {}\n", .{ start, i });
                         try c.regenGroup(@tagName(.executable), options.items[start..i], cursor, str, wh, a);
                     }
                     if (options.items.len > i) {
-                        log.err("comp regen file {} {}\n", .{ start, options.items.len });
                         try c.regenGroup(@tagName(.file), options.items[i..], cursor, str, wh, a);
                     }
                     break;
@@ -219,7 +214,7 @@ pub fn complete(cs: *Completion, tks: *Tokenizer, fs: Fs, a: Allocator, io: Io) 
     const hint: Flavor = if (ts.len <= 1) .executable else .any;
 
     switch (hint) {
-        .executable => try completeFromPath(cs, pair.t.str, fs.paths, a, io),
+        .executable => try genPathBinary(cs, pair.t.str, fs.paths, a, io),
         else => {
             switch (pair.t.kind) {
                 .ws => {
@@ -230,7 +225,7 @@ pub fn complete(cs: *Completion, tks: *Tokenizer, fs: Fs, a: Allocator, io: Io) 
                 .word, .path => {
                     switch ((try Resolver.word(pair.t)).parsed) {
                         .word => |w| try completeDirBase(cs, w.str, fs.cwd.dir, a, io),
-                        .path => |p| try completePath(cs, p.str, a, io),
+                        .path => |p| try genCompletionDir(cs, p.str, a, io),
                         else => unreachable,
                     }
                 },
@@ -525,7 +520,7 @@ fn completeDirBase(cs: *Completion, base: []const u8, cwdi: Io.Dir, a: Allocator
     }
 }
 
-fn completePath(cs: *Completion, target: []const u8, a: Allocator, io: Io) !void {
+fn genCompletionDir(cs: *Completion, target: []const u8, a: Allocator, io: Io) !void {
     if (target.len < 1) return;
 
     var whole = std.mem.splitBackwardsAny(u8, target, "/");
@@ -559,9 +554,9 @@ fn completePath(cs: *Completion, target: []const u8, a: Allocator, io: Io) !void
     }
 }
 
-fn completeFromPath(cs: *Completion, target: []const u8, paths: ArrayList(Fs.Named), a: Allocator, io: Io) !void {
+fn genPathBinary(cs: *Completion, target: []const u8, paths: ArrayList(Fs.Named), a: Allocator, io: Io) !void {
     if (findScalar(u8, target, '/')) |_| {
-        return completePath(cs, target, a, io);
+        return genCompletionDir(cs, target, a, io);
     }
 
     //const original = &cs.groups[@intFromEnum(Flavor.original)];
@@ -637,10 +632,7 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
-const toUpper = std.ascii.toUpper;
 const log = @import("log.zig");
-
-const Hsh = @import("hsh.zig");
 const Fs = @import("fs.zig");
 const Tokenizer = @import("tokenizer.zig");
 const Token = @import("token.zig");
@@ -648,8 +640,6 @@ const Resolver = @import("parse.zig").Resolver;
 const Draw = @import("draw.zig");
 const Lexeme = Draw.Lexeme;
 const Cord = Draw.Cord;
-const S = @import("strings.zig");
-const ERRSTR_TOOBIG = S.COMPLETE_TOOBIG;
-const ERRSTR_NOOPTS = S.COMPLETE_NOOPTS;
 const assert = std.debug.assert;
 const findScalar = std.mem.findScalar;
+const toUpper = std.ascii.toUpper;
