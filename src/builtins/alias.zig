@@ -42,7 +42,6 @@ pub fn call(_: *Hsh, titr: *ParsedIterator, a: Allocator, _: Io) Err!u8 {
     assert(eql(u8, "alias", titr.first().resolved.str));
     const arg = titr.next() orelse return printAll();
     log.info("alias call {}\n", .{arg});
-    log.err("alias call {s}\n", .{arg.resolved.str});
     if (findScalar(u8, arg.resolved.str, '=')) |idx| {
         const name = validateName(arg.resolved.str[0..idx]) catch unreachable;
         const value = arg.resolved.str[idx + 1 ..];

@@ -56,7 +56,7 @@ pub fn readRCINotify(h: *Hsh, e: INEvent, a: Allocator, io: Io) void {
     // This isn't the right way, but I'm doing it this way because I'll hate
     // this enough to fix it later.
     if (e == .write) {
-        log.debug("Reading RC because new write detected\n", .{});
+        log.warn("Re-Reading RC file (write detected)\n", .{});
         readFromRC(h, a, io) catch {
             log.err("write failed during inotify event\n", .{});
         };
