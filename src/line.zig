@@ -45,7 +45,7 @@ pub fn init(hsh: *Hsh, a: Allocator, io: Io, options: Options) !Line {
 }
 
 pub fn raze(line: Line) void {
-    if (line.completion) |comp| comp.raze(line.alloc);
+    _ = line;
 }
 
 fn spin(input: *const Input, a: Allocator, io: Io) bool {
@@ -53,106 +53,74 @@ fn spin(input: *const Input, a: Allocator, io: Io) bool {
     return line.hsh.spin(a, io);
 }
 
-fn char(line: *Line, c: u8) !void {
-    if (line.hist_index > 0) {
-        line.hist_index = 0;
-        line.alloc.free(line.bytes);
-        line.bytes = &.{};
+fn char(l: *Line, c: u8) !void {
+    if (l.hist_index > 0) {
+        l.hist_index = 0;
+        l.alloc.free(l.bytes);
+        l.bytes = &.{};
     }
-    try line.tkn.consumeChar(c);
-    try line.draw.key(c);
+    try l.tkn.consumeChar(c);
+    if (l.tkn.len != l.tkn.idx) {
+        l.draw.clear();
+        l.draw.cursor = @truncate(l.tkn.len - l.tkn.idx);
+        try l.hsh.prompt.render(l.draw, l.peek());
+    } else {
+        try l.draw.key(c);
+    }
 
     // TODO FIXME
     //line.bytes = line.tkn.getSlice();
 }
 
-pub const CursorDirection = enum {
-    left,
-    right,
-    start,
-    end,
-    word_left,
-    word_right,
-};
-
-fn cursor(line: *Line, cd: CursorDirection) void {
-    _ = line;
-    switch (cd) {
-        else => {},
-    }
+fn cursorMove(l: *Line, motion: Tokenizer.Cursor.Motion) void {
+    l.tkn.move(motion);
 }
 
 pub fn peek(line: Line) []const u8 {
     return line.tkn.getSlice();
 }
 
-fn core(line: *Line, a: Allocator, io: Io) !Action {
+fn core(l: *Line, a: Allocator, io: Io) !Action {
     while (true) {
-        const input = switch (line.mode) {
-            .interactive => line.input.interactive(a, io),
-            .scripted => line.input.nonInteractive(),
+        const input = switch (l.mode) {
+            .interactive => l.input.interactive(a, io),
+            .scripted => l.input.nonInteractive(),
             .external_editor => return .external,
         } catch |err| switch (err) {
             error.Io => return err,
             error.Signaled => {
                 log.err("signaled \n", .{});
-                line.tkn.len = 0;
-                line.draw.clearCtx();
-                try line.draw.render();
+                l.tkn.len = 0;
+                l.draw.clearCtx();
+                try l.draw.render();
 
                 return .empty;
             },
-            //error.end_of_text => return error.FIXME,
         };
-        ////line.draw.cursor = 0;
-        //if (tkn.raw.items.len == 0) {
-        //    try hsh.tty.out.print("\n", .{});
-        //    return .prompt;
-        //}
 
-        //const nl_exec = tkn.consumec(nl);
-        //if (nl_exec == error.exec) {
-        //    if (tkn.validate()) {} else |e| {
-        //        log.err("validate", .{});
-        //        switch (e) {
-        //            TokenErr.OpenGroup, TokenErr.OpenLogic => {},
-        //            TokenErr.TokenizeFailed => log.err("tokenize Error {}\n", .{e}),
-        //            else => return .ExpectedError,
-        //        }
-        //        return .prompt;
-        //    }
-        //    tkn.bsc();
-        //    return .exec;
-        //}
-        //var run = Parser.parse(tkn.alloc, tkns) catch return .redraw;
-        //defer run.raze();
-        //if (run.tokens.len > 0) return .exec;
-        //return .redraw;
-        //return input;
         switch (input) {
-            .char => |c| try line.char(c),
+            .char => |c| try l.char(c),
             .control => |ctrl| {
                 log.debug("control char = '{}'\n", .{ctrl});
                 switch (ctrl.c) {
-                    .esc => {
-                        // TODO reset many
-                        continue;
-                    },
-                    .up => try line.findHistory(.up),
-                    .down => try line.findHistory(.down),
-                    .left => line.tkn.move(.dec),
-                    .right => line.tkn.move(.inc),
-                    .backspace => line.tkn.remove(),
+                    .esc => continue,
+                    .up => try l.findHistory(.up),
+                    .down => try l.findHistory(.down),
+                    .left => l.cursorMove(.dec),
+                    .right => l.cursorMove(.inc),
+                    .home => l.cursorMove(.home),
+                    .end => l.cursorMove(.end),
+                    .backspace => l.tkn.remove(),
                     .newline => return .exec,
                     .end_of_text => return .exec,
-                    .delete_word => _ = line.tkn.removeWord(),
-                    .tab => try line.complete(a, io),
-                    .end => line.tkn.move(.end),
+                    .delete_word => _ = l.tkn.removeWord(),
+                    .tab => try l.complete(a, io),
                     else => |els| log.warn("unknown {}\n", .{els}),
                 }
-                line.draw.clear();
-                try line.prompt.render(line.draw, line.peek());
-                try line.draw.render();
+                l.draw.clear();
+                l.draw.cursor = @truncate(l.tkn.len - l.tkn.idx);
+                try l.prompt.render(l.draw, l.peek());
+                try l.draw.render();
             },
 
             else => |el| {

@@ -10,21 +10,14 @@ term_size: Cord = .{},
 lines: u16 = 0,
 internal: []u8,
 
-pub const Layout = @import("draw/layout.zig");
+const Draw = @This();
 
+pub const Layout = @import("draw/layout.zig");
 const draw_buffer_size = 8192 * 4 * 16;
 
 pub const Cord = struct {
     x: isize = 0,
     y: isize = 0,
-};
-
-const Layer = enum {
-    norm,
-    top,
-    bottom,
-    temp,
-    null, // "Nop" layer
 };
 
 pub const Attr = enum {
@@ -226,18 +219,25 @@ pub const Lexeme = struct {
 
 var colorize: bool = true;
 
-var movebuf: [32]u8 = undefined;
 const Direction = enum {
-    Up,
-    Down,
-    Left,
-    Right,
-    Absolute,
+    up,
+    down,
+    left,
+    right,
+    absolute,
 };
+pub fn move(d: *Draw, comptime dir: Direction, width: u16) !void {
+    if (width == 0) return;
+    try d.writer.print(comptime switch (dir) {
+        .up => "\x1B[{}A",
+        .down => "\x1B[{}B",
+        .left => "\x1B[{}D",
+        .right => "\x1B[{}C",
+        .absolute => "\x1B[{}G",
+    }, .{width});
+}
 
-pub const Drawable = @This();
-
-pub fn init(a: Allocator, hsh: *Hsh) !Drawable {
+pub fn init(a: Allocator, hsh: *Hsh) !Draw {
     colorize = hsh.enabled(.colorize);
     const buffer = try a.alloc(u8, draw_buffer_size);
     return .{
@@ -251,35 +251,24 @@ pub fn init(a: Allocator, hsh: *Hsh) !Drawable {
     };
 }
 
-pub fn key(d: *Drawable, c: u8) !void {
+pub fn key(d: *Draw, c: u8) !void {
     try d.unbuffered.writeByte(c);
 }
 
-pub fn move(d: *Drawable, comptime dir: Direction, width: u16) !void {
-    if (width == 0) return;
-    try d.writer.print(comptime switch (dir) {
-        .Up => "\x1B[{}A",
-        .Down => "\x1B[{}B",
-        .Left => "\x1B[{}D",
-        .Right => "\x1B[{}C",
-        .Absolute => "\x1B[{}G",
-    }, .{width});
-}
-
-pub fn clear(d: *Drawable) void {
+pub fn clear(d: *Draw) void {
     _ = d.before.consumeAll();
     _ = d.after.consumeAll();
     _ = d.right.consumeAll();
     _ = d.b.consumeAll();
 }
 
-pub fn reset(d: *Drawable) void {
+pub fn reset(d: *Draw) void {
     d.clear();
     d.lines = 0;
     d.cursor = 0;
 }
 
-pub fn raze(d: *Drawable, a: Allocator) void {
+pub fn raze(d: *Draw, a: Allocator) void {
     a.free(d.internal);
 }
 
@@ -287,21 +276,21 @@ fn drawLexemeMany(buf: *Writer, _: usize, _: usize, s: []const Lexeme) void {
     for (s) |sib| buf.print("{f}", .{sib}) catch unreachable;
 }
 
-pub fn drawBefore(d: *Drawable, t: []const Lexeme) void {
+pub fn drawBefore(d: *Draw, t: []const Lexeme) void {
     drawLexemeMany(&d.before, 0, 0, t);
     d.before.writeAll("\x1B[K") catch unreachable;
 }
 
-pub fn drawAfter(d: *Drawable, t: []const Lexeme) void {
+pub fn drawAfter(d: *Draw, t: []const Lexeme) void {
     d.after.writeByte('\n') catch unreachable;
     drawLexemeMany(&d.after, 0, 0, t);
 }
 
-pub fn drawRight(d: *Drawable, tree: []const Lexeme) void {
+pub fn drawRight(d: *Draw, tree: []const Lexeme) void {
     drawLexemeMany(&d.right, 0, 0, tree);
 }
 
-pub fn draw(d: *Drawable, tree: []const Lexeme) void {
+pub fn draw(d: *Draw, tree: []const Lexeme) void {
     drawLexemeMany(&d.b, 0, 0, tree);
 }
 
@@ -309,9 +298,9 @@ pub fn draw(d: *Drawable, tree: []const Lexeme) void {
 /// hsh is based around the idea of user keyboard-driven input, so plugin should
 /// provide the context, expecting not to know about, or touch the final user
 /// input line
-pub fn render(d: *Drawable) error{WriteFailed}!void {
+pub fn render(d: *Draw) error{WriteFailed}!void {
     try d.writer.writeByte('\r');
-    try d.move(.Up, d.lines);
+    try d.move(.up, d.lines);
     d.lines = 0;
     // TODO vert position
 
@@ -325,30 +314,30 @@ pub fn render(d: *Drawable) error{WriteFailed}!void {
         try d.writer.writeAll(d.after.buffered());
         const after_lines = count(u8, d.after.buffered(), '\n');
         try d.writer.writeAll("\x1B[K");
-        try d.move(.Up, @intCast(after_lines));
+        try d.move(.up, @intCast(after_lines));
     }
 
     if (d.right.buffered().len > 0) {
         try d.writer.writeAll("\r\x1B[K");
         // Assumes that movement becomes a nop once at term width
-        try d.move(.Absolute, @intCast(d.term_size.x));
+        try d.move(.absolute, @intCast(d.term_size.x));
         // printable [...] to give a blank buffer (I hate line wrapping)
         const printable = countPrintable(d.right.buffered());
-        try d.move(.Left, @intCast(printable));
+        try d.move(.left, @intCast(printable));
         try d.writer.writeAll(d.right.buffered());
     }
 
     try d.writer.writeAll("\r\x1B[K");
     try d.writer.writeByte('\r');
     try d.writer.writeAll(d.b.buffered());
-    try d.move(.Left, @truncate(d.cursor));
+    try d.move(.left, @truncate(d.cursor));
     // TODO save backtrack line count?
     d.lines += @intCast(count(u8, d.b.buffered(), '\n'));
     try d.writer.flush();
 }
 
-pub fn clearCtx(d: *Drawable) void {
-    d.move(.Up, d.lines) catch {};
+pub fn clearCtx(d: *Draw) void {
+    d.move(.up, d.lines) catch {};
     d.writer.writeAll("\r\x1B[J") catch {};
     d.writer.writeAll(d.b.buffered()) catch {};
     d.lines = @intCast(count(u8, d.b.buffered(), '\n'));
@@ -356,7 +345,7 @@ pub fn clearCtx(d: *Drawable) void {
 
 /// Any context before the prompt line should be cleared and replaced with the
 /// prompt before exec.
-pub fn clear_before_exec(_: *Drawable) void {}
+pub fn clear_before_exec(_: *Draw) void {}
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

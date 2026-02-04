@@ -60,19 +60,17 @@ fn userTextMultiline(_: Prompt, draw: *Draw, tkn: *Tokenizer) !void {
 }
 
 fn userText(_: Prompt, draw: *Draw, good: []const u8, bad: []const u8) !void {
-    draw.draw(&[_]Lexeme{
-        .str(good),
-        .styled(bad, .{ .bg = .red }),
-    });
+    draw.draw(&[_]Lexeme{ .str(good), .styled(bad, .{ .bg = .red }) });
 }
 
-fn prompt(p: Prompt, draw: *Draw.Drawable) !void {
-    draw.draw(
-        &[_]Lexeme{
-            .styled(p.username, .blue_bold), .str("@"),           .str(p.hostname),
-            .str(" "),                       .alt(p.cwd.*, .dir), .str(p.brace),
-        },
-    );
+fn prompt(p: Prompt, draw: *Draw) !void {
+    const lex = &[_]Lexeme{
+        .styled(p.username, .blue_bold), .str("@"),
+        .str(p.hostname),                .str(" "),
+        .alt(p.cwd.*, .dir),             .str(p.brace),
+    };
+
+    draw.draw(lex);
 }
 
 fn jobsContext(draw: *Draw, jobs: *const Jobs) !void {

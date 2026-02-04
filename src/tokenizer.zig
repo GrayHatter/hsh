@@ -5,7 +5,7 @@ raw_maybe: ?[]const u8 = null,
 prev_exec: ?[]u8 = null,
 c_tkn: usize = 0, // cursor is over this token
 err_idx: usize = 0,
-user_data: bool = false,
+edited: bool = false,
 editor_mktmp: ?[]u8 = null,
 
 const Tokenizer = @This();
@@ -259,20 +259,21 @@ pub fn removeWord(tkzr: *Tokenizer) usize {
 }
 
 pub fn remove(tkzr: *Tokenizer) void {
-    tkzr.user_data = true;
-    if (tkzr.len == 0 or tkzr.idx == 0) return;
-
-    for (tkzr.buffer[tkzr.idx..tkzr.len], tkzr.buffer[tkzr.idx - 1 .. tkzr.len - 1]) |s, *d| d.* = s;
-
+    if (tkzr.len == 0) return;
     tkzr.idx -|= 1;
     tkzr.len -|= 1;
     tkzr.err_idx = @min(tkzr.idx, tkzr.err_idx);
+    tkzr.edited = tkzr.len > 0;
+    if (tkzr.idx == 0) return;
+    if (tkzr.idx != tkzr.len) {
+        @memmove(tkzr.buffer[tkzr.idx..tkzr.len], tkzr.buffer[tkzr.idx + 1 .. tkzr.len + 1]);
+    }
 }
 
 pub fn removeReverse(tkzr: *Tokenizer) void {
     if (tkzr.len == 0 or tkzr.idx == tkzr.len) return;
-    tkzr.user_data = true;
     tkzr.idx += 1;
+    assert(tkzr.idx <= tkzr.len);
     tkzr.remove();
 }
 
@@ -291,7 +292,7 @@ pub fn removeRange(tkzr: *Tokenizer, num: usize) void {
         for (tkzr.buffer[tkzr.idx..tkzr.len], tkzr.buffer[tkzr.idx - num .. tkzr.len - num]) |s, *d|
             d.* = s;
     }
-    tkzr.user_data = true;
+    tkzr.edited = true;
     tkzr.idx -= num;
     tkzr.len -= num;
 }
@@ -306,7 +307,7 @@ pub fn consumeSlice(tkzr: *Tokenizer, str: []const u8) Error!void {
         @memmove(tkzr.buffer[tkzr.idx + str.len ..][0..len], tkzr.buffer[tkzr.idx..][0..len]);
     }
     @memcpy(tkzr.buffer[tkzr.idx .. tkzr.idx + str.len], str[0..]);
-    tkzr.user_data = true;
+    tkzr.edited = true;
     tkzr.idx += str.len;
     tkzr.len += str.len;
 }
@@ -319,7 +320,7 @@ pub fn consumeChar(tkzr: *Tokenizer, c: u8) Error!void {
         @memmove(tkzr.buffer[tkzr.idx + 1 ..][0..len], tkzr.buffer[tkzr.idx..][0..len]);
     }
     tkzr.buffer[tkzr.idx] = c;
-    tkzr.user_data = true;
+    tkzr.edited = true;
     tkzr.idx += 1;
     tkzr.len += 1;
 
@@ -335,7 +336,7 @@ pub fn reset(tkzr: *Tokenizer) void {
     tkzr.len = 0;
     tkzr.err_idx = 0;
     tkzr.c_tkn = 0;
-    tkzr.user_data = false;
+    tkzr.edited = false;
 }
 
 /// Doesn't exec, called to save previous "local" command

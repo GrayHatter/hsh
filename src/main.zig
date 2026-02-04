@@ -37,19 +37,22 @@ fn execTacC(mini: std.process.Init.Minimal, io: Io) u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const a = gpa.allocator();
     var hsh = Hsh.init(mini.environ, a, io) catch return 255;
-    defer hsh.raze(a, io);
+    defer hsh.razeStateless(a, io);
     hsh.tty = Tty.init(a, io) catch return 255;
     defer hsh.tty.raze(a);
     var args = mini.args.iterate();
-    while (args.next()) |_| {
-        unreachable;
-        //hsh.tkn.consumes(arg) catch return 2;
+
+    var tkzr: Tokenizer = .{};
+    while (args.next()) |arg| {
+        tkzr.consumeChar(' ') catch return 255;
+        tkzr.consumeSlice(arg) catch return 255;
     }
-    if (true) return 0;
-    Exec.exec(&hsh, undefined) catch |err| {
+    const str = tkzr.getSlice();
+    Exec.exec(str, &hsh, a, io) catch |err| {
         log.err("-c error [{}]\n", .{err});
         return 1;
     };
+
     for (hsh.jobs.jobs.items) |job| {
         if (job.exit_code != null and job.exit_code.? > 0) {
             return job.exit_code.?;
@@ -118,7 +121,7 @@ pub fn main(init: std.process.Init) !void {
     // Look at me, I'm the captain now!
     try hsh.tty.pwnTTY();
 
-    hsh.draw = Drawable.init(a, &hsh) catch unreachable;
+    hsh.draw = Draw.init(a, &hsh) catch unreachable;
     defer hsh.draw.raze(a);
     hsh.draw.term_size = hsh.tty.geom() catch unreachable;
 
@@ -202,7 +205,6 @@ const Io = std.Io;
 const log = @import("log.zig");
 const Tty = @import("tty.zig");
 const Draw = @import("draw.zig");
-const Drawable = Draw.Drawable;
 const Prompt = @import("Prompt.zig");
 const Context = @import("context.zig");
 const Hsh = @import("hsh.zig");
@@ -211,3 +213,4 @@ const Signals = @import("signals.zig");
 const Jobs = @import("jobs.zig");
 const Line = @import("line.zig");
 const Fs = @import("fs.zig");
+const Tokenizer = @import("tokenizer.zig");

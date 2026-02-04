@@ -6,7 +6,7 @@ pgrp: std.posix.pid_t = -1,
 jobs: Jobs,
 tty: Tty = undefined,
 prompt: Prompt,
-draw: Drawable = undefined,
+draw: Draw = undefined,
 line: *Line = undefined,
 waiting: bool = false,
 
@@ -195,13 +195,13 @@ pub fn raze(hsh: *Hsh, a: Allocator, io: Io) void {
         //shellbuiltin.save(hsh, &fw.interface) catch unreachable;
         //fw.interface.flush() catch unreachable;
     }
+    hsh.razeStateless(a, io);
+}
 
+pub fn razeStateless(hsh: *Hsh, a: Allocator, io: Io) void {
     Context.raze(a);
     shellbuiltin.raze(a);
     Variables.raze(a);
-
-    // Last cleanup
-    //hsh.env.deinit();
     hsh.jobs.raze(a);
     hsh.fs.raze(a, io);
 }
@@ -251,7 +251,7 @@ const builtin = @import("builtin");
 
 const log = @import("log.zig");
 const Context = @import("context.zig");
-const Drawable = @import("draw.zig").Drawable;
+const Draw = @import("draw.zig");
 const Prompt = @import("Prompt.zig");
 const INEvent = @import("inotify.zig").Event;
 const Line = @import("line.zig");
