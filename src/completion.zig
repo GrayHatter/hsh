@@ -67,38 +67,23 @@ const Cache = struct {
     }
 
     pub fn regenAll(c: *Cache, options: []Option, cursor: usize, str: []const u8, wh: Cord, a: Allocator) !void {
-        var mode: Flavor = .original;
-        var group_start: usize = 0;
-        for (options, 0..) |opt, i| {
+        var ori_len: usize = 0;
+        var any_len: usize = 0;
+        var exe_len: usize = 0;
+        for (options) |opt| {
             switch (opt) {
-                .original => {},
-                .any => {
-                    if (mode == .original) {
-                        try c.regenGroup(.original, options[group_start..i], cursor, str, wh, a);
-                        mode = .any;
-                    }
-                    group_start = i;
-                },
-                .executable => {
-                    if (mode == .any) {
-                        try c.regenGroup(.any, options[group_start..i], cursor, str, wh, a);
-                        mode = .executable;
-                    }
-                    group_start = i;
-                },
+                .original => ori_len += 1,
+                .any => any_len += 1,
+                .executable => exe_len += 1,
                 .file => {
-                    if (mode == .executable) {
-                        if (i > group_start) {
-                            try c.regenGroup(.executable, options[group_start..i], cursor, str, wh, a);
-                        }
-                    }
-                    if (options.len > i) {
-                        try c.regenGroup(.file, options[i..], cursor, str, wh, a);
-                    }
                     break;
                 },
             }
         }
+        try c.regenGroup(.original, options[0..ori_len], cursor, str, wh, a);
+        try c.regenGroup(.any, options[ori_len..][0..any_len], cursor, str, wh, a);
+        try c.regenGroup(.executable, options[ori_len + any_len ..][0..exe_len], cursor, str, wh, a);
+        try c.regenGroup(.file, options[ori_len + any_len + exe_len ..], cursor, str, wh, a);
 
         //const target: *[]LexemeRow = @field(c, f.name);
     }
