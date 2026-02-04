@@ -202,46 +202,37 @@ pub fn init() Completion {
 
 /// Caller owns nothing, memory is only guaranteed until `complete` is
 /// called again.
-pub fn start(cs: *Completion, tks: *Tokenizer, fs: Fs, a: Allocator, io: Io) !void {
+pub fn start(cs: *Completion, tokens: []Token, idx: usize, fs: Fs, a: Allocator, io: Io) !void {
     cs.raze(a);
 
-    var iter = tks.iterator();
-    const ts = iter.toSlice(a) catch unreachable;
-    defer a.free(ts);
-
-    cs.kind = if (ts.len > 0) ts[0].kind else .nos;
+    //cs.kind = if (ts.len > 0) ts[0].kind else .nos;
     cs.cursor_index = 0;
 
     // TODO need the real bug here
-    var pair = findToken(tks);
-    const hint: Flavor = if (ts.len <= 1) .executable else .any;
+    //var pair = findToken(tks);
+    const token = tokens[idx];
+    const hint: Flavor = if (idx == 0) .executable else .any;
 
     switch (hint) {
-        .executable => try genPathBinary(cs, pair.t.str, fs.paths, a, io),
-        else => {
-            switch (pair.t.kind) {
-                .ws => {
-                    var dir = try Io.Dir.cwd().openDir(io, ".", .{ .iterate = true });
-                    defer dir.close(io);
-                    try completeDir(cs, dir, a, io);
-                },
-                .word, .path => {
-                    switch ((try Resolver.word(pair.t)).parsed) {
-                        .word => |w| try completeDirBase(cs, w.str, fs.cwd.dir, a, io),
-                        .path => |p| try genCompletionDir(cs, p.str, a, io),
-                        else => unreachable,
-                    }
-                },
-                .io => {
-                    // TODO pipeline integration
-                },
-                else => {},
-            }
+        .executable => try genPathBinary(cs, token.str, fs.paths, a, io),
+        else => switch (token.kind) {
+            .ws => {
+                var dir = try Io.Dir.cwd().openDir(io, ".", .{ .iterate = true });
+                defer dir.close(io);
+                try completeDir(cs, dir, a, io);
+            },
+            .word, .path => switch ((try Resolver.word(token)).parsed) {
+                .word => |w| try completeDirBase(cs, w.str, fs.cwd.dir, a, io),
+                .path => |p| try genCompletionDir(cs, p.str, a, io),
+                else => unreachable,
+            },
+            .io => {}, // TODO pipeline integration
+            else => {},
         },
     }
 
     if (cs.originalStr()) |str| {
-        try tks.maybeReplace(str, a);
+        //try tks.maybeReplace(str, a);
         try cs.searchStr(str);
         log.debug("Completion original is {s}\n\n", .{str});
     } else log.debug("Completion original is null\n\n", .{});
@@ -252,11 +243,9 @@ pub fn start(cs: *Completion, tks: *Tokenizer, fs: Fs, a: Allocator, io: Io) !vo
 }
 
 pub fn raze(comp: *Completion, a: Allocator) void {
-    for (comp.options.items) |opt| {
-        switch (opt) {
-            inline else => |el| a.free(el.str),
-        }
-    }
+    for (comp.options.items) |opt| switch (opt) {
+        inline else => |el| a.free(el.str),
+    };
     comp.options.clearAndFree(a);
     comp.search_str_len = 0;
 }
@@ -313,12 +302,10 @@ fn sortAscOption(ctx: void, a: Option, b: Option) bool {
     return sortAscStr(ctx, a.str(), b.str());
 }
 
-/// Intentionally excludes original from the count
 pub fn count(comp: *const Completion) usize {
     return comp.options.items.len;
 }
 
-// TODO cache
 pub fn countFiltered(comp: *const Completion) usize {
     var c: usize = 0;
     const str = comp.search();

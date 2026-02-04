@@ -249,122 +249,110 @@ fn findHistory(line: *Line, dr: enum { up, down }) !void {
 }
 
 const CompState = union(enum) {
+    restart: void,
     start: void,
-    typing: Input.Event,
-    pending: void,
-    read: void,
+    input: void,
+    key: Input.Event,
     redraw: void,
-    done: void,
+    finish: ?u8,
+    exit: void,
 };
 
 fn complete(line: *Line, a: Allocator, io: Io) !void {
     const cmplt: *Completion = &line.completion;
+
+    var iter = line.tkn.iterator();
+    const tokens = iter.toSlice(a) catch unreachable;
+    defer a.free(tokens);
+    log.err("completion enter\n", .{});
     sw: switch (CompState{ .start = {} }) {
-        .pending => unreachable,
-        .start => {
-            try cmplt.start(&line.tkn, line.hsh.fs, a, io);
-            continue :sw .{ .redraw = {} };
+        .restart => {
+            cmplt.raze(a);
+            continue :sw .start;
         },
-        .typing => |ks| {
-            switch (ks) {
-                .char => |c| {
-                    line.draw.clear();
-                    try line.prompt.render(line.draw, line.peek());
-                    try line.draw.render();
-
-                    switch (c) {
-                        0x00...0x1f => unreachable,
-                        ' ' => {
-                            try line.tkn.maybeCommit(' ', a);
-                            cmplt.raze(a);
-                            continue :sw .{ .done = {} };
-                        },
-                        '/' => |chr| {
-                            // IFF this is an existing directory,
-                            // completion should continue
-                            if (cmplt.count() > 1) {
-                                switch (cmplt.current().*) {
-                                    .original => {},
-                                    .any => {},
-                                    .executable => {},
-                                    .file => |file| {
-                                        if (file.kind == .dir) try line.tkn.consumeChar(chr);
-                                    },
-                                }
+        .start => {
+            try cmplt.start(tokens, tokens.len - 1, line.hsh.fs, a, io);
+            continue :sw .redraw;
+        },
+        .input => continue :sw .{ .key = line.input.interactive(a, io) catch |err| switch (err) {
+            error.Signaled => continue :sw .exit,
+            else => return err,
+        } },
+        .key => |ks| switch (ks) {
+            .char => |c| switch (c) {
+                0x00...0x1f => unreachable,
+                0x7f...0xff => unreachable,
+                ' ' => continue :sw .{ .finish = ' ' },
+                // IFF this is an existing directory,
+                // completion should continue
+                '/' => if (cmplt.count() > 1) {
+                    switch (cmplt.current().*) {
+                        .original, .any, .executable => {},
+                        .file => |file| {
+                            log.err("completion continue\n", .{});
+                            if (file.kind == .dir) {
+                                try line.tkn.maybeCommit('/', a);
+                                continue :sw .restart;
                             }
-                            continue :sw .{ .redraw = {} };
-                        },
-                        else => {
-                            try cmplt.start(&line.tkn, line.hsh.fs, a, io);
-
-                            if (cmplt.count() == 0) {
-                                try line.tkn.consumeChar(c);
-                                continue :sw .{ .done = {} };
-                            } else {
-                                try cmplt.searchChar(c);
-                            }
-
-                            continue :sw .{ .redraw = {} };
-                        },
-                        0x7f...0xff => unreachable,
-                    }
-                },
-                .control => |k| {
-                    switch (k.c) {
-                        .tab => {
-                            if (k.mod.shift) {
-                                cmplt.revr();
-                                cmplt.revr();
-                            }
-                            try line.tkn.maybeReplace(cmplt.next().str(), a);
-                        },
-                        .esc => {
-                            try line.tkn.maybeRemove(a);
-                            if (cmplt.originalStr()) |o| {
-                                try line.tkn.maybeAdd(o, a);
-                                try line.tkn.maybeCommit(null, a);
-                            }
-                            cmplt.raze(a);
-                            continue :sw .{ .done = {} };
-                        },
-                        .up, .down, .left, .right => {
-                            log.err("Completion arrows not yet implemented\n", .{});
-                            // TODO implement arrows
-                        },
-                        .home, .end => |h_e| {
-                            try line.tkn.maybeCommit(null, a);
-                            line.tkn.idx = if (h_e == .home) 0 else line.tkn.len;
-                        },
-                        .newline => {
-                            try line.tkn.maybeCommit(null, a);
-                            cmplt.raze(a);
-                            try line.tkn.consumeChar(' ');
-                            continue :sw .{ .done = {} };
-                        },
-                        .backspace => {
-                            cmplt.searchPop() catch {
-                                cmplt.raze(a);
-                                line.tkn.raw_maybe = null;
-                                continue :sw .{ .redraw = {} };
-                            };
-                            //line.mode = try doComplete(line.hsh, line.tkn, line.completion);
-                            try line.tkn.maybeRemove(a);
-                            try line.tkn.maybeAdd(cmplt.search(), a);
-                            continue :sw .{ .redraw = {} };
-                        },
-                        .delete_word => {
-                            _ = line.tkn.removeWord();
-                            continue :sw .{ .redraw = {} };
-                        },
-                        else => {
-                            log.err("\n\nunexpected key  [{}]\n\n\n", .{ks});
-                            try line.tkn.maybeCommit(null, a);
+                            continue :sw .{ .finish = null };
                         },
                     }
-                    continue :sw .{ .redraw = {} };
+                    continue :sw .redraw;
+                } else continue :sw .redraw,
+                else => if (cmplt.count() == 0) {
+                    try line.tkn.consumeChar(c);
+                    continue :sw .exit;
+                } else {
+                    try cmplt.searchChar(c);
+                    continue :sw .redraw;
                 },
-                .mouse, .action => unreachable,
-            }
+            },
+            .control => |k| switch (k.c) {
+                .tab => {
+                    if (k.mod.shift) {
+                        cmplt.revr();
+                        cmplt.revr();
+                    }
+                    try line.tkn.maybeReplace(cmplt.next().str(), a);
+                    continue :sw .redraw;
+                },
+                .up, .down, .left, .right => {
+                    log.err("Completion arrows not yet implemented\n", .{});
+                    // TODO implement arrows
+                    continue :sw .redraw;
+                },
+                .backspace => {
+                    cmplt.searchPop() catch {
+                        try line.tkn.maybeRemove(a);
+                        continue :sw .restart;
+                    };
+                    try line.tkn.maybeRemove(a);
+                    try line.tkn.maybeAdd(cmplt.search(), a);
+                    continue :sw .redraw;
+                },
+                .delete_word => {
+                    _ = line.tkn.removeWord();
+                    continue :sw .redraw;
+                },
+                .home, .end => |h_e| {
+                    line.tkn.idx = if (h_e == .home) 0 else line.tkn.len;
+                    continue :sw .{ .finish = null };
+                },
+                .newline => continue :sw .{ .finish = ' ' },
+                .esc => {
+                    try line.tkn.maybeRemove(a);
+                    if (cmplt.originalStr()) |o| {
+                        try line.tkn.maybeAdd(o, a);
+                        try line.tkn.maybeCommit(null, a);
+                    }
+                    continue :sw .exit;
+                },
+                else => {
+                    log.err("\n\nunexpected key  [{}]\n\n\n", .{ks});
+                    continue :sw .{ .finish = null };
+                },
+            },
+            .mouse, .action => unreachable,
         },
         .redraw => {
             line.draw.clear();
@@ -372,27 +360,24 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                 error.ItemCount => {
                     var b: [128]u8 = undefined;
                     const text = try bufPrint(&b, "[ Unable to print all {} options ]", .{cmplt.count()});
-                    line.draw.drawAfter(&[1]Draw.Lexeme{
-                        .styled(text, .red_bold),
-                    });
-                    try line.draw.render();
+                    line.draw.drawAfter(&[1]Draw.Lexeme{.styled(text, .red_bold)});
                 },
                 else => return err,
             };
             try cmplt.drawAll(line.draw);
             try line.hsh.prompt.render(line.draw, line.peek());
             try line.draw.render();
-            continue :sw .{ .read = {} };
+            continue :sw .input;
         },
-        .read => {
-            const chr = line.input.interactive(a, io) catch |err| switch (err) {
-                error.Signaled => continue :sw .{ .typing = .{ .control = .{ .c = .esc } } },
-                else => return err,
-            };
-            continue :sw .{ .typing = chr };
+        .finish => |extra| {
+            log.err("completion finish\n", .{});
+            try line.tkn.maybeCommit(extra, a);
+            continue :sw .exit;
         },
-        .done => {
+        .exit => {
+            cmplt.raze(a);
             line.draw.clearCtx();
+            log.err("completion exit\n", .{});
             return;
         },
     }
