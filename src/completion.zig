@@ -2,7 +2,6 @@ options: ArrayList(Option) = .{},
 cursor_index: usize = 0,
 search_str: [2048]u8 = undefined,
 search_str_len: usize = 0,
-kind: Token.Kind = .nos,
 err: bool = false,
 cache: Cache = .empty,
 
@@ -202,33 +201,24 @@ pub fn init() Completion {
 
 /// Caller owns nothing, memory is only guaranteed until `complete` is
 /// called again.
-pub fn start(cs: *Completion, tokens: []Token, idx: usize, fs: Fs, a: Allocator, io: Io) !void {
+pub fn start(cs: *Completion, tokens: []Token, idx: ?usize, fs: Fs, a: Allocator, io: Io) !void {
     cs.raze(a);
-
-    //cs.kind = if (ts.len > 0) ts[0].kind else .nos;
     cs.cursor_index = 0;
 
-    // TODO need the real bug here
-    //var pair = findToken(tks);
-    const token = tokens[idx];
-    const hint: Flavor = if (idx == 0) .executable else .any;
-
-    switch (hint) {
-        .executable => try genPathBinary(cs, token.str, fs.paths, a, io),
-        else => switch (token.kind) {
-            .ws => {
-                var dir = try Io.Dir.cwd().openDir(io, ".", .{ .iterate = true });
-                defer dir.close(io);
-                try completeDir(cs, dir, a, io);
-            },
-            .word, .path => switch ((try Resolver.word(token)).parsed) {
-                .word => |w| try completeDirBase(cs, w.str, fs.cwd.dir, a, io),
-                .path => |p| try genCompletionDir(cs, p.str, a, io),
-                else => unreachable,
-            },
-            .io => {}, // TODO pipeline integration
-            else => {},
-        },
+    if (idx == null) {
+        log.debug("Completing PATH\n", .{});
+        try genOptionsFromPATH(cs, "", fs, a, io);
+    } else {
+        const token: Token = tokens[idx.?];
+        const str = trim(u8, token.str, std.ascii.whitespace[0..]);
+        log.debug("Completing Token 2 '{s}'\n", .{token.str});
+        if (idx.? == 0) {
+            try genOptionsFromPATH(cs, str, fs, a, io);
+        } else if (str.len > 0 and str[0] == '/') {
+            try genOptionsResolveDir(cs, str, fs, a, io);
+        } else {
+            try genOptionsDir(cs, str, fs.cwd.dir, a, io);
+        }
     }
 
     if (cs.originalStr()) |str| {
@@ -455,86 +445,68 @@ fn completeDir(cs: *Completion, cwdi: Io.Dir, a: Allocator, io: Io) !void {
     }
 }
 
-fn completeDirBase(cs: *Completion, base: []const u8, cwdi: Io.Dir, a: Allocator, io: Io) !void {
-    var itr = cwdi.iterate();
-
-    //const original = &cs.groups[@intFromEnum(Flavor.original)];
-    //original.appendBounded(Option{ .original = .{ .str = try a.dupe(u8, base) } }) catch unreachable;
-
+fn genOptionsDir(cs: *Completion, prefix: []const u8, search_dir: Io.Dir, a: Allocator, io: Io) !void {
+    log.debug("genOptionDir\n", .{});
+    var itr = search_dir.iterate();
+    const skip_dot = prefix.len == 0 or prefix[0] != '.';
     while (try itr.next(io)) |each| {
-        if (!std.mem.startsWith(u8, each.name, base)) continue;
-        try cs.options.append(a, .{ .file = .{
-            .str = try a.dupe(u8, each.name),
-            .kind = .fromFs(each.kind),
-        } });
+        log.debug("genOptionDir {s}\n", .{each.name});
+        if (each.name[0] == '.' and skip_dot) continue;
+        if (!startsWith(u8, each.name, prefix)) continue;
+        log.debug("genOptionDir {s} saved \n", .{each.name});
+        try cs.options.append(a, .{ .file = .{ .str = try a.dupe(u8, each.name), .kind = .fromFs(each.kind) } });
     }
 }
 
-fn genCompletionDir(cs: *Completion, target: []const u8, a: Allocator, io: Io) !void {
+fn genOptionsResolveDir(cs: *Completion, target: []const u8, fs: Fs, a: Allocator, io: Io) !void {
+    log.debug("genOptionResolvedDir\n", .{});
     if (target.len < 1) return;
 
-    var whole = std.mem.splitBackwardsAny(u8, target, "/");
-    const base = whole.first();
-    const path = whole.rest();
+    if (findScalarLast(u8, target, '/')) |idx| {
+        const path = target[0..idx];
+        const prefix = target[idx..];
 
-    var dir: Io.Dir = undefined;
-    if (target[0] == '/') {
-        if (path.len == 0) {
-            dir = Io.Dir.openDirAbsolute(io, "/", .{ .iterate = true }) catch return;
-        } else {
-            dir = Io.Dir.openDirAbsolute(io, path, .{ .iterate = true }) catch return;
-        }
+        var search_dir: Io.Dir = if (path.len == 0 or path[0] == '/')
+            Fs.openDirAbsolute(io, "/", .{ .iterate = true }) catch return
+        else
+            fs.cwd.dir.openDir(io, path, .{ .iterate = true }) catch return;
+        defer search_dir.close(io);
+
+        try cs.genOptionsDir(prefix, search_dir, a, io);
     } else {
-        dir = Io.Dir.cwd().openDir(io, path, .{ .iterate = true }) catch return;
-    }
-    defer dir.close(io);
-
-    //const original = &cs.groups[@intFromEnum(Flavor.original)];
-    //original.appendBounded(Option{ .original = .{ .str = try a.dupe(u8, base) } }) catch unreachable;
-
-    var itr = dir.iterate();
-    while (try itr.next(io)) |each| {
-        if (!std.mem.startsWith(u8, each.name, base)) continue;
-        if (each.name[0] == '.' and (base.len == 0 or base[0] != '.')) continue;
-
-        try cs.options.append(a, .{ .file = .{
-            .str = try a.dupe(u8, each.name),
-            .kind = .fromFs(each.kind),
-        } });
+        try cs.genOptionsDir(target, fs.cwd.dir, a, io);
     }
 }
 
-fn genPathBinary(cs: *Completion, target: []const u8, paths: ArrayList(Fs.Named), a: Allocator, io: Io) !void {
+fn genOptionsFromPATH(cs: *Completion, target: []const u8, fs: Fs, a: Allocator, io: Io) !void {
+    log.debug("genOptionPATH\n", .{});
     if (findScalar(u8, target, '/')) |_| {
-        return genCompletionDir(cs, target, a, io);
+        return genOptionsResolveDir(cs, target, fs, a, io);
     }
 
-    //const original = &cs.groups[@intFromEnum(Flavor.original)];
-    //original.appendBounded(Option{ .original = .{ .str = try a.dupe(u8, target) } }) catch unreachable;
-
-    for (paths.items) |path| {
+    for (fs.paths.items) |path| {
         if (path != .dir) continue;
-        var dir = std.Io.Dir.openDirAbsolute(io, path.dir.name, .{ .iterate = true }) catch return;
-        defer dir.close(io);
-        var itr = dir.iterate();
+        //try cs.genOptionsDir(target, path.dir, a, io);
+
+        var itr = path.dir.dir.iterate();
+        const skip_dot = target.len == 0 or target[0] != '.';
         while (try itr.next(io)) |each| {
-            if (!std.mem.startsWith(u8, each.name, target)) continue;
-            if (each.name[0] == '.' and (target.len == 0 or target[0] != '.')) continue;
             if (each.kind != .file) continue; // TODO probably a bug
-            const file = Fs.openFrom(dir, each.name, io, .open) orelse continue;
+            if (each.name[0] == '.' and skip_dot) continue;
+            if (!startsWith(u8, each.name, target)) continue;
+
+            const file = Fs.openFrom(path.dir.dir, each.name, io, .open) orelse continue;
             defer file.close(io);
             if (file.stat(io)) |_| {
                 // TODO check executable bit
             } else |err| {
-                log.err("{} unable to get metadata for file at path {s} name {s}\n", .{
+                log.debug("{} unable to get metadata for file at path {s} name {s}\n", .{
                     err, path.dir.name, target,
                 });
                 return;
             }
 
-            try cs.options.append(a, .{ .executable = .{
-                .str = try a.dupe(u8, each.name),
-            } });
+            try cs.options.append(a, .{ .executable = .{ .str = try a.dupe(u8, each.name) } });
         }
     }
 }
@@ -593,3 +565,6 @@ const Cord = Draw.Cord;
 const assert = std.debug.assert;
 const findScalar = std.mem.findScalar;
 const toUpper = std.ascii.toUpper;
+const startsWith = std.mem.startsWith;
+const findScalarLast = std.mem.findScalarLast;
+const trim = std.mem.trim;

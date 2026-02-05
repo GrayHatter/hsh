@@ -285,6 +285,8 @@ pub const GlobRule = enum {
     include_dot,
 };
 
+pub const openDirAbsolute = Dir.openDirAbsolute;
+
 pub fn globCwd(search: []const u8, rule: GlobRule, a: Allocator, io: Io) ![][]u8 {
     var dir = try Dir.cwd().openDir(io, ".", .{ .iterate = true });
     defer dir.close(io);

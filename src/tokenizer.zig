@@ -31,6 +31,8 @@ pub const Cursor = enum(usize) {
     };
 };
 
+pub const init: Tokenizer = .{};
+
 pub fn fromSlice(str: []const u8) Tokenizer {
     var tzr: Tokenizer = .{};
     tzr.consumeSlice(str);
@@ -78,6 +80,21 @@ pub fn move(tkzr: *Tokenizer, motion: Cursor.Motion) void {
     tkzr.idx = @min(tkzr.idx, tkzr.len);
 }
 
+pub fn cursorTokenIdx(tkzr: *Tokenizer) ?usize {
+    if (tkzr.len == 0 or tkzr.idx == 0) return null;
+    var idx: usize = 0;
+    tkzr.c_tkn = 0;
+    while (idx < tkzr.idx) {
+        const t = Token.any(tkzr.getSlice()[idx..]) catch break;
+        assert(t.str.len != 0);
+        tkzr.c_tkn += 1;
+        idx += t.str.len;
+    }
+
+    tkzr.c_tkn -|= 1;
+    return tkzr.c_tkn;
+}
+
 pub fn cursorToken(tkzr: *Tokenizer) !Token {
     var i: usize = 0;
     tkzr.c_tkn = 0;
@@ -116,6 +133,11 @@ pub fn count(tkzr: Tokenizer) usize {
 
 // completion commands
 
+pub fn maybeSetOriginal(tkzr: *Tokenizer, orig: []const u8, a: Allocator) !void {
+    assert(tkzr.raw_maybe == null);
+    tkzr.raw_maybe = try a.dupe(u8, orig);
+}
+
 /// remove the completion maybe from input
 pub fn maybeRemove(tkzr: *Tokenizer, a: Allocator) !void {
     if (tkzr.raw_maybe) |rm|
@@ -126,11 +148,6 @@ pub fn maybeRemove(tkzr: *Tokenizer, a: Allocator) !void {
 pub fn maybeClear(tkzr: *Tokenizer, a: Allocator) void {
     if (tkzr.raw_maybe) |rm| a.free(rm);
     tkzr.raw_maybe = null;
-}
-
-pub fn maybeSetOriginal(tkzr: *Tokenizer, orig: []const u8, a: Allocator) !void {
-    assert(tkzr.raw_maybe == null);
-    tkzr.raw_maybe = try a.dupe(u8, orig);
 }
 
 pub fn maybeAdd(tkzr: *Tokenizer, str: []const u8, a: Allocator) !void {
@@ -155,18 +172,6 @@ pub fn maybeReplace(tkzr: *Tokenizer, new: []const u8, a: Allocator) !void {
 
 pub fn maybeCommit(tkzr: *Tokenizer, trailing: ?u8, a: Allocator) !void {
     tkzr.maybeClear(a);
-    //if (new) |n| switch (n.kind) {
-    //    .original => {},
-    //    .file_system => |f_s| {
-    //        switch (f_s) {
-    //            .dir => try tkzr.consumeChar('/'),
-    //            .file, .link, .pipe => try tkzr.consumeChar(' '),
-    //            else => {},
-    //        }
-    //    },
-    //    .path_exe => try tkzr.consumeChar(' '),
-    //    .any => unreachable,
-    //};
     if (trailing) |t| try tkzr.consumeChar(t);
 }
 
@@ -174,8 +179,11 @@ pub fn checkSafe(str: []const u8) bool {
     return findAny(u8, str, Token.BREAKING_CHAR) == null;
 }
 
+const maybe_prohibited_char = "\n";
+
 fn dupeSafe(str: []const u8, a: Allocator) ![]u8 {
     if (str.len == 0) return &.{};
+    if (findAny(u8, str, maybe_prohibited_char)) |_| return error.ProhibitedChar;
     if (checkSafe(str)) return a.dupe(u8, str);
 
     var extra: usize = str.len;
@@ -267,7 +275,6 @@ pub fn remove(tkzr: *Tokenizer) void {
 pub fn removeReverse(tkzr: *Tokenizer) void {
     if (tkzr.len == 0 or tkzr.idx == tkzr.len) return;
     tkzr.idx += 1;
-    assert(tkzr.idx <= tkzr.len);
     tkzr.remove();
 }
 

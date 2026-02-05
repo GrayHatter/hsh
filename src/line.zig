@@ -24,7 +24,6 @@ pub const Options = struct {
 
 const Action = enum {
     exec,
-    empty,
     external,
 };
 
@@ -90,11 +89,11 @@ fn core(l: *Line, a: Allocator, io: Io) !Action {
             error.Io => return err,
             error.Signaled => {
                 log.err("signaled \n", .{});
-                l.tkn.len = 0;
+                l.tkn.reset();
                 l.draw.clearCtx();
+                l.draw.clear();
                 try l.draw.render();
-
-                return .empty;
+                continue;
             },
         };
 
@@ -135,7 +134,6 @@ pub fn do(line: *Line, a: Allocator, io: Io) ![]u8 {
     while (true) {
         return switch (try line.core(a, io)) {
             .external => try line.externEditorRead(io),
-            .empty => continue,
             .exec => {
                 try line.draw.unbuffered.writeByte('\n');
                 if (line.peek().len > 0) return try line.dupe();
@@ -152,12 +150,12 @@ fn dupe(line: Line) ![]u8 {
     return try line.alloc.dupe(u8, line.tkn.getSlice());
 }
 
-pub fn externEditor(line: *Line, io: Io) ![]u8 {
-    line.mode = .{ .external_editor = Fs.mktemp(line.text, line.alloc, io) catch |err| {
+pub fn externEditor(line: *Line, a: Allocator, io: Io) ![]u8 {
+    line.mode = .{ .external_editor = Fs.mktemp(line.bytes, line.alloc, io) catch |err| {
         log.err("Unable to write prompt to tmp file {}\n", .{err});
         return err;
     } };
-    return try std.fmt.allocPrint("$EDITOR {}", .{line.mode.external_editor});
+    return try allocPrint(a, "$EDITOR {s}", .{line.mode.external_editor});
 }
 
 pub fn externEditorRead(line: *Line, io: Io) ![]u8 {
@@ -243,8 +241,8 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
             continue :sw .start;
         },
         .start => {
-            try cmplt.start(tokens, tokens.len -| 1, line.hsh.fs, a, io);
-            try line.tkn.maybeSetOriginal(tokens[tokens.len - 1].str, a);
+            try cmplt.start(tokens, line.tkn.cursorTokenIdx(), line.hsh.fs, a, io);
+            try line.tkn.maybeSetOriginal(trim(u8, (line.tkn.cursorToken() catch unreachable).str, whitespace), a);
             continue :sw .redraw;
         },
         .input => continue :sw .{ .key = line.input.interactive(a, io) catch |err| switch (err) {
@@ -366,6 +364,10 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
     comptime unreachable;
 }
 
+test {
+    _ = std.testing.refAllDecls(@This());
+}
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -384,3 +386,6 @@ const Draw = @import("draw.zig");
 const Lexeme = Draw.Lexeme;
 const assert = std.debug.assert;
 const bufPrint = std.fmt.bufPrint;
+const allocPrint = std.fmt.allocPrint;
+const trim = std.mem.trim;
+const whitespace = std.ascii.whitespace[0..];
