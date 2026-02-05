@@ -396,6 +396,7 @@ pub fn razeExec(tkzr: Tokenizer, a: Allocator) void {
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;
+const expectEqualDeep = std.testing.expectEqualDeep;
 const expectEqualStrings = std.testing.expectEqualStrings;
 
 test consumeChar {

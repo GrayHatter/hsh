@@ -1,6 +1,7 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
+    const use_llvm = null;
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
@@ -20,6 +21,7 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{
         .name = "hsh",
         .root_module = hsh,
+        .use_llvm = use_llvm,
     });
 
     exe.root_module.addOptions("hsh_build", opts);
@@ -27,25 +29,12 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
-    // hsh doesn't like to be run from within zig build
-    //const run_cmd = b.addRunArtifact(exe);
-    //run_cmd.step.dependOn(b.getInstallStep());
-    //if (b.args) |args| {
-    //    run_cmd.addArgs(args);
-    //}
-    //const run_step = b.step("run", "Run the app");
-    //run_step.dependOn(&run_cmd.step);
-
-    // TODO enable sysinstall with keyword
-    //const install_step = b.step("sysinstall", "install to system");
-    //install_step.dependOn(&b.addInstallArtifact(exe).step);
-
     // TESTS
     const unit_tests = b.addTest(.{
         .root_module = hsh,
+        .use_llvm = use_llvm,
     });
     unit_tests.root_module.addOptions("hsh_build", opts);
-    //unit_tests.root_module.addImport("log", log);
     const run_tests = b.addRunArtifact(unit_tests);
 
     const test_step = b.step("test", "Run unit tests");

@@ -224,6 +224,7 @@ const CompState = union(enum) {
     key: Input.Event,
     redraw: void,
     empty: void,
+    commit: void,
     finish: ?u8,
     exit: void,
 };
@@ -232,17 +233,26 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
     const cmplt: *Completion = &line.completion;
 
     var iter = line.tkn.iterator();
-    const tokens = iter.toSlice(a) catch unreachable;
+    var tokens = iter.toSlice(a) catch unreachable;
     defer a.free(tokens);
     log.err("completion enter\n", .{});
     sw: switch (CompState{ .start = {} }) {
         .restart => {
             cmplt.raze(a);
+            a.free(tokens);
+            iter = line.tkn.iterator();
+            tokens = iter.toSlice(a) catch unreachable;
             continue :sw .start;
         },
         .start => {
             try cmplt.start(tokens, line.tkn.cursorTokenIdx(), line.hsh.fs, a, io);
-            line.tkn.maybe.setOriginal(trim(u8, (line.tkn.cursorToken() catch unreachable).str, whitespace));
+            const start_tkn = line.tkn.cursorToken() catch unreachable;
+            log.err("completion start '{s}'\n", .{start_tkn.str});
+            line.tkn.maybe.setOriginal(trim(u8, start_tkn.str, whitespace));
+            if (start_tkn.str.len > 0 and start_tkn.str[start_tkn.str.len - 1] == '/') {
+                line.tkn.maybe.commit(null);
+            }
+            if (cmplt.count() == 1) continue :sw .commit;
             continue :sw .redraw;
         },
         .input => continue :sw .{ .key = line.input.interactive(a, io) catch |err| switch (err) {
@@ -281,7 +291,7 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
             .control => |k| switch (k.c) {
                 .tab => {
                     if (cmplt.count() == 0) continue :sw .empty;
-                    if (cmplt.count() == 1) continue :sw .{ .finish = ' ' };
+                    if (cmplt.count() == 1) continue :sw .commit;
                     if (k.mod.shift) {
                         cmplt.revr();
                         cmplt.revr();
@@ -328,7 +338,7 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
         },
         .redraw => {
             line.draw.clear();
-            cmplt.regenAll(line.draw.term_size, a) catch |err| switch (err) {
+            cmplt.recolorAll(line.draw.term_size, a) catch |err| switch (err) {
                 error.ItemCount => {
                     var b: [128]u8 = undefined;
                     const text = bufPrint(&b, "[ Unable to print all {} options ]", .{
@@ -349,8 +359,20 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
             try line.draw.render();
             continue :sw .exit;
         },
+        .commit => {
+            const chr: u8 = switch (cmplt.current().*) {
+                .file => |file| switch (file.kind) {
+                    .dir => '/',
+                    else => ' ',
+                },
+                else => ' ',
+            };
+            line.tkn.maybe.commit(chr);
+            line.draw.clearCtx();
+            continue :sw .restart;
+        },
         .finish => |extra| {
-            log.err("completion finish\n", .{});
+            log.debug("completion finish\n", .{});
             line.tkn.maybe.commit(extra);
             line.draw.clearCtx();
             continue :sw .exit;

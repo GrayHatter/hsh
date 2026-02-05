@@ -23,6 +23,16 @@ const Cache = struct {
         .file = &.{},
     };
 
+    pub fn raze(c: *Cache, a: Allocator) void {
+        a.free(c.original);
+        a.free(c.any);
+        a.free(c.executable);
+        a.free(c.file);
+        c.* = .empty;
+
+        comptime assert(@typeInfo(Cache).@"struct".fields.len == 4);
+    }
+
     pub fn regenGroup(
         c: *Cache,
         comptime name: Flavor,
@@ -35,9 +45,7 @@ const Cache = struct {
         if (group.len == 0) return;
 
         const target: *LexemeGrid = &@field(c, @tagName(name));
-        if (target.len == 0) {
-            target.* = try genGroupLexeme(group, wh, a);
-        }
+        if (target.len == 0) target.* = try genGroupLexeme(group, wh, a);
 
         const mod: usize = @max(target.*[0].len, 1);
         const this_row = (cursor) / mod;
@@ -52,7 +60,7 @@ const Cache = struct {
                     styleInactive(column);
                 }
             }
-            if (r == this_row and row.len > 0) {
+            if (r == this_row and this_col < row.len) {
                 styleActive(&row[this_col]);
             }
         }
@@ -64,7 +72,10 @@ const Cache = struct {
             dst.* = itm.lexeme(false);
         return Draw.Layout.tableLexeme(a, list, wh) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
-            error.ItemCount, error.ViewportFit, error.LayoutUnable => return error.ItemCount,
+            error.ItemCount,
+            error.ViewportFit,
+            error.LayoutUnable,
+            => return error.ItemCount,
         };
     }
 
@@ -212,23 +223,20 @@ pub fn init() Completion {
 /// Caller owns nothing, memory is only guaranteed until `complete` is
 /// called again.
 pub fn start(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Allocator, io: Io) error{OutOfMemory}!void {
-    cs.raze(a);
     cs.cursor_index = 0;
 
     if (t_idx) |idx| {
+        log.err("Completing idx '{}'\n", .{idx});
         const token: Token = tokens[idx];
         const str = trim(u8, token.str, std.ascii.whitespace[0..]);
-        log.debug("Completing Token 2 '{s}'\n", .{token.str});
-        if (str.len > 0) {
-            if (str[0] == '/') {
-                try genOptionsResolveDir(cs, str, fs, a, io);
-            } else if (idx == 0) {
-                try genOptionsFromPATH(cs, str, fs, a, io);
-            } else {
-                try genOptionsDir(cs, str, fs.cwd.dir, a, io);
-            }
+        assert(idx != 0 or str.len > 0);
+        log.err("Completing Token '{s}'\n", .{token.str});
+        if (findScalar(u8, str, '/')) |_| {
+            try cs.genOptionsResolveDir(str, fs, a, io);
+        } else if (idx == 0) {
+            try cs.genOptionsFromPATH(str, fs, a, io);
         } else {
-            try genOptionsDir(cs, &.{}, fs.cwd.dir, a, io);
+            try cs.genOptionsDir(str, fs.cwd.dir, a, io);
         }
     } else {
         log.debug("Completing PATH\n", .{});
@@ -243,7 +251,7 @@ pub fn start(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Allocat
     } else log.debug("Completion original is null\n\n", .{});
 
     cs.sort();
-    cs.reset();
+    log.err("Completing found '{}'\n", .{cs.count()});
     return;
 }
 
@@ -252,6 +260,7 @@ pub fn raze(comp: *Completion, a: Allocator) void {
         inline else => |el| a.free(el.str),
     };
     comp.options.clearAndFree(a);
+    comp.cache.raze(a);
     comp.search_str_len = 0;
 }
 
@@ -263,7 +272,7 @@ pub fn originalStr(comp: Completion) ?[]const u8 {
     return null;
 }
 
-pub fn regenAll(comp: *Completion, wh: Cord, a: Allocator) !void {
+pub fn recolorAll(comp: *Completion, wh: Cord, a: Allocator) !void {
     try comp.cache.regenAll(comp.options.items, comp.cursor_index, comp.search(), wh, a);
 }
 
@@ -304,6 +313,12 @@ fn sortAscOption(ctx: void, a: Option, b: Option) bool {
         inline else => |_, t| @intFromEnum(t),
     };
     if (l < r) return true;
+    if (l > r) return false;
+
+    if (a == .file) {
+        if (a.file.kind == .dir and b.file.kind != .dir) return true;
+        if (b.file.kind == .dir) return false;
+    }
     return sortAscStr(ctx, a.str(), b.str());
 }
 
@@ -324,23 +339,19 @@ pub fn countFiltered(comp: *const Completion) usize {
 
 /// Returns the "only" completion if there's a single option known completion,
 /// ignoring the original. If there's multiple or only the original, null.
-pub fn known(cs_: *Completion) ?Option {
-    if (cs_.count() == 1) {
-        cs_.reset();
-        _ = cs_.next();
-        return cs_.next();
+pub fn known(cs: *Completion) ?Option {
+    if (cs.count() == 1) {
+        cs.cursor_index = 0;
+        _ = cs.next();
+        return cs.next();
     }
 
-    if (cs_.search().len > 0 and cs_.countFiltered() == 1) {
-        cs_.reset();
-        return cs_.next();
+    if (cs.search().len > 0 and cs.countFiltered() == 1) {
+        cs.cursor_index = 0;
+        return cs.next();
     }
 
     return null;
-}
-
-pub fn reset(cs_: *Completion) void {
-    cs_.cursor_index = 0;
 }
 
 pub fn sort(comp: *Completion) void {
@@ -460,15 +471,15 @@ fn completeDir(cs: *Completion, cwdi: Io.Dir, a: Allocator, io: Io) !void {
     }
 }
 
-fn genOptionsDir(cs: *Completion, prefix: []const u8, search_dir: Io.Dir, a: Allocator, io: Io) !void {
+fn genOptionsDir(cs: *Completion, str: []const u8, search_dir: Io.Dir, a: Allocator, io: Io) !void {
     log.debug("genOptionDir\n", .{});
     var itr = search_dir.iterate();
-    const skip_dot = prefix.len == 0 or prefix[0] != '.';
+    const skip_dot = str.len == 0 or str[0] != '.';
     while (itr.next(io)) |eachZ| {
         const each = eachZ orelse break;
         log.debug("genOptionDir {s}\n", .{each.name});
         if (each.name[0] == '.' and skip_dot) continue;
-        if (!startsWith(u8, each.name, prefix)) continue;
+        if (!startsWith(u8, each.name, str)) continue;
         log.debug("genOptionDir {s} saved \n", .{each.name});
         try cs.options.append(a, .{ .file = .{ .str = try a.dupe(u8, each.name), .kind = .fromFs(each.kind) } });
     } else |err| log.err("Completion directory read error {}\n", .{err});
@@ -480,7 +491,8 @@ fn genOptionsResolveDir(cs: *Completion, target: []const u8, fs: Fs, a: Allocato
 
     if (findScalarLast(u8, target, '/')) |idx| {
         const path = target[0..idx];
-        const prefix = target[idx..];
+        const str = target[idx + 1 ..];
+        log.err("genOptionResolvedDir path '{s}' str '{s}' \n", .{ path, str });
 
         var search_dir: Io.Dir = if (path.len == 0 or path[0] == '/')
             Fs.openDirAbsolute(io, "/", .{ .iterate = true }) catch return
@@ -488,7 +500,7 @@ fn genOptionsResolveDir(cs: *Completion, target: []const u8, fs: Fs, a: Allocato
             fs.cwd.dir.openDir(io, path, .{ .iterate = true }) catch return;
         defer search_dir.close(io);
 
-        try cs.genOptionsDir(prefix, search_dir, a, io);
+        try cs.genOptionsDir(str, search_dir, a, io);
     } else {
         try cs.genOptionsDir(target, fs.cwd.dir, a, io);
     }

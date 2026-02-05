@@ -145,7 +145,7 @@ pub fn tableLexeme(a: Allocator, items: []const Lexeme, wh: Cord) Error![][]Lexe
     const stride = colsz.len;
     defer a.free(colsz);
     const row_count = std.math.divCeil(usize, items.len, stride) catch unreachable;
-    const remainder = (items.len % stride) -| 1;
+    const remainder = (items.len % stride);
 
     const rows = try a.alloc([]Lexeme, row_count);
     for (rows, 0..) |*row, i| {
