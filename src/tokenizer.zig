@@ -7,10 +7,16 @@ c_tkn: usize = 0, // cursor is over this token
 err_idx: usize = 0,
 edited: bool = false,
 editor_mktmp: ?[]u8 = null,
+mode: Mode = .single,
 
 const Tokenizer = @This();
 
 pub const Iterator = Token.Iterator;
+
+pub const Mode = enum {
+    single,
+    multiline,
+};
 
 pub const Cursor = enum(usize) {
     _,
@@ -270,6 +276,7 @@ pub fn remove(tkzr: *Tokenizer) void {
     if (tkzr.idx != tkzr.len) {
         @memmove(tkzr.buffer[tkzr.idx..tkzr.len], tkzr.buffer[tkzr.idx + 1 .. tkzr.len + 1]);
     }
+    tkzr.chkMode();
 }
 
 pub fn removeReverse(tkzr: *Tokenizer) void {
@@ -296,6 +303,7 @@ pub fn removeRange(tkzr: *Tokenizer, num: usize) void {
     tkzr.edited = true;
     tkzr.idx -= num;
     tkzr.len -= num;
+    tkzr.chkMode();
 }
 
 /// consumeSlice will swallow exec, assuming strings shouldn't be able to
@@ -311,6 +319,7 @@ pub fn consumeSlice(tkzr: *Tokenizer, str: []const u8) void {
     tkzr.edited = true;
     tkzr.idx += str.len;
     tkzr.len += str.len;
+    if (findScalar(u8, str, '\n')) |_| tkzr.mode = .multiline;
 }
 
 pub fn consumeChar(tkzr: *Tokenizer, c: u8) !void {
@@ -328,8 +337,17 @@ pub fn consumeChar(tkzr: *Tokenizer, c: u8) !void {
     if (c == '\n') {
         if (tkzr.idx == tkzr.len and tkzr.len > 1 and tkzr.buffer[tkzr.idx - 2] != '\\') {
             return error.Exec;
+        } else {
+            tkzr.mode = .multiline;
         }
     }
+}
+
+fn chkMode(tkzr: *Tokenizer) void {
+    tkzr.mode = if (findScalar(u8, tkzr.buffer[0..tkzr.len], '\n')) |_|
+        .multiline
+    else
+        .single;
 }
 
 pub fn reset(tkzr: *Tokenizer) void {
@@ -338,6 +356,7 @@ pub fn reset(tkzr: *Tokenizer) void {
     tkzr.err_idx = 0;
     tkzr.c_tkn = 0;
     tkzr.edited = false;
+    tkzr.mode = .single;
 }
 
 /// Doesn't exec, called to save previous "local" command
