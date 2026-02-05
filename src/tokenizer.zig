@@ -45,7 +45,7 @@ pub fn fromSlice(str: []const u8) Tokenizer {
     return tzr;
 }
 
-pub fn getSlice(tkzr: Tokenizer) []const u8 {
+pub fn getSlice(tkzr: *const Tokenizer) []const u8 {
     return tkzr.buffer[0..tkzr.len];
 }
 
