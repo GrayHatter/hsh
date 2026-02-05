@@ -58,14 +58,24 @@ const Cache = struct {
         }
     }
 
-    fn genGroupLexeme(group: []Option, wh: Cord, a: Allocator) ![][]Draw.Lexeme {
+    fn genGroupLexeme(group: []Option, wh: Cord, a: Allocator) error{ OutOfMemory, ItemCount }![][]Draw.Lexeme {
         const list = try a.alloc(Draw.Lexeme, group.len);
         for (group, list) |itm, *dst|
             dst.* = itm.lexeme(false);
-        return try Draw.Layout.tableLexeme(a, list, wh);
+        return Draw.Layout.tableLexeme(a, list, wh) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ItemCount, error.ViewportFit, error.LayoutUnable => return error.ItemCount,
+        };
     }
 
-    pub fn regenAll(c: *Cache, options: []Option, cursor: usize, str: []const u8, wh: Cord, a: Allocator) !void {
+    pub fn regenAll(
+        c: *Cache,
+        options: []Option,
+        cursor: usize,
+        str: []const u8,
+        wh: Cord,
+        a: Allocator,
+    ) error{ OutOfMemory, ItemCount }!void {
         var ori_len: usize = 0;
         var any_len: usize = 0;
         var exe_len: usize = 0;
@@ -201,24 +211,29 @@ pub fn init() Completion {
 
 /// Caller owns nothing, memory is only guaranteed until `complete` is
 /// called again.
-pub fn start(cs: *Completion, tokens: []Token, idx: ?usize, fs: Fs, a: Allocator, io: Io) !void {
+pub fn start(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Allocator, io: Io) error{OutOfMemory}!void {
     cs.raze(a);
     cs.cursor_index = 0;
 
-    if (idx == null) {
-        log.debug("Completing PATH\n", .{});
-        try genOptionsFromPATH(cs, "", fs, a, io);
-    } else {
-        const token: Token = tokens[idx.?];
+    if (t_idx) |idx| {
+        const token: Token = tokens[idx];
         const str = trim(u8, token.str, std.ascii.whitespace[0..]);
         log.debug("Completing Token 2 '{s}'\n", .{token.str});
-        if (idx.? == 0) {
-            try genOptionsFromPATH(cs, str, fs, a, io);
-        } else if (str.len > 0 and str[0] == '/') {
-            try genOptionsResolveDir(cs, str, fs, a, io);
+        if (str.len > 0) {
+            if (str[0] == '/') {
+                try genOptionsResolveDir(cs, str, fs, a, io);
+            } else if (idx == 0) {
+                try genOptionsFromPATH(cs, str, fs, a, io);
+            } else {
+                try genOptionsDir(cs, str, fs.cwd.dir, a, io);
+            }
         } else {
-            try genOptionsDir(cs, str, fs.cwd.dir, a, io);
+            try genOptionsDir(cs, &.{}, fs.cwd.dir, a, io);
         }
+    } else {
+        log.debug("Completing PATH\n", .{});
+        // TODO from history
+        //try genOptionsFromPATH(cs, "", fs, a, io);
     }
 
     if (cs.originalStr()) |str| {
@@ -449,13 +464,14 @@ fn genOptionsDir(cs: *Completion, prefix: []const u8, search_dir: Io.Dir, a: All
     log.debug("genOptionDir\n", .{});
     var itr = search_dir.iterate();
     const skip_dot = prefix.len == 0 or prefix[0] != '.';
-    while (try itr.next(io)) |each| {
+    while (itr.next(io)) |eachZ| {
+        const each = eachZ orelse break;
         log.debug("genOptionDir {s}\n", .{each.name});
         if (each.name[0] == '.' and skip_dot) continue;
         if (!startsWith(u8, each.name, prefix)) continue;
         log.debug("genOptionDir {s} saved \n", .{each.name});
         try cs.options.append(a, .{ .file = .{ .str = try a.dupe(u8, each.name), .kind = .fromFs(each.kind) } });
-    }
+    } else |err| log.err("Completion directory read error {}\n", .{err});
 }
 
 fn genOptionsResolveDir(cs: *Completion, target: []const u8, fs: Fs, a: Allocator, io: Io) !void {
@@ -490,7 +506,8 @@ fn genOptionsFromPATH(cs: *Completion, target: []const u8, fs: Fs, a: Allocator,
 
         var itr = path.dir.dir.iterate();
         const skip_dot = target.len == 0 or target[0] != '.';
-        while (try itr.next(io)) |each| {
+        while (itr.next(io)) |eachZ| {
+            const each = eachZ orelse break;
             if (each.kind != .file) continue; // TODO probably a bug
             if (each.name[0] == '.' and skip_dot) continue;
             if (!startsWith(u8, each.name, target)) continue;
@@ -507,7 +524,7 @@ fn genOptionsFromPATH(cs: *Completion, target: []const u8, fs: Fs, a: Allocator,
             }
 
             try cs.options.append(a, .{ .executable = .{ .str = try a.dupe(u8, each.name) } });
-        }
+        } else |err| log.err("Completion PATH read error {}\n", .{err});
     }
 }
 

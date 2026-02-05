@@ -1,7 +1,7 @@
 buffer: [8192]u8 = @splat(0),
 idx: usize = 0,
 len: usize = 0,
-raw_maybe: ?[]const u8 = null,
+maybe: Maybe = .{},
 prev_exec: ?[]u8 = null,
 c_tkn: usize = 0, // cursor is over this token
 err_idx: usize = 0,
@@ -137,84 +137,102 @@ pub fn count(tkzr: Tokenizer) usize {
     return c;
 }
 
-// completion commands
+pub const Maybe = struct {
+    bytes: [2048]u8 = undefined,
+    len: usize = 0,
 
-pub fn maybeSetOriginal(tkzr: *Tokenizer, orig: []const u8, a: Allocator) !void {
-    assert(tkzr.raw_maybe == null);
-    tkzr.raw_maybe = try a.dupe(u8, orig);
-}
-
-/// remove the completion maybe from input
-pub fn maybeRemove(tkzr: *Tokenizer, a: Allocator) !void {
-    if (tkzr.raw_maybe) |rm|
-        tkzr.removeRange(rm.len);
-    tkzr.maybeClear(a);
-}
-
-pub fn maybeClear(tkzr: *Tokenizer, a: Allocator) void {
-    if (tkzr.raw_maybe) |rm| a.free(rm);
-    tkzr.raw_maybe = null;
-}
-
-pub fn maybeAdd(tkzr: *Tokenizer, str: []const u8, a: Allocator) !void {
-    if (checkSafe(str)) {
-        tkzr.consumeSlice(str);
-        return;
+    pub fn slice(m: *const Maybe) []const u8 {
+        return m.bytes[0..m.len];
     }
 
-    const safe = try dupeSafe(str, a);
-    defer a.free(safe);
-    tkzr.consumeSlice(safe);
-}
-
-/// This function edits user text, so extra care must be taken to ensure
-/// it's something the user asked for!
-pub fn maybeReplace(tkzr: *Tokenizer, new: []const u8, a: Allocator) !void {
-    try tkzr.maybeRemove(a);
-    //if (new.kind == .original) return;
-    tkzr.raw_maybe = try dupeSafe(new, a);
-    tkzr.consumeSlice(tkzr.raw_maybe.?);
-}
-
-pub fn maybeCommit(tkzr: *Tokenizer, trailing: ?u8, a: Allocator) !void {
-    tkzr.maybeClear(a);
-    if (trailing) |t| try tkzr.consumeChar(t);
-}
-
-pub fn checkSafe(str: []const u8) bool {
-    return findAny(u8, str, Token.BREAKING_CHAR) == null;
-}
-
-const maybe_prohibited_char = "\n";
-
-fn dupeSafe(str: []const u8, a: Allocator) ![]u8 {
-    if (str.len == 0) return &.{};
-    if (findAny(u8, str, maybe_prohibited_char)) |_| return error.ProhibitedChar;
-    if (checkSafe(str)) return a.dupe(u8, str);
-
-    var extra: usize = str.len;
-    for (Token.BREAKING_CHAR) |t| {
-        extra += countScalar(u8, str, t);
+    pub fn setOriginal(maybe: *Maybe, orig: []const u8) void {
+        assert(maybe.len == 0);
+        assert(orig.len <= maybe.bytes.len);
+        maybe.len = orig.len;
+        @memcpy(maybe.bytes[0..orig.len], orig);
     }
-    assert(extra > str.len);
 
-    var safer = try a.alloc(u8, extra);
-    var dst: [*]u8 = safer.ptr;
-
-    for (str) |chr| {
-        for (Token.BREAKING_CHAR) |bad| {
-            if (bad == chr) {
-                dst[0] = '\\';
-                dst += 1;
-                break;
-            }
+    /// remove the completion maybe from input
+    pub fn remove(maybe: *Maybe) void {
+        if (maybe.len > 0) {
+            const tkzr: *Tokenizer = @fieldParentPtr("maybe", maybe);
+            tkzr.removeRange(maybe.len);
+            maybe.clear();
         }
-        dst[0] = chr;
-        dst += 1;
     }
-    assert(dst == safer.ptr + safer.len);
-    return safer;
-}
+
+    pub fn clear(maybe: *Maybe) void {
+        maybe.len = 0;
+    }
+
+    pub fn add(maybe: *Maybe, str: []const u8) !void {
+        const tkzr: *Tokenizer = @fieldParentPtr("maybe", maybe);
+        if (checkSafe(str)) {
+            maybe.setOriginal(str);
+            tkzr.consumeSlice(str);
+            return;
+        }
+
+        const len = try memcpySafe(maybe.bytes[0..], str);
+        maybe.len = len;
+        tkzr.consumeSlice(maybe.bytes[0..len]);
+    }
+
+    /// This function edits user text, so extra care must be taken to ensure
+    /// it's something the user asked for!
+    pub fn replace(maybe: *Maybe, new: []const u8) !void {
+        maybe.remove();
+        try maybe.add(new);
+    }
+
+    pub fn commit(maybe: *Maybe, trailing: ?u8) void {
+        maybe.clear();
+        if (trailing) |t| {
+            const tkzr: *Tokenizer = @fieldParentPtr("maybe", maybe);
+            tkzr.consumeChar(t) catch {};
+        }
+    }
+
+    pub fn checkSafe(str: []const u8) bool {
+        return findAny(u8, str, Token.BREAKING_CHAR) == null;
+    }
+
+    pub const prohibited_char = "\n";
+    pub fn memcpySafe(dst: []u8, src: []const u8) !usize {
+        if (findAny(u8, src, prohibited_char)) |_| return error.ProhibitedChar;
+
+        var idx: usize = 0;
+        for (src) |chr| {
+            for (Token.BREAKING_CHAR) |bad| {
+                if (bad == chr) {
+                    dst[idx] = '\\';
+                    idx += 1;
+                    break;
+                }
+            }
+            dst[idx] = chr;
+            idx += 1;
+        }
+        return idx;
+    }
+
+    fn dupeSafe(str: []const u8, a: Allocator) ![]u8 {
+        if (str.len == 0) return &.{};
+        if (findAny(u8, str, prohibited_char)) |_| return error.ProhibitedChar;
+        if (checkSafe(str)) return a.dupe(u8, str);
+
+        var extra: usize = str.len;
+        for (Token.BREAKING_CHAR) |t| {
+            extra += countScalar(u8, str, t);
+        }
+        assert(extra > str.len);
+
+        var safer = try a.alloc(u8, extra);
+        const len = try memcpySafe(safer, str);
+        assert(len == safer.len);
+        return safer;
+    }
+};
 
 fn removeWhitespace(tkzr: *Tokenizer) usize {
     if (tkzr.idx == 0 or !isWhitespace(tkzr.buffer[tkzr.idx - 1])) {
@@ -366,9 +384,9 @@ pub fn exec(tkzr: *Tokenizer, a: Allocator) !void {
     tkzr.reset();
 }
 
-pub fn raze(tkzr: *Tokenizer, a: Allocator) void {
+pub fn raze(tkzr: *Tokenizer) void {
     tkzr.reset();
-    tkzr.maybeClear(a);
+    tkzr.maybe.clear();
 }
 
 pub fn razeExec(tkzr: Tokenizer, a: Allocator) void {
@@ -415,7 +433,7 @@ test consumeChar {
 test "quotes tokened" {
     var a = std.testing.allocator;
     var t: Tokenizer = .{};
-    defer t.raze(a);
+    defer t.raze();
 
     t.consumeSlice("\"\"");
     var titr = t.iterator();
@@ -493,7 +511,7 @@ test "quotes tokened" {
 test "tokens" {
     var a = std.testing.allocator;
     var t: Tokenizer = .{};
-    defer t.raze(a);
+    defer t.raze();
     for ("token") |c| {
         try t.consumeChar(c);
     }
@@ -506,7 +524,7 @@ test "tokens" {
 test "tokenize path" {
     var a = std.testing.allocator;
     var t: Tokenizer = .{};
-    defer t.raze(a);
+    defer t.raze();
 
     t.consumeSlice("blerg ~/dir");
     var titr = t.iterator();
@@ -531,7 +549,7 @@ test "tokenize path" {
 test "replace token" {
     var a = std.testing.allocator;
     var t: Tokenizer = .{};
-    defer t.raze(a);
+    defer t.raze();
     try expectEqualStrings(t.buffer[0..t.len], "");
 
     t.consumeSlice("one two three");
@@ -541,9 +559,9 @@ test "replace token" {
 
     try std.testing.expectEqualStrings(tokens[2].str, "two");
     t.idx = 7;
-    try t.maybeSetOriginal("two", a);
+    t.maybe.setOriginal("two");
 
-    try t.maybeReplace("TWO", a);
+    try t.maybe.replace("TWO");
     try expectEqual(7, t.idx);
     titr = t.iterator();
     a.free(tokens);
@@ -553,7 +571,7 @@ test "replace token" {
     try expectEqualStrings(tokens[2].str, "TWO");
     try expectEqual(5, tokens.len);
 
-    try t.maybeReplace("TWO FOUR", a);
+    try t.maybe.replace("TWO FOUR");
     try expectEqual(13, t.idx);
 
     titr = t.iterator();
@@ -570,7 +588,7 @@ test "replace token" {
     try expectEqual(13, t.idx);
     try expectEqual('R', t.buffer[t.idx - 1]);
     try expectEqual(' ', t.buffer[t.idx]);
-    try t.maybeCommit(' ', a);
+    t.maybe.commit(' ');
     try expectEqual(14, t.idx);
     try expectEqualStrings("one TWO\\ FOUR  three", t.buffer[0..t.len]);
 
@@ -612,9 +630,7 @@ test "tokeniterator 1" {
 }
 
 test "tokeniterator 2" {
-    var ti = Token.Iterator{
-        .raw = "one two three",
-    };
+    var ti = Token.Iterator{ .raw = "one two three" };
 
     var slice = try ti.toSlice(std.testing.allocator);
     defer std.testing.allocator.free(slice);
@@ -1006,7 +1022,7 @@ test "pop" {
 
 test "removeWhitespace" {
     var t: Tokenizer = .{};
-    //defer t.raze(a);
+    //defer t.raze();
     t.consumeSlice("a      ");
     try expect(t.len == 7);
     try expect(t.removeWhitespace() == 6);
@@ -1045,7 +1061,7 @@ test "removeAlpha" {
 
 test "removeWord" {
     var t: Tokenizer = .{};
-    //defer t.raze(a);
+    //defer t.raze();
     t.consumeSlice("a      ");
     try expectEqual(7, t.len);
     try expectEqual(7, t.removeWord());
@@ -1165,8 +1181,8 @@ test "subp" {
 
 test "make safe" {
     var a = std.testing.allocator;
-    try expect(checkSafe("string"));
-    const str = try dupeSafe("str ing", a);
+    try expect(Maybe.checkSafe("string"));
+    const str = try Maybe.dupeSafe("str ing", a);
     defer a.free(str);
     try expectEqualStrings("str\\ ing", str);
 }
@@ -1370,7 +1386,7 @@ test "naughty strings" {
 
 test "escape newline" {
     var tzr: Tokenizer = .{};
-    //defer tzr.raze(a);
+    //defer tzr.raze();
 
     tzr.consumeSlice("zig build test");
     const e = tzr.consumeChar('\n');
@@ -1385,9 +1401,8 @@ test "escape newline" {
 }
 
 test "build functions" {
-    const a = std.testing.allocator;
     var tzr: Tokenizer = .{};
-    defer tzr.raze(a);
+    defer tzr.raze();
     tzr.consumeSlice("func () a");
     try expectEqual(5, tzr.count());
     tzr.reset();
@@ -1395,13 +1410,13 @@ test "build functions" {
     var itr = tzr.iterator();
     try expectEqual(1, tzr.count());
 
-    tzr.raze(a);
+    tzr.raze();
     tzr.consumeSlice("func () {   }   ");
     itr = tzr.iterator();
 
     try expectEqual(2, tzr.count());
 
-    tzr.raze(a);
+    tzr.raze();
     tzr.consumeSlice(
         \\func () {
         \\    some function call here

@@ -228,7 +228,7 @@ const CompState = union(enum) {
     exit: void,
 };
 
-fn complete(line: *Line, a: Allocator, io: Io) !void {
+fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory, WriteFailed }!void {
     const cmplt: *Completion = &line.completion;
 
     var iter = line.tkn.iterator();
@@ -242,7 +242,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
         },
         .start => {
             try cmplt.start(tokens, line.tkn.cursorTokenIdx(), line.hsh.fs, a, io);
-            try line.tkn.maybeSetOriginal(trim(u8, (line.tkn.cursorToken() catch unreachable).str, whitespace), a);
+            line.tkn.maybe.setOriginal(trim(u8, (line.tkn.cursorToken() catch unreachable).str, whitespace));
             continue :sw .redraw;
         },
         .input => continue :sw .{ .key = line.input.interactive(a, io) catch |err| switch (err) {
@@ -262,7 +262,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                         .file => |file| {
                             log.err("completion continue\n", .{});
                             if (file.kind == .dir) {
-                                try line.tkn.maybeCommit('/', a);
+                                line.tkn.maybe.commit('/');
                                 continue :sw .restart;
                             }
                             continue :sw .{ .finish = null };
@@ -271,7 +271,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                     continue :sw .redraw;
                 } else continue :sw .redraw,
                 else => if (cmplt.count() == 0) {
-                    try line.tkn.consumeChar(c);
+                    line.tkn.consumeChar(c) catch {};
                     continue :sw .exit;
                 } else {
                     try cmplt.searchChar(c);
@@ -286,7 +286,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                         cmplt.revr();
                         cmplt.revr();
                     }
-                    try line.tkn.maybeReplace(cmplt.next().str(), a);
+                    line.tkn.maybe.replace(cmplt.next().str()) catch unreachable;
 
                     continue :sw .redraw;
                 },
@@ -297,11 +297,10 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                 },
                 .backspace => {
                     cmplt.searchPop() catch {
-                        try line.tkn.maybeRemove(a);
+                        line.tkn.maybe.remove();
                         continue :sw .restart;
                     };
-                    try line.tkn.maybeRemove(a);
-                    try line.tkn.maybeAdd(cmplt.search(), a);
+                    line.tkn.maybe.replace(cmplt.search()) catch unreachable;
                     continue :sw .redraw;
                 },
                 .delete_word => {
@@ -314,11 +313,10 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
                 },
                 .newline => continue :sw .{ .finish = ' ' },
                 .esc => {
-                    try line.tkn.maybeRemove(a);
                     if (cmplt.originalStr()) |o| {
-                        try line.tkn.maybeAdd(o, a);
-                        try line.tkn.maybeCommit(null, a);
-                    }
+                        line.tkn.maybe.replace(o) catch unreachable;
+                        line.tkn.maybe.commit(null);
+                    } else line.tkn.maybe.remove();
                     continue :sw .exit;
                 },
                 else => {
@@ -333,10 +331,12 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
             cmplt.regenAll(line.draw.term_size, a) catch |err| switch (err) {
                 error.ItemCount => {
                     var b: [128]u8 = undefined;
-                    const text = try bufPrint(&b, "[ Unable to print all {} options ]", .{cmplt.count()});
+                    const text = bufPrint(&b, "[ Unable to print all {} options ]", .{
+                        cmplt.count(),
+                    }) catch unreachable;
                     line.draw.drawAfter(&[1]Draw.Lexeme{.styled(text, .red_bold)});
                 },
-                else => return err,
+                error.OutOfMemory => return error.OutOfMemory,
             };
             try cmplt.drawAll(line.draw);
             try line.hsh.prompt.render(line.draw, line.peek());
@@ -351,7 +351,7 @@ fn complete(line: *Line, a: Allocator, io: Io) !void {
         },
         .finish => |extra| {
             log.err("completion finish\n", .{});
-            try line.tkn.maybeCommit(extra, a);
+            line.tkn.maybe.commit(extra);
             line.draw.clearCtx();
             continue :sw .exit;
         },

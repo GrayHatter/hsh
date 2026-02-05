@@ -33,7 +33,7 @@ pub const Reserved = enum {
 
 fn execBody(body: []const u8, h: *Hsh, a: Allocator, io: Io) !void {
     var tzr: Tokenizer = .{};
-    defer tzr.raze(a);
+    defer tzr.raze();
     for (body) |b| {
         tzr.consumeChar(b) catch |err| {
             if (err == error.Exec) {
