@@ -1,4 +1,4 @@
-buffer: [8192]u8 = undefined,
+buffer: [8192]u8 = @splat(0),
 idx: usize = 0,
 len: usize = 0,
 raw_maybe: ?[]const u8 = null,
@@ -171,7 +171,7 @@ pub fn maybeCommit(tkzr: *Tokenizer, trailing: ?u8, a: Allocator) !void {
 }
 
 pub fn checkSafe(str: []const u8) bool {
-    return findAny(u8, str, Token.BREAKING_TOKENS) == null;
+    return findAny(u8, str, Token.BREAKING_CHAR) == null;
 }
 
 fn dupeSafe(str: []const u8, a: Allocator) ![]u8 {
@@ -179,7 +179,7 @@ fn dupeSafe(str: []const u8, a: Allocator) ![]u8 {
     if (checkSafe(str)) return a.dupe(u8, str);
 
     var extra: usize = str.len;
-    for (Token.BREAKING_TOKENS) |t| {
+    for (Token.BREAKING_CHAR) |t| {
         extra += countScalar(u8, str, t);
     }
     assert(extra > str.len);
@@ -188,7 +188,7 @@ fn dupeSafe(str: []const u8, a: Allocator) ![]u8 {
     var dst: [*]u8 = safer.ptr;
 
     for (str) |chr| {
-        for (Token.BREAKING_TOKENS) |bad| {
+        for (Token.BREAKING_CHAR) |bad| {
             if (bad == chr) {
                 dst[0] = '\\';
                 dst += 1;

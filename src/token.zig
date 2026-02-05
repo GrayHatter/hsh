@@ -4,7 +4,7 @@ kind: Kind = .nos,
 const Token = @This();
 
 pub const Reserved = @import("logic.zig").Reserved;
-pub const BREAKING_TOKENS = " \t\n\"\\'`${|><#;}";
+pub const BREAKING_CHAR = " \t\n\"\\'`${|><#;}";
 const BSLH = '\\';
 
 pub const IOKind = enum {
@@ -210,7 +210,7 @@ pub fn vari(src: []const u8) Error!Token {
 pub fn word(src: []const u8) Error!Token {
     var end: usize = 0;
     while (end < src.len) : (end += 1) {
-        if (findScalar(u8, BREAKING_TOKENS, src[end])) |_|
+        if (findScalar(u8, BREAKING_CHAR, src[end])) |_|
             break;
     }
 
@@ -246,7 +246,7 @@ pub fn wordExpanded(src: []const u8) Error!Token {
 }
 
 pub fn logic(src: []const u8) Error!Token {
-    const end = std.mem.indexOfAny(u8, src, BREAKING_TOKENS) orelse {
+    const end = std.mem.indexOfAny(u8, src, BREAKING_CHAR) orelse {
         if (Reserved.fromStr(src)) |typ| {
             return Token.make(src, .{ .resr = typ });
         }

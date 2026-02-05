@@ -49,6 +49,26 @@ pub fn readLineFiltered(h: *History, req_ln_num: usize, search: []const u8) ?[]c
     return line;
 }
 
+pub const CmdMap = std.StringHashMapUnmanaged(u8);
+
+// CmdMap is returned unsorted
+// map keys remained owned by `History`, and do not outlive `History`
+pub fn usedCommands(h: *const History, a: Allocator) !CmdMap {
+    var set: CmdMap = .{};
+    for (h.lines.items) |line| {
+        const bin = if (findScalar(u8, line, ' ')) |i| line[0..i] else trim(u8, line, whitespace);
+        if (findAny(u8, bin, BREAKING_CHAR)) |_| continue;
+        const gop = try set.getOrPut(a, bin);
+        if (gop.found_existing) {
+            gop.value_ptr.* +|= 1;
+        } else {
+            gop.key_ptr.* = bin;
+            gop.value_ptr.* = 1;
+        }
+    }
+    return set;
+}
+
 // /// Moves position of stream without resetting it
 // fn samesame(any: anytype, line: []const u8) !bool {
 //     if (line.len > 2048) return false;
@@ -94,3 +114,8 @@ const Io = std.Io;
 const FixedBufferAllocator = std.heap.FixedBufferAllocator;
 const startsWith = std.mem.startsWith;
 const log = @import("log.zig");
+const trim = std.mem.trim;
+const findScalar = std.mem.findScalar;
+const findAny = std.mem.findAny;
+const BREAKING_CHAR = @import("token.zig").BREAKING_CHAR[0..];
+const whitespace = std.ascii.whitespace[0..];
