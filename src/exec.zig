@@ -426,12 +426,8 @@ pub fn exec(input: []const u8, h: *Hsh, a: Allocator, io: Io) !void {
             const waited_job = h.jobs.waitFor(fpid) catch @panic("job doesn't exist");
             switch (cond) {
                 .after => {},
-                .failure => if (waited_job.exit_code) |ec| {
-                    if (ec == 0) continue;
-                },
-                .success => if (waited_job.exit_code) |ec| {
-                    if (ec != 0) continue;
-                },
+                .failure => if (waited_job.status == .exited and waited_job.status.exited == 0) continue,
+                .success => if (waited_job.status == .exited and waited_job.status.exited != 0) continue,
             }
             // repush original because spinning will revert
             tty.setOrig() catch |e| {
@@ -461,7 +457,7 @@ pub fn exec(input: []const u8, h: *Hsh, a: Allocator, io: Io) !void {
             .logic => "logic stuff",
         };
         try h.jobs.add(.{
-            .status = if (s.proc_io.pipe) .piped else .running,
+            .status = .{ .running = if (s.proc_io.pipe) .pipeline else .forground },
             .pid = fpid,
             .name = try a.dupe(u8, name),
         }, a);
@@ -484,7 +480,6 @@ pub const ChildResult = struct {
         var r = res.stdout.reader(io, &r_b);
         var job_: Jobs.Job = .init(res.pid, null);
         _ = job_.waitFor() catch unreachable;
-        log.err("job {}\n", .{job_});
         const output = r.interface.allocRemaining(a, .limited(0x8000)) catch unreachable;
         return output;
     }

@@ -52,11 +52,10 @@ fn execTacC(mini: std.process.Init.Minimal, io: Io) u8 {
         return 1;
     };
 
-    for (hsh.jobs.jobs.items) |job| {
-        if (job.exit_code != null and job.exit_code.? > 0) {
-            return job.exit_code.?;
-        }
-    }
+    for (hsh.jobs.jobs.items) |job| switch (job.status) {
+        .exited => |ec| return ec,
+        else => unreachable,
+    };
     return 0;
 }
 
@@ -110,7 +109,7 @@ pub fn main(init: std.process.Init) !void {
     hsh.prompt.cwd = &hsh.fs.cwd.name;
     Fs.g_fs = &hsh.fs;
 
-    try Signals.init(a);
+    try Signals.init();
     defer Signals.raze();
 
     hsh.tty = try Tty.init(a, io);

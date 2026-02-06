@@ -52,24 +52,12 @@ pub fn get() ?Signal {
     return null;
 }
 
-pub fn init(a: Allocator) !void {
-    _ = a;
-
+pub fn init() !void {
     const SA = std.posix.SA;
     // zsh blocks and unblocks winch signals during most processing, collecting
     // them only when needed. It's likely something we should do as well
     const wanted = [_]std.posix.SIG{
-        std.posix.SIG.HUP,
-        std.posix.SIG.INT,
-        std.posix.SIG.USR1,
-        std.posix.SIG.QUIT,
-        std.posix.SIG.TERM,
-        std.posix.SIG.CHLD,
-        std.posix.SIG.CONT,
-        std.posix.SIG.TSTP,
-        std.posix.SIG.TTIN,
-        std.posix.SIG.TTOU,
-        std.posix.SIG.WINCH,
+        .HUP, .INT, .USR1, .QUIT, .TERM, .CHLD, .CONT, .TSTP, .TTIN, .TTOU, .WINCH,
     };
 
     for (wanted) |sig| {
@@ -80,10 +68,7 @@ pub fn init(a: Allocator) !void {
         }, null);
     }
 
-    const ignored = [_]std.posix.SIG{
-        std.posix.SIG.TTIN,
-        std.posix.SIG.TTOU,
-    };
+    const ignored = [_]std.posix.SIG{ .TTIN, .TTOU };
     for (ignored) |sig| {
         std.posix.sigaction(sig, &std.posix.Sigaction{
             .handler = .{ .handler = std.posix.SIG.IGN },
@@ -110,63 +95,61 @@ pub fn do(hsh: *Hsh) SigEvent {
         return .clear;
     }
 
-    while (get()) |node| {
-        var sig = node;
-        const pid = sig.info.fields.common.first.piduid.pid;
+    while (get()) |sig| {
+        const info = sig.info;
+        const first = info.fields.common.first;
+        const second = info.fields.common.second;
+        const pid = first.piduid.pid;
         switch (sig.signal) {
-            std.posix.SIG.INT => unreachable,
-            std.posix.SIG.WINCH => unreachable,
-            std.posix.SIG.CHLD => {
+            .INT => unreachable,
+            .WINCH => unreachable,
+            .CHLD => {
                 const child = hsh.jobs.getPtr(pid) catch {
-                    log.warn("Unknown child on {} {}\n", .{ sig.info.code, pid });
+                    log.warn("Unknown child on {} {}\n", .{ info.code, pid });
                     continue;
                 };
-                switch (@as(SI_CODE, @enumFromInt(sig.info.code))) {
-                    .STOPPED => {
-                        _ = child.pause(&hsh.tty);
-                        //hsh.tty.setRaw() catch unreachable;
+                switch (@as(linux.CLD, @enumFromInt(info.code))) {
+                    .EXITED => child.status = .{ .exited = @intCast(second.sigchld.status) },
+                    .KILLED, .DUMPED, .TRAPPED => {
+                        log.err("SIGNAL CHLD {} CRASH on {x}\n", .{ child.pid, second.sigchld.status });
+                        child.status = .{ .crashed = @intCast(second.sigchld.status) };
                     },
-                    .EXITED,
-                    .KILLED,
-                    => {
-                        log.debug("Child exit signal\n", .{});
-                        // if (child.exit(@intCast(sig.info.fields.common.second.sigchld.status))) {
-                        //     hsh.tty.setRaw() catch unreachable;
-                        // }
-                    },
-                    .CONTINUED => {
-                        log.debug("Child cont signal\n", .{});
-                        //_ = child.forground(&hsh.tty);
-                    },
-                    .DUMPED, .TRAPPED => {
-                        log.err("SIGNAL CHLD CRASH on {}\n", .{pid});
-                        child.crash(@intCast(sig.info.fields.common.second.sigchld.status));
+                    .STOPPED => child.status = .{ .paused = .paused },
+                    .CONTINUED => child.status = .{ .running = .background }, // just guessing here
+                    else => {
+                        //log.warn("child code on {}\n", .{info.code});
+                        //child.status = .fromLinux(@bitCast(sig.info.fields.common.second.sigchld.status));
+                        switch (child.status) {
+                            .crashed => |cc| log.err("SIGNAL CHLD {} CRASH on {}\n", .{ child.pid, cc }),
+                            .exited => |ec| log.debug("Child exited {}\n", .{ec}),
+                            .running => log.debug("Child cont signal\n", .{}),
+                            .paused => {},
+                            .unknown => unreachable,
+                        }
                     },
                 }
             },
-            std.posix.SIG.TSTP => {
+            .TSTP => {
                 if (pid != 0) {
                     const child = hsh.jobs.getPtr(pid) catch {
                         log.warn("Unknown child on {} {}\n", .{ sig.info.code, pid });
                         return .none;
                     };
-                    child.waiting();
+                    child.status = .fromLinux(@bitCast(sig.info.fields.common.second.sigchld.status));
                 }
                 log.err("SIGNAL TSTP {} => ({any})", .{ pid, sig.info });
             },
-            std.posix.SIG.CONT => {
+            .CONT => {
                 log.warn("Unexpected cont from pid({})\n", .{pid});
                 hsh.waiting = false;
             },
-            std.posix.SIG.USR1 => {
+            .USR1 => {
                 _ = hsh.jobs.haltActive() catch @panic("Signal unable to pause job");
                 hsh.tty.setRaw() catch unreachable;
                 log.err("Assuming control of TTY!\n", .{});
             },
-            std.posix.SIG.TTOU => {
-                log.err("TTOU RIP us!\n", .{});
-            },
-            std.posix.SIG.TTIN => {
+            .TTOU => log.err("TTOU RIP us!\n", .{}),
+            .TTIN => {
                 log.err("TTIN RIP us! ({} -> {})\n", .{ hsh.pid, pid });
                 hsh.waiting = true;
             },
@@ -205,3 +188,4 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Hsh = @import("hsh.zig");
 const log = @import("log.zig");
+const linux = std.os.linux;

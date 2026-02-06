@@ -168,11 +168,12 @@ const If = struct {
             return Error.ExecFailure;
         };
         const job = h.jobs.get(child.pid) catch unreachable;
-        const ec = job.exit_code orelse {
-            log.err("Logic exec called for an invalid job state.\n", .{});
-            return Error.ExecFailure;
-        };
-        return ec == 0;
+        switch (job.status) {
+            .unknown => unreachable,
+            .paused, .running => unreachable, // ??
+            .crashed => return Error.ExecFailure,
+            .exited => |ec| return ec == 0,
+        }
     }
 
     /// If null logic completed successfully, if an If pointer is returned

@@ -203,13 +203,10 @@ pub const Jobs = struct {
         fn call(hsh: *Hsh, _: *ParsedIterator, _: Allocator, _: Io) Err!u8 {
             if (hsh.jobs.getBgPtr()) |job| {
                 try print("Restarting job\n", .{});
-                if (!job.forground(&hsh.tty)) {
-                    try print("Not not alive\n", .{});
-                    return 1;
-                }
+                job.sendForground(&hsh.tty) catch unreachable;
                 return 0;
             }
-            try print("No resumeable jobs\n", .{});
+            try print("No jobs in the background\n", .{});
             return 1;
         }
     };

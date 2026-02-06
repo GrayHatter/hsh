@@ -12,37 +12,35 @@ pub const Error = error{
     JobNotFound,
 };
 
-pub const Status = enum {
-    rip, // reaped (user notified)
-    crashed, // SIGQUIT
-    ded, // zombie
-    paused, // SIGSTOP
-    waiting, // Stopped needs to output
-    piped,
-    background, // in background
-    running, // foreground
-    child,
-    unknown, // :<
+pub const Status = union(enum) {
+    paused: enum {
+        paused, //waiting for signal
+        waiting, // blocked with output
+    },
+    running: enum { forground, background, pipeline },
+    exited: u8,
+    crashed: u8,
+    unknown: void, // :<
 
     const W = std.os.linux.W;
 
     pub fn fromLinux(s: Status_t) Status {
-        if (W.IFSIGNALED(s)) {
-            return .crashed;
-        } else if (!W.IFEXITED(s)) {
-            return .running;
-        } else if (W.IFEXITED(s)) {
-            return .ded;
-        } else if (!W.IFSTOPPED(s)) {
-            return .waiting;
-        }
-        return .unknown;
+        return if (W.IFSIGNALED(s))
+            .{ .crashed = @intCast(W.EXITSTATUS(s)) }
+        else if (W.IFEXITED(s))
+            .{ .exited = @intCast(W.EXITSTATUS(s)) }
+        else if (W.IFSTOPPED(s))
+            .{ .paused = .waiting }
+        else if (s & 0xffff == 0xffff) // IFCONTINUED
+            .{ .running = .background } // Just guessing :/
+        else
+            .unknown;
     }
 
     pub fn alive(s: Status) bool {
         return switch (s) {
-            .paused, .waiting, .piped, .background, .running, .child => true,
-            else => false,
+            .paused, .running => true,
+            .crashed, .exited, .unknown => false,
         };
     }
 };
@@ -51,7 +49,6 @@ pub const Job = struct {
     pid: Pid,
     name: ?[]const u8,
     pgid: ?Pid = null,
-    exit_code: ?u8 = null,
     status: Status = .unknown,
     termattr: ?std.posix.termios = null,
 
@@ -65,19 +62,13 @@ pub const Job = struct {
     pub fn waitFor(j: *Job) !void {
         const res = try waitpid(j.pid, Status.W.UNTRACED);
         j.status = .fromLinux(res.status);
-        switch (j.status) {
-            .crashed, .ded => {
-                j.exit_code = Status.W.EXITSTATUS(res.status);
-            },
-            else => |t| log.err("job wait for Not Implmented {s}\n", .{@tagName(t)}),
-        }
     }
 
     pub fn alive(self: Job) bool {
         return self.status.alive();
     }
 
-    pub fn pause(self: *Job, tty: *Tty) bool {
+    pub fn sendPause(self: *Job, tty: *Tty) bool {
         defer self.status = .paused;
         if (self.status == .running) {
             self.termattr = tty.getAttr();
@@ -86,34 +77,17 @@ pub const Job = struct {
         return false;
     }
 
-    pub fn waiting(self: *Job) void {
-        self.status = .waiting;
-    }
-
-    pub fn background(self: *Job, tio: std.posix.termios) void {
+    pub fn sendBackground(self: *Job, tio: std.posix.termios) !void {
         self.status = .background;
         self.termattr = tio;
+        comptime unreachable; // send signal
     }
 
-    pub fn forground(self: *Job, tty: *Tty) bool {
-        if (!self.alive()) return false;
-
-        if (self.termattr) |tio| {
-            tty.setTTY(tio);
-        }
-        self.status = .running;
-        std.posix.kill(self.pid, std.posix.SIG.CONT) catch unreachable;
-        return true;
-    }
-
-    pub fn exit(self: *Job, code: ?u8) void {
-        defer self.status = .ded;
-        self.exit_code = code;
-    }
-
-    pub fn crash(self: *Job, code: ?u8) void {
-        self.status = .crashed;
-        self.exit_code = code;
+    pub fn sendForground(j: *Job, tty: *Tty) !void {
+        std.debug.assert(j.status == .paused or j.status.running == .background);
+        if (j.termattr) |tio| tty.setTTY(tio);
+        j.status = .{ .running = .forground };
+        try std.posix.kill(j.pid, std.posix.SIG.CONT);
     }
 
     pub fn format(self: Job, out: *std.Io.Writer) !void {
@@ -121,14 +95,14 @@ pub const Job = struct {
             \\Job({s}){{
             \\    name = {s},
             \\    pid = {},
-            \\    exit = {},
+            \\    exit = {any},
             \\}}
             \\
         , .{
             @tagName(self.status),
             self.name orelse "none",
             self.pid,
-            self.exit_code orelse 0,
+            self.status,
         });
     }
 };
@@ -167,11 +141,7 @@ pub fn add(jobs: *Jobs, j: Job, a: Allocator) !void {
 pub fn getWaiting(j: Jobs) Error!?*const Job {
     for (j.jobs.items) |*job| {
         switch (job.status) {
-            .paused,
-            .waiting,
-            => {
-                return job;
-            },
+            .paused => return job,
             else => continue,
         }
     }
@@ -182,7 +152,7 @@ pub fn haltActive(j: Jobs) Error!usize {
     var count: usize = 0;
     for (j.jobs.items) |*job| {
         if (job.status == .running) {
-            job.status = .paused;
+            job.status = .{ .paused = .paused };
             // TODO send signal
             count += 1;
         }
@@ -190,34 +160,20 @@ pub fn haltActive(j: Jobs) Error!usize {
     return count;
 }
 
-pub fn getBgPtr(j: Jobs) ?*Job {
-    for (j.jobs.items) |*job| {
-        switch (job.status) {
-            .background,
-            .waiting,
-            .paused,
-            => {
-                return job;
-            },
-            else => continue,
-        }
-    }
+pub fn getBgPtr(j: *Jobs) ?*Job {
+    for (j.jobs.items) |*job| switch (job.status) {
+        .running => |run| switch (run) {
+            .background, .pipeline => return job,
+            .forground => continue,
+        },
+        .paused => return job,
+        else => continue,
+    };
     return null;
 }
 
-pub fn getBg(j: Jobs) ?*const Job {
-    for (j.jobs.items) |*job| {
-        switch (job.status) {
-            .background,
-            .waiting,
-            .paused,
-            => {
-                return job;
-            },
-            else => continue,
-        }
-    }
-    return null;
+pub fn getBg(j: *const Jobs) ?*const Job {
+    return @constCast(j).getBgPtr();
 }
 
 pub fn getFg(j: Jobs) ?*const Job {
@@ -285,22 +241,30 @@ pub fn waitFor(j: *Jobs, pid: Pid) !*const Job {
     log.debug("status {} {} \n", .{ s.pid, s.status });
     if (s.pid == pid) {
         if (j.getPtr(s.pid)) |job| {
-            if (std.posix.W.IFSIGNALED(s.status)) {
-                job.crash(0);
-            } else if (std.os.linux.W.IFSTOPPED(s.status)) {
-                Tty.current().waitForFg();
-                log.err("stop sig {}\n", .{std.os.linux.W.STOPSIG(s.status)});
-                _ = job.pause(Tty.current());
-                Tty.current().setRaw() catch unreachable;
-            } else if (std.os.linux.W.IFEXITED(s.status)) {
-                job.exit(std.os.linux.W.EXITSTATUS(s.status));
+            job.status = .fromLinux(s.status);
+            switch (job.status) {
+                .paused => |p| {
+                    Tty.current().waitForFg();
+                    log.err("paused sig {s}\n", .{@tagName(p)});
+                    Tty.current().setRaw() catch unreachable;
+                },
+                .crashed => |cc| {
+                    Tty.current().waitForFg();
+                    log.err("crashed with sig {}\n", .{cc});
+                    Tty.current().setRaw() catch unreachable;
+                },
+                .exited => |ec| {
+                    Tty.current().waitForFg();
+                    log.debug("stop sig {}\n", .{ec});
+                    Tty.current().setRaw() catch unreachable;
+                },
+                else => unreachable,
             }
+
             return job;
-        } else |_| {
-            log.debug("can't get job {} did get {} \n", .{ pid, s.pid });
-        }
+        } else |_| log.debug("can't get job {} did get {} \n", .{ pid, s.pid });
     } else log.debug("search != found {} did get {} \n", .{ pid, s.pid });
-    return Error.JobNotFound;
+    return error.JobNotFound;
 }
 
 test {
