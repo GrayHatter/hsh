@@ -67,7 +67,9 @@ const Cache = struct {
         const mod: usize = @max(target.*[0].len, 1);
         const this_row = (cursor) / mod;
         const this_col = (cursor) % mod;
-        log.debug("group {s} cursor {} % {} row {} col {}\n", .{ @tagName(name), cursor, mod, this_row, this_col });
+        log.debug("group {s} cursor {} % {} row {} col {}\n", .{
+            @tagName(name), cursor, mod, this_row, this_col,
+        });
 
         for (target.*, 0..) |row, r| {
             for (row) |*column| {
@@ -242,13 +244,14 @@ pub fn suggest(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Alloc
         log.debug("Completion original is {s}\n\n", .{str});
     } else log.debug("Completion original is null\n\n", .{});
 
+    // TODO orderedRemoveMany allows an optimization to iterate only a single range if presorted
     if (command) |cmd| switch (cmd) {
-        .git => git.filter(cs, tokens, t_idx, fs, a, io),
-        else => filesystem.filter(cs, tokens, t_idx, fs, a, io),
-    } else filesystem.filter(cs, tokens, t_idx, fs, a, io);
+        .git => git.filter(cs, tokens, t_idx),
+        else => filesystem.filter(cs, tokens, t_idx),
+    } else filesystem.filter(cs, tokens, t_idx);
 
     cs.sort();
-    log.err("Completing found '{}'\n", .{cs.count()});
+    log.info("Completing found '{}'\n", .{cs.count()});
     return;
 }
 

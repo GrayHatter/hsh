@@ -475,93 +475,94 @@ pub fn exec(input: []const u8, h: *Hsh, a: Allocator, io: Io) !void {
 /// I hate all of this but stdlib likes to panic instead of manage errors
 /// so we're doing the whole ChildProcess thing now
 pub const ChildResult = struct {
-    job: *const Jobs.Job,
-    stdout: []u8,
+    pid: i32,
+    name: [*:0]const u8,
+    stdout: File,
+
+    pub fn waitCollectAlloc(res: ChildResult, a: Allocator, io: Io) []u8 {
+        var r_b: [0x8000]u8 = undefined;
+        var r = res.stdout.reader(io, &r_b);
+        var job_: Jobs.Job = .init(res.pid, null);
+        _ = job_.waitFor() catch unreachable;
+        log.err("job {}\n", .{job_});
+        const output = r.interface.allocRemaining(a, .limited(0x8000)) catch unreachable;
+        return output;
+    }
+
+    pub fn job(res: ChildResult, a: Allocator) Jobs.Job {
+        const name = span(res.name);
+        return .init(res.pid, a.dupe(u8, name) catch unreachable);
+    }
+
+    pub fn raze(res: ChildResult) void {
+        if (system.close(res.stdout.handle) != 0) unreachable;
+    }
 };
 
 /// Tokenizes, parses, and executes a a valid argv string.
-pub fn childParsed(argv: []const u8, h: *Hsh, a: Allocator, io: Io) !ChildResult {
-    var itr = TokenIterator{ .raw = argv };
+pub fn childFromSlice(string: []const u8, h: *Hsh, a: Allocator, io: Io) !ChildResult {
+    if (string.len == 0) return error.NotFound;
+    signal.block();
+    defer signal.unblock();
+
+    var itr = TokenIterator{ .raw = string };
 
     const slice = try itr.toSliceExec(a);
     defer a.free(slice);
 
     var parsed = Resolver.iterate(a, slice) catch return error.Parse;
     defer parsed.raze(a);
-    var list = ArrayListManaged([]const u8).init(a);
-    while (parsed.next()) |p| {
-        try list.append(p.resolved.str);
-        log.debug("Exec.childParse {} {s}\n", .{ list.items.len, p.resolved.str });
-    } // Precomptue
-    const strs = try list.toOwnedSlice();
-    defer a.free(strs);
+    try parsed.resolveAll(a, io);
 
-    return child(strs, h, a, io);
+    var args_list: ArrayList(?[*:0]const u8) = .{};
+    defer args_list.deinit(a);
+    for (parsed.resolved.items) |arg| {
+        try args_list.append(a, (try a.dupeZ(u8, arg.resolved.str)));
+    }
+    try args_list.append(a, null);
+
+    defer while (args_list.pop()) |argZ| if (argZ) |arg| a.free(span(arg));
+
+    const argv: [:null]const ?[*:0]const u8 = args_list.items[0 .. args_list.items.len - 1 :null];
+    const chld = try childZ(argv, a);
+    try h.jobs.add(chld.job(a), a);
+    return chld;
 }
 
 /// Collects, and reformats argv into it's null terminated counterpart for
 /// execvpe. Caller retains ownership of memory.
-pub fn child(argv: []const []const u8, h: *Hsh, a: Allocator, io: Io) !ChildResult {
-    if (argv.len == 0 or argv[0].len == 0) return error.NotFound;
+pub fn child(comptime argv: []const [:0]const u8, a: Allocator) !ChildResult {
+    if (argv.len == 0) return error.NotFound;
     signal.block();
     defer signal.unblock();
-
-    var list: ArrayList(?[*:0]u8) = .{};
-    for (argv) |arg| {
-        try list.append(a, (try a.dupeZ(u8, arg)).ptr);
-    }
-    const argvZ: [:null]?[*:0]u8 = try list.toOwnedSliceSentinel(a, null);
-
-    defer {
-        for (argvZ) |*argm| {
-            if (argm.*) |arg| {
-                a.free(std.mem.span(arg));
-            }
-        }
-        a.free(argvZ);
-    }
-    return childZ(argvZ, h, a, io);
+    var list: [argv.len + 1]?[*:0]const u8 = @splat(null);
+    inline for (list[0..argv.len], argv) |*dst, arg| dst.* = arg.ptr;
+    return childZ(list[0..argv.len :null], a);
 }
 
 /// Preformatted version of child. Accepts the null, and 0 terminated versions
 /// to pass directly to exec. Caller maintains ownership of argv
-pub fn childZ(argv: [:null]const ?[*:0]const u8, h: *Hsh, a: Allocator, io: Io) !ChildResult {
-    const pipe = system.pipe2(.{}) catch unreachable;
+pub fn childZ(argv: [:null]const ?[*:0]const u8, a: Allocator) !ChildResult {
+    const stdout_ours, const stdout_child = system.pipe2(.{}) catch unreachable;
     const pid = system.fork();
     if (pid < 0) unreachable;
     if (pid == 0) {
         // we kid nao
         defer comptime unreachable;
-        _ = system.dup2(pipe[1], std.posix.STDOUT_FILENO);
-        _ = system.close(pipe[0]);
-        _ = system.close(pipe[1]);
+        _ = system.dup2(stdout_child, std.posix.STDOUT_FILENO);
+        _ = system.close(stdout_ours);
+        _ = system.close(stdout_child);
         const environ = Variables.henviron(a);
         _ = system.execve(argv[0].?, argv.ptr, environ);
         system.abort();
-
-        //catch {
-        //    log.err("Unexpected error in childZ\n", .{});
-        //    return error.ChildExecFailed;
-        //};
     }
-    if (system.close(pipe[1]) != 0) unreachable;
-    defer if (system.close(pipe[0]) != 0) unreachable;
-    const name = std.mem.span(argv[0].?);
-    try h.jobs.add(.{
-        .status = .child,
+    if (system.close(stdout_child) != 0) unreachable;
+
+    return .{
         .pid = @intCast(pid),
-        .name = try a.dupe(u8, name[0 .. name.len - 1]),
-    }, a);
-
-    var r_b: [0x8000]u8 = undefined;
-
-    var f = std.Io.File{ .handle = pipe[0] };
-    var r = f.reader(io, &r_b);
-
-    const job = h.jobs.waitFor(@intCast(pid)) catch return error.Unknown;
-    const output = r.interface.allocRemaining(a, .limited(0x8000)) catch unreachable;
-
-    return .{ .job = job, .stdout = output };
+        .name = argv[0].?,
+        .stdout = .{ .handle = stdout_ours },
+    };
 }
 
 const system = struct {
@@ -627,6 +628,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const Writer = Io.Writer;
+const Reader = Io.Reader;
+const File = Io.File;
 
 const Hsh = @import("hsh.zig");
 const Jobs = @import("jobs.zig");
@@ -649,3 +652,4 @@ const Funcs = @import("funcs.zig");
 const assert = std.debug.assert;
 const findScalar = std.mem.findScalar;
 const concat = std.mem.concat;
+const span = std.mem.span;

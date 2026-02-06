@@ -2,6 +2,10 @@ jobs: ArrayList(Job),
 
 const Jobs = @This();
 
+pub const Pid = std.posix.pid_t;
+
+pub var global: ?*Jobs = null;
+
 pub const Error = error{
     Unknown,
     OutOfMemory,
@@ -20,6 +24,21 @@ pub const Status = enum {
     child,
     unknown, // :<
 
+    const W = std.os.linux.W;
+
+    pub fn fromLinux(s: Status_t) Status {
+        if (W.IFSIGNALED(s)) {
+            return .crashed;
+        } else if (!W.IFEXITED(s)) {
+            return .running;
+        } else if (W.IFEXITED(s)) {
+            return .ded;
+        } else if (!W.IFSTOPPED(s)) {
+            return .waiting;
+        }
+        return .unknown;
+    }
+
     pub fn alive(s: Status) bool {
         return switch (s) {
             .paused, .waiting, .piped, .background, .running, .child => true,
@@ -29,12 +48,30 @@ pub const Status = enum {
 };
 
 pub const Job = struct {
-    name: ?[]const u8 = null,
-    pid: std.posix.pid_t = -1,
-    pgid: std.posix.pid_t = -1,
+    pid: Pid,
+    name: ?[]const u8,
+    pgid: ?Pid = null,
     exit_code: ?u8 = null,
     status: Status = .unknown,
     termattr: ?std.posix.termios = null,
+
+    pub fn init(pid: Pid, name: ?[]const u8) Job {
+        return .{
+            .pid = pid,
+            .name = name,
+        };
+    }
+
+    pub fn waitFor(j: *Job) !void {
+        const res = try waitpid(j.pid, Status.W.UNTRACED);
+        j.status = .fromLinux(res.status);
+        switch (j.status) {
+            .crashed, .ded => {
+                j.exit_code = Status.W.EXITSTATUS(res.status);
+            },
+            else => |t| log.err("job wait for Not Implmented {s}\n", .{@tagName(t)}),
+        }
+    }
 
     pub fn alive(self: Job) bool {
         return self.status.alive();
@@ -79,8 +116,7 @@ pub const Job = struct {
         self.exit_code = code;
     }
 
-    pub fn format(self: Job, comptime fmt: []const u8, _: std.fmt.FormatOptions, out: anytype) !void {
-        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
+    pub fn format(self: Job, out: *std.Io.Writer) !void {
         try std.fmt.format(out,
             \\Job({s}){{
             \\    name = {s},
@@ -106,7 +142,7 @@ pub fn raze(j: *Jobs, a: Allocator) void {
     j.jobs.clearAndFree(a);
 }
 
-pub fn getPtr(j: *Jobs, jid: std.posix.pid_t) Error!*Job {
+pub fn getPtr(j: *Jobs, jid: Pid) Error!*Job {
     for (j.jobs.items) |*job| {
         if (job.pid == jid) {
             return job;
@@ -115,7 +151,7 @@ pub fn getPtr(j: *Jobs, jid: std.posix.pid_t) Error!*Job {
     return error.JobNotFound;
 }
 
-pub fn get(j: Jobs, jid: std.posix.pid_t) Error!*const Job {
+pub fn get(j: Jobs, jid: Pid) Error!*const Job {
     for (j.jobs.items) |*job| {
         if (job.pid == jid) {
             return job;
@@ -201,19 +237,18 @@ const WaitError = if (@hasDecl(std.os, "WaitError")) std.os.WaitError else error
 };
 
 pub const WaitResult = struct {
-    pid: std.posix.pid_t,
+    pid: Pid,
     status: u32,
 };
 
-fn hsh_waitpid(pid: std.posix.pid_t, flags: u32) WaitError!WaitResult {
-    const Status_t = if (builtin.link_libc) c_int else u32;
+fn waitpid(pid: Pid, flags: u32) WaitError!WaitResult {
     var status: Status_t = undefined;
-    const coerced_flags = if (builtin.link_libc) @as(c_int, @intCast(flags)) else flags;
+    const coerced_flags = flags;
     while (true) {
         const rc = std.os.linux.waitpid(pid, &status, coerced_flags);
         switch (std.posix.errno(rc)) {
             .SUCCESS => return .{
-                .pid = @as(std.posix.pid_t, @intCast(rc)),
+                .pid = @as(Pid, @intCast(rc)),
                 .status = @as(u32, @bitCast(status)),
             },
             .INTR => continue,
@@ -223,11 +258,6 @@ fn hsh_waitpid(pid: std.posix.pid_t, flags: u32) WaitError!WaitResult {
         }
     }
 }
-
-const waitpid = if (@TypeOf(std.posix.waitpid) == fn (i32, u32) std.posix.WaitPidResult)
-    hsh_waitpid
-else
-    std.posix.waitpid;
 
 pub fn waitForFg(j: *Jobs) void {
     while (j.getFg()) |fg| {
@@ -243,17 +273,17 @@ pub fn waitForFg(j: *Jobs) void {
     }
 }
 
-pub fn waitFor(j: *Jobs, jid: std.posix.pid_t) !*const Job {
-    if (jid > 0) {
-        var job = try j.get(jid);
+pub fn waitFor(j: *Jobs, pid: Pid) !*const Job {
+    if (pid > 0) {
+        var job = try j.get(pid);
         if (!job.status.alive()) {
             return job;
         }
     }
 
-    const s = try hsh_waitpid(jid, std.posix.W.UNTRACED);
+    const s = try waitpid(pid, std.posix.W.UNTRACED);
     log.debug("status {} {} \n", .{ s.pid, s.status });
-    if (s.pid == jid) {
+    if (s.pid == pid) {
         if (j.getPtr(s.pid)) |job| {
             if (std.posix.W.IFSIGNALED(s.status)) {
                 job.crash(0);
@@ -267,15 +297,17 @@ pub fn waitFor(j: *Jobs, jid: std.posix.pid_t) !*const Job {
             }
             return job;
         } else |_| {
-            log.debug("can't get job {} did get {} \n", .{ jid, s.pid });
+            log.debug("can't get job {} did get {} \n", .{ pid, s.pid });
         }
-    } else log.debug("search != found {} did get {} \n", .{ jid, s.pid });
+    } else log.debug("search != found {} did get {} \n", .{ pid, s.pid });
     return Error.JobNotFound;
 }
 
 test {
     _ = &std.testing.refAllDecls(@This());
 }
+
+const Status_t = if (builtin.link_libc) c_int else u32;
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;

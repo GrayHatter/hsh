@@ -1,4 +1,4 @@
-const Options = ArrayList(Completion.Option);
+const Options = ArrayList(Option);
 
 pub fn suggest(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Allocator, io: Io) error{OutOfMemory}!void {
     cs.cursor_index = 0;
@@ -26,13 +26,35 @@ pub fn suggest(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Alloc
     return;
 }
 
-pub fn filter(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Allocator, io: Io) void {
-    _ = cs;
-    _ = tokens;
+fn argExists(opt: Option, tokens: []Token) bool {
+    for (tokens) |token| {
+        switch (opt) {
+            .file => |file| {
+                if (file.prefix.len > 0) {
+                    if (findScalarLast(u8, token.str, '/')) |idx| {
+                        const path = token.str[0..idx];
+                        const str = token.str[idx + 1 ..];
+                        if (eql(u8, path, file.prefix) and eql(u8, str, file.str)) return true;
+                    } else continue; //if (eql(u8, token.str, opt.prefix)) return true;
+                } else if (eql(u8, token.str, file.str)) return true;
+            },
+            else => continue,
+        }
+    }
+    return false;
+}
+
+pub fn filter(cs: *Completion, tokens: []Token, t_idx: ?usize) void {
     _ = t_idx;
-    _ = fs;
-    _ = a;
-    _ = io;
+    var buf: [50]usize = undefined;
+    var list: ArrayList(usize) = .initBuffer(&buf);
+    for (cs.options.items, 0..) |opt, i| {
+        if (argExists(opt, tokens)) {
+            list.appendBounded(i) catch break;
+        }
+    }
+    cs.options.orderedRemoveMany(list.items);
+
     return;
 }
 
@@ -114,6 +136,7 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const Io = std.Io;
 const Completion = @import("../Completion.zig");
+const Option = Completion.Option;
 const Fs = @import("../fs.zig");
 const Token = @import("../token.zig");
 const log = @import("../log.zig");
@@ -122,3 +145,4 @@ const startsWith = std.mem.startsWith;
 const findScalarLast = std.mem.findScalarLast;
 const trim = std.mem.trim;
 const assert = std.debug.assert;
+const eql = std.mem.eql;

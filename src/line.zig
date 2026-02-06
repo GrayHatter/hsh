@@ -234,7 +234,7 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
     var iter = line.tkn.iterator();
     var tokens = iter.toSlice(a) catch unreachable;
     defer a.free(tokens);
-    log.err("completion enter\n", .{});
+    log.debug("completion enter\n", .{});
     sw: switch (CompState{ .start = {} }) {
         .restart => {
             cmplt.raze(a);
@@ -246,7 +246,7 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
         .start => {
             try cmplt.suggest(tokens, line.tkn.cursorTokenIdx(), line.hsh.fs, a, io);
             const start_tkn = line.tkn.cursorToken() catch unreachable;
-            log.err("completion start '{s}'\n", .{start_tkn.str});
+            log.debug("completion start '{s}'\n", .{start_tkn.str});
             line.tkn.maybe.setOriginal(trim(u8, start_tkn.str, whitespace));
             if (start_tkn.str.len > 0 and start_tkn.str[start_tkn.str.len - 1] == '/') {
                 line.tkn.maybe.commit(null);
@@ -376,7 +376,7 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
         },
         .exit => {
             cmplt.raze(a);
-            log.err("completion exit\n", .{});
+            log.debug("completion exit\n", .{});
             return;
         },
     }

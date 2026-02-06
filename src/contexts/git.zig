@@ -18,15 +18,20 @@ fn fetch(_: *const Hsh) Lexeme {
     return .str(next);
 }
 
-fn update(h: *Hsh, a: std.mem.Allocator, io: Io) error{ OutOfMemory, UpdateFailed }!void {
+fn update(_: *Hsh, a: std.mem.Allocator, io: Io) error{ OutOfMemory, UpdateFailed }!void {
     const result = exec.childZ(&[_:null]?[*:0]const u8{
         "git",
         "status",
         "--porcelain",
-    }, h, a, io) catch unreachable;
-    defer a.free(result.stdout);
+    }, a) catch unreachable;
 
-    next = std.fmt.bufPrint(&buffer, "{} changed files", .{result.stdout.len}) catch unreachable;
+    defer result.raze();
+    const stdout = result.waitCollectAlloc(a, io);
+    defer a.free(stdout);
+
+    next = std.fmt.bufPrint(&buffer, "{} changed files", .{
+        std.mem.countScalar(u8, stdout, '\n'),
+    }) catch unreachable;
 }
 
 fn raze(_: std.mem.Allocator) void {}

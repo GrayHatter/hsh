@@ -163,11 +163,12 @@ const If = struct {
     fn execClause(self: *If, h: *Hsh, a: Allocator, io: Io) Error!bool {
         const clause = self.clause orelse return Error.InvalidLogic;
         log.debug("testing logic clasue \n    {s}\n", .{clause});
-        const child = exec_.childParsed(clause, h, a, io) catch |err| {
+        const child = exec_.childFromSlice(clause, h, a, io) catch |err| {
             log.err("Unexpected error ({}) when attempting to run logic\n", .{err});
             return Error.ExecFailure;
         };
-        const ec = child.job.exit_code orelse {
+        const job = h.jobs.get(child.pid) catch unreachable;
+        const ec = job.exit_code orelse {
             log.err("Logic exec called for an invalid job state.\n", .{});
             return Error.ExecFailure;
         };
