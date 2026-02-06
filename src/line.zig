@@ -121,8 +121,7 @@ fn core(l: *Line, a: Allocator, io: Io) !Action {
                 try l.prompt.render(l.draw, l.peek());
                 try l.draw.render();
             },
-
-            else => |el| {
+            .mouse => |el| {
                 log.err("uncaptured {}\n", .{el});
                 unreachable;
             },
@@ -289,9 +288,18 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
 
                     continue :sw .redraw;
                 },
-                .up, .down, .left, .right => {
+                .left => {
+                    cmplt.revr();
+                    cmplt.revr();
+                    line.tkn.maybe.replace(cmplt.next().str()) catch unreachable;
+                    continue :sw .redraw;
+                },
+                .right => {
+                    line.tkn.maybe.replace(cmplt.next().str()) catch unreachable;
+                    continue :sw .redraw;
+                },
+                .up, .down => {
                     log.err("Completion arrows not yet implemented\n", .{});
-                    // TODO implement arrows
                     continue :sw .redraw;
                 },
                 .backspace => {
@@ -323,7 +331,7 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
                     continue :sw .{ .finish = null };
                 },
             },
-            .mouse, .action => unreachable,
+            .mouse => unreachable,
         },
         .redraw => {
             line.draw.clear();

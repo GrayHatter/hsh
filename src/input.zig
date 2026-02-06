@@ -4,15 +4,15 @@ next: ?Event = null,
 
 const Input = @This();
 
-pub const Action = enum {
-    none,
-    exec,
-    exit_hsh,
-};
-
-pub const Control = enum {
-    none,
-    esc,
+pub const Control = enum(u8) {
+    none = 0x00, // see also null
+    end_of_text = 0x03,
+    bell = 0x07,
+    backspace = 0x08,
+    tab = 0x09,
+    newline = 0x0a,
+    esc = 0x1b,
+    delete = 0x7f,
 
     up,
     down,
@@ -25,16 +25,17 @@ pub const Control = enum {
     pgup,
     pgdn,
 
-    backspace,
-    delete,
-    newline,
-    tab,
     // Shell Control
-    bell,
     delete_word,
-    end_of_text,
     external_editor,
     reset_term,
+
+    pub fn ascii(chr: u8) Control {
+        return switch (chr) {
+            0x09 => .tab,
+            else => unreachable,
+        };
+    }
 };
 
 pub const CtrlMod = struct {
@@ -46,6 +47,13 @@ pub const CtrlMod = struct {
             0x7F => .backspace,
             else => comptime unreachable,
         } };
+    }
+
+    pub fn fromAscii(chr: u8, mods: Keys.Mods) CtrlMod {
+        return .{
+            .c = .ascii(chr),
+            .mod = mods,
+        };
     }
 
     pub fn fromKey(k: Keys.Key, mods: Keys.Mods) CtrlMod {
@@ -68,10 +76,69 @@ pub const CtrlMod = struct {
 };
 
 pub const Event = union(enum) {
-    action: Action,
     char: u8,
     control: CtrlMod,
     mouse: Keys.Mouse,
+
+    pub fn init(evt: Keys.Event) Event {
+        switch (evt) {
+            .ascii => |as| return .ascii(as),
+            .keysm => |ks| return .event(ks),
+            .mouse => unreachable,
+        }
+    }
+
+    fn ascii(key: Keys.ASCII) Event {
+        switch (key) {
+            0x00...0x1F => return .{ .control = .{ .c = ctrlCode(key) } },
+            // Normal printable ascii
+            ' '...'~' => |b| return .{ .char = b },
+            0x7F => return .{ .control = CtrlMod.fromChr(0x7F) },
+            0x80...0xFF => return .{ .char = utf8(key) },
+        }
+        return .{ .control = .none };
+    }
+
+    fn event(km: Keys.KeyMod) Event {
+        switch (km.evt) {
+            .ascii => |a| switch (a) {
+                '.' => {
+                    if (km.mods.alt) {
+                        log.err("<A-.> not yet implemented\n", .{});
+                        unreachable;
+                    } else {
+                        log.err("wut\n", .{});
+                        unreachable;
+                    }
+                },
+                else => return .{ .control = .fromAscii(a, km.mods) },
+            },
+            .key => |k| switch (k) {
+                .esc,
+                .up,
+                .down,
+                .left,
+                .right,
+                .home,
+                .end,
+                .pgup,
+                .pgdn,
+                => |r| {
+                    return .{ .control = CtrlMod.fromKey(r, km.mods) };
+                },
+                .delete => return .{ .control = CtrlMod.fromKey(.delete, .{}) },
+                else => {
+                    log.err("unknown control key {}\n", .{k});
+                    unreachable;
+                },
+            },
+        }
+        comptime unreachable;
+    }
+
+    fn utf8(key: Keys.ASCII) u8 {
+        return key;
+    }
 };
 
 pub fn init(stdin: std.posix.fd_t) Input {
@@ -118,75 +185,13 @@ fn ctrlCode(b: u8) Control {
     };
 }
 
-fn event(km: Keys.KeyMod) Event {
-    switch (km.evt) {
-        .ascii => |a| switch (a) {
-            '.' => {
-                if (km.mods.alt) log.err("<A-.> not yet implemented\n", .{});
-
-                return .{ .action = .none };
-            },
-            else => {
-                log.err("unknown ascii {}\n", .{a});
-                return .{ .action = .none };
-            },
-        },
-        .key => |k| switch (k) {
-            .esc,
-            .up,
-            .down,
-            .left,
-            .right,
-            .home,
-            .end,
-            .pgup,
-            .pgdn,
-            => |r| {
-                return .{ .control = CtrlMod.fromKey(r, km.mods) };
-            },
-            .delete => return .{ .control = CtrlMod.fromKey(.delete, .{}) },
-            else => {
-                log.err("unknown control key {}\n", .{k});
-                return .{ .action = .none };
-            },
-        },
-    }
-    comptime unreachable;
-}
-
-fn utf8(key: Keys.ASCII) u8 {
-    return key;
-}
-
-fn ascii(key: Keys.ASCII) Event {
-    switch (key) {
-        0x00...0x1F => return .{ .control = .{ .c = ctrlCode(key) } },
-        // Normal printable ascii
-        ' '...'~' => |b| return .{ .char = b },
-        0x7F => return .{ .control = CtrlMod.fromChr(0x7F) },
-        0x80...0xFF => return .{ .char = utf8(key) },
-    }
-    return .{ .control = .none };
-}
-
-fn toChar(k: Keys.Event) Event {
-    switch (k) {
-        .ascii => |as| return ascii(as),
-        .keysm => |ks| return event(ks),
-        .mouse => |ms| {
-            _ = ms;
-            unreachable;
-        },
-    }
-}
-
 pub fn nonInteractive(input: *const Input) !Event {
     const byte: u8 = input.stdin.takeByte() catch |err| {
         log.err("unable to read {}", .{err});
         return error.Io;
     };
 
-    return toChar(Keys.translate(byte, input.stdin) catch unreachable);
+    return .init(Keys.Event.init(byte, input.stdin) catch unreachable);
 }
 
 pub fn interactive(in: *const Input, a: Allocator, io: Io) !Event {
@@ -205,7 +210,7 @@ pub fn interactive(in: *const Input, a: Allocator, io: Io) !Event {
             },
         };
 
-        return toChar(Keys.translate(byte, in.stdin) catch unreachable);
+        return .init(Keys.Event.init(byte, in.stdin) catch unreachable);
     }
 }
 
