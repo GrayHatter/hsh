@@ -68,6 +68,7 @@ pub const CtrlMod = struct {
                 .end => .end,
                 .pgdn => .pgdn,
                 .pgup => .pgup,
+                .delete => .delete,
                 else => unreachable,
             },
             .mod = mods,
