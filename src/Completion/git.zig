@@ -34,10 +34,7 @@ pub fn suggest(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Alloc
                 }
             },
             '2' => log.warn("V2 unsupported from git status\n '{s}'", .{line}),
-            else => {
-                log.err("Unexpected output from git status\n '{s}'", .{line});
-                return;
-            },
+            else => return log.err("Unexpected output from git status\n '{s}'", .{line}),
         }
     } else |_| return;
 }

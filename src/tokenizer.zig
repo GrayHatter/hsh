@@ -285,15 +285,14 @@ pub fn removeWord(tkzr: *Tokenizer) usize {
 }
 
 pub fn remove(tkzr: *Tokenizer) void {
-    if (tkzr.len == 0) return;
-    tkzr.idx -|= 1;
+    if (tkzr.len == 0 or tkzr.idx == 0) return;
     tkzr.len -|= 1;
-    tkzr.err_idx = @min(tkzr.idx, tkzr.err_idx);
-    tkzr.edited = tkzr.len > 0;
-    if (tkzr.idx == 0) return;
+    tkzr.idx -|= 1;
     if (tkzr.idx != tkzr.len) {
         @memmove(tkzr.buffer[tkzr.idx..tkzr.len], tkzr.buffer[tkzr.idx + 1 .. tkzr.len + 1]);
     }
+    tkzr.err_idx = @min(tkzr.idx, tkzr.err_idx);
+    tkzr.edited = tkzr.len > 0;
     tkzr.chkMode();
 }
 
