@@ -267,18 +267,7 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
                 // IFF this is an existing directory,
                 // completion should continue
                 '/' => if (cmplt.count() > 1) {
-                    switch (cmplt.current().*) {
-                        .original, .any, .executable => {},
-                        .file => |file| {
-                            log.err("completion continue\n", .{});
-                            if (file.kind == .dir) {
-                                line.tkn.maybe.commit('/');
-                                continue :sw .restart;
-                            }
-                            continue :sw .{ .finish = null };
-                        },
-                    }
-                    continue :sw .redraw;
+                    continue :sw .commit;
                 } else continue :sw .redraw,
                 else => if (cmplt.count() == 0) {
                     line.tkn.consumeChar(c) catch {};
@@ -398,7 +387,7 @@ const log = @import("log.zig");
 const Tokenizer = @import("tokenizer.zig");
 const Fs = @import("fs.zig");
 const Hsh = @import("hsh.zig");
-const Completion = @import("completion.zig");
+const Completion = @import("Completion.zig");
 const History = @import("History.zig");
 const Input = @import("input.zig");
 const Keys = @import("keys.zig");
