@@ -244,7 +244,7 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
             continue :sw .start;
         },
         .start => {
-            try cmplt.start(tokens, line.tkn.cursorTokenIdx(), line.hsh.fs, a, io);
+            try cmplt.suggest(tokens, line.tkn.cursorTokenIdx(), line.hsh.fs, a, io);
             const start_tkn = line.tkn.cursorToken() catch unreachable;
             log.err("completion start '{s}'\n", .{start_tkn.str});
             line.tkn.maybe.setOriginal(trim(u8, start_tkn.str, whitespace));

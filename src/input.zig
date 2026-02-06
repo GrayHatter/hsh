@@ -1,6 +1,5 @@
 stdin: *Reader,
 spin: ?*const fn (*const Input, Allocator, Io) bool = null,
-next: ?Event = null,
 
 const Input = @This();
 

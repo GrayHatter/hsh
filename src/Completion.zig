@@ -7,11 +7,24 @@ cache: Cache = .empty,
 
 const Completion = @This();
 
+pub const Flavor = enum(u8) {
+    original,
+    any,
+    args,
+    executable,
+    file,
+    git,
+
+    pub const len = @typeInfo(Flavor).@"enum".fields.len;
+};
+
 const Cache = struct {
     original: LexemeGrid,
     any: LexemeGrid,
+    args: LexemeGrid,
     executable: LexemeGrid,
     file: LexemeGrid,
+    git: LexemeGrid,
 
     const LexemeRow = []Lexeme;
     const LexemeGrid = []LexemeRow;
@@ -19,18 +32,22 @@ const Cache = struct {
     pub const empty: Cache = .{
         .original = &.{},
         .any = &.{},
+        .args = &.{},
         .executable = &.{},
         .file = &.{},
+        .git = &.{},
     };
 
     pub fn raze(c: *Cache, a: Allocator) void {
         a.free(c.original);
         a.free(c.any);
+        a.free(c.args);
         a.free(c.executable);
         a.free(c.file);
+        a.free(c.git);
         c.* = .empty;
 
-        comptime assert(@typeInfo(Cache).@"struct".fields.len == 4);
+        comptime assert(@typeInfo(Cache).@"struct".fields.len == 6);
     }
 
     pub fn regenGroup(
@@ -87,25 +104,19 @@ const Cache = struct {
         wh: Cord,
         a: Allocator,
     ) error{ OutOfMemory, ItemCount }!void {
-        var ori_len: usize = 0;
-        var any_len: usize = 0;
-        var exe_len: usize = 0;
-        for (options) |opt| {
-            switch (opt) {
-                .original => ori_len += 1,
-                .any => any_len += 1,
-                .executable => exe_len += 1,
-                .file => {
-                    break;
-                },
+        var start: usize = 0;
+        inline for (@typeInfo(Cache).@"struct".fields, 0..) |field, flavor_i| {
+            const flavor: Flavor = @enumFromInt(flavor_i);
+            comptime assert(eql(u8, @tagName(flavor), field.name));
+            var end: usize = start;
+            while (start < options.len and end < options.len) : (end += 1) {
+                if (options[end] != flavor) break;
             }
+            if (end > start) {
+                try c.regenGroup(flavor, options[start..end], cursor, str, wh, a);
+            }
+            start = end;
         }
-        try c.regenGroup(.original, options[0..ori_len], cursor, str, wh, a);
-        try c.regenGroup(.any, options[ori_len..][0..any_len], cursor, str, wh, a);
-        try c.regenGroup(.executable, options[ori_len + any_len ..][0..exe_len], cursor, str, wh, a);
-        try c.regenGroup(.file, options[ori_len + any_len + exe_len ..], cursor, str, wh, a);
-
-        //const target: *[]LexemeRow = @field(c, f.name);
     }
 
     fn styleActive(lex: *Draw.Lexeme) void {
@@ -132,20 +143,13 @@ const Cache = struct {
     }
 };
 
-pub const Flavor = enum(u8) {
-    original,
-    any,
-    executable,
-    file,
-
-    pub const len = @typeInfo(Flavor).@"enum".fields.len;
-};
-
 pub const Option = union(Flavor) {
     original: Base,
     any: Base,
+    args: Base,
     executable: Base,
     file: File,
+    git: File,
 
     pub fn str(opt: Option) []const u8 {
         return switch (opt) {
@@ -158,6 +162,8 @@ pub const Option = union(Flavor) {
     };
 
     pub const File = struct {
+        /// Prefix is owned by the caller
+        prefix: []const u8,
         str: []const u8,
         kind: File.Kind,
 
@@ -220,35 +226,26 @@ pub fn init() Completion {
     return .{};
 }
 
-/// Caller owns nothing, memory is only guaranteed until `complete` is
-/// called again.
-pub fn start(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Allocator, io: Io) error{OutOfMemory}!void {
+pub fn suggest(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Allocator, io: Io) error{OutOfMemory}!void {
     cs.cursor_index = 0;
 
-    if (t_idx) |idx| {
-        log.err("Completing idx '{}'\n", .{idx});
-        const token: Token = tokens[idx];
-        const str = trim(u8, token.str, std.ascii.whitespace[0..]);
-        assert(idx != 0 or str.len > 0);
-        log.err("Completing Token '{s}'\n", .{token.str});
-        if (findScalar(u8, str, '/')) |_| {
-            try cs.genOptionsResolveDir(str, fs, a, io);
-        } else if (idx == 0) {
-            try cs.genOptionsFromPATH(str, fs, a, io);
-        } else {
-            try cs.genOptionsDir(str, fs.cwd.dir, a, io);
-        }
-    } else {
-        log.debug("Completing PATH\n", .{});
-        // TODO from history
-        //try genOptionsFromPATH(cs, "", fs, a, io);
-    }
+    const command: ?Command = Command.init(tokens) catch null;
+
+    if (command) |cmd| switch (cmd) {
+        .git => try git.suggest(cs, tokens, t_idx, fs, a, io),
+        else => try filesystem.suggest(cs, tokens, t_idx, fs, a, io),
+    } else try filesystem.suggest(cs, tokens, t_idx, fs, a, io);
 
     if (cs.originalStr()) |str| {
         //try tks.maybeReplace(str, a);
         try cs.searchStr(str);
         log.debug("Completion original is {s}\n\n", .{str});
     } else log.debug("Completion original is null\n\n", .{});
+
+    if (command) |cmd| switch (cmd) {
+        .git => git.filter(cs, tokens, t_idx, fs, a, io),
+        else => filesystem.filter(cs, tokens, t_idx, fs, a, io),
+    } else filesystem.filter(cs, tokens, t_idx, fs, a, io);
 
     cs.sort();
     log.err("Completing found '{}'\n", .{cs.count()});
@@ -457,111 +454,19 @@ pub fn searchPop(cs: *Completion) !void {
     cs.searchMove();
 }
 
-fn completeDir(cs: *Completion, cwdi: Io.Dir, a: Allocator, io: Io) !void {
-    var itr = cwdi.iterate();
+pub const Command = enum {
+    ls,
+    git,
 
-    //const original = &cs.groups[@intFromEnum(Flavor.original)];
-    //original.appendBounded(Option{ .original = .{ .str = &.{} } }) catch unreachable;
-
-    while (try itr.next(io)) |each| {
-        try cs.options.append(a, .{ .file = .{
-            .str = try a.dupe(u8, each.name),
-            .kind = .fromFs(each.kind),
-        } });
-    }
-}
-
-fn genOptionsDir(cs: *Completion, str: []const u8, search_dir: Io.Dir, a: Allocator, io: Io) !void {
-    log.debug("genOptionDir\n", .{});
-    var itr = search_dir.iterate();
-    const skip_dot = str.len == 0 or str[0] != '.';
-    while (itr.next(io)) |eachZ| {
-        const each = eachZ orelse break;
-        log.debug("genOptionDir {s}\n", .{each.name});
-        if (each.name[0] == '.' and skip_dot) continue;
-        if (!startsWith(u8, each.name, str)) continue;
-        log.debug("genOptionDir {s} saved \n", .{each.name});
-        try cs.options.append(a, .{ .file = .{ .str = try a.dupe(u8, each.name), .kind = .fromFs(each.kind) } });
-    } else |err| log.err("Completion directory read error {}\n", .{err});
-}
-
-fn genOptionsResolveDir(cs: *Completion, target: []const u8, fs: Fs, a: Allocator, io: Io) !void {
-    log.debug("genOptionResolvedDir\n", .{});
-    if (target.len < 1) return;
-
-    if (findScalarLast(u8, target, '/')) |idx| {
-        const path = target[0..idx];
-        const str = target[idx + 1 ..];
-        log.err("genOptionResolvedDir path '{s}' str '{s}' \n", .{ path, str });
-
-        var search_dir: Io.Dir = if (path.len == 0 or path[0] == '/')
-            Fs.openDirAbsolute(io, "/", .{ .iterate = true }) catch return
-        else
-            fs.cwd.dir.openDir(io, path, .{ .iterate = true }) catch return;
-        defer search_dir.close(io);
-
-        try cs.genOptionsDir(str, search_dir, a, io);
-    } else {
-        try cs.genOptionsDir(target, fs.cwd.dir, a, io);
-    }
-}
-
-fn genOptionsFromPATH(cs: *Completion, target: []const u8, fs: Fs, a: Allocator, io: Io) !void {
-    log.debug("genOptionPATH\n", .{});
-    if (findScalar(u8, target, '/')) |_| {
-        return genOptionsResolveDir(cs, target, fs, a, io);
-    }
-
-    for (fs.paths.items) |path| {
-        if (path != .dir) continue;
-        //try cs.genOptionsDir(target, path.dir, a, io);
-
-        var itr = path.dir.dir.iterate();
-        const skip_dot = target.len == 0 or target[0] != '.';
-        while (itr.next(io)) |eachZ| {
-            const each = eachZ orelse break;
-            if (each.kind != .file) continue; // TODO probably a bug
-            if (each.name[0] == '.' and skip_dot) continue;
-            if (!startsWith(u8, each.name, target)) continue;
-
-            const file = Fs.openFrom(path.dir.dir, each.name, io, .open) orelse continue;
-            defer file.close(io);
-            if (file.stat(io)) |_| {
-                // TODO check executable bit
-            } else |err| {
-                log.debug("{} unable to get metadata for file at path {s} name {s}\n", .{
-                    err, path.dir.name, target,
-                });
-                return;
+    pub fn init(tokens: []Token) !Command {
+        inline for (@typeInfo(Command).@"enum".fields) |field| {
+            if (eqlIgnoreCase(tokens[0].str, field.name)) {
+                return @enumFromInt(field.value);
             }
-
-            try cs.options.append(a, .{ .executable = .{ .str = try a.dupe(u8, each.name) } });
-        } else |err| log.err("Completion PATH read error {}\n", .{err});
-    }
-}
-
-const TknPair = struct {
-    t: Token = .{ .str = "" },
-    offset: usize = 0,
-    count: usize = 0,
-};
-
-fn findToken(tkns: *Tokenizer) TknPair {
-    var itr = tkns.iterator();
-    var pair: TknPair = .{};
-    var idx: usize = tkns.idx;
-    while (itr.next()) |t| {
-        pair.count += 1;
-        if (idx <= t.str.len) {
-            pair.t = t;
-            pair.offset = idx;
-            break;
         }
-        idx -|= t.str.len;
+        return error.NotFound;
     }
-    pair.t.str = pair.t.str[0..pair.offset];
-    return pair;
-}
+};
 
 test "search match" {
     const n: ?usize = null;
@@ -583,17 +488,18 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
+const filesystem = @import("Completion/filesystem.zig");
+const git = @import("Completion/git.zig");
 const log = @import("log.zig");
 const Fs = @import("fs.zig");
-const Tokenizer = @import("tokenizer.zig");
 const Token = @import("token.zig");
-const Resolver = @import("parse.zig").Resolver;
+//const Resolver = @import("parse.zig").Resolver;
 const Draw = @import("draw.zig");
 const Lexeme = Draw.Lexeme;
 const Cord = Draw.Cord;
 const assert = std.debug.assert;
 const findScalar = std.mem.findScalar;
 const toUpper = std.ascii.toUpper;
-const startsWith = std.mem.startsWith;
-const findScalarLast = std.mem.findScalarLast;
 const trim = std.mem.trim;
+const eqlIgnoreCase = std.ascii.eqlIgnoreCase;
+const eql = std.mem.eql;
