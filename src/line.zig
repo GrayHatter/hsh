@@ -87,15 +87,7 @@ fn core(l: *Line, a: Allocator, io: Io) !Action {
             .external_editor => return .external,
         } catch |err| switch (err) {
             error.Io => return err,
-            error.Signaled => {
-                log.debug("signaled \n", .{});
-                l.draw.key('\n');
-                l.tkn.reset();
-                l.draw.clear();
-                l.draw.clearCtx();
-                try l.prompt.render(l.draw, &.{});
-                continue;
-            },
+            error.Signaled => if (l.signal()) continue else |_| return err,
         };
 
         switch (input) {
@@ -114,7 +106,10 @@ fn core(l: *Line, a: Allocator, io: Io) !Action {
                     .newline => return .exec,
                     .end_of_text => return .exec,
                     .delete_word => _ = l.tkn.removeWord(),
-                    .tab => try l.complete(a, io),
+                    .tab => l.complete(a, io) catch |e| switch (e) {
+                        error.Signaled => if (l.signal()) continue else |_| return e,
+                        else => return e,
+                    },
                     else => |els| log.warn("unknown {}\n", .{els}),
                 }
                 l.draw.clear();
@@ -128,6 +123,15 @@ fn core(l: *Line, a: Allocator, io: Io) !Action {
             },
         }
     }
+}
+
+fn signal(l: *Line) !void {
+    log.debug("signaled \n", .{});
+    l.draw.key('\n');
+    l.tkn.reset();
+    l.draw.clear();
+    l.draw.clearCtx();
+    try l.prompt.render(l.draw, &.{});
 }
 
 pub fn do(line: *Line, a: Allocator, io: Io) ![]u8 {
@@ -256,10 +260,7 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
             if (cmplt.count() == 1) continue :sw .commit;
             continue :sw .redraw;
         },
-        .input => continue :sw .{ .key = line.input.interactive(a, io) catch |err| switch (err) {
-            error.Signaled => continue :sw .exit,
-            else => return err,
-        } },
+        .input => continue :sw .{ .key = try line.input.interactive(a, io) },
         .key => |ks| switch (ks) {
             .char => |c| switch (c) {
                 0x00...0x1f => unreachable,
