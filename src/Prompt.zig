@@ -36,14 +36,30 @@ pub fn init(user: []const u8, host: ?[]const u8) Prompt {
     };
 }
 
-pub fn render(p: Prompt, draw: *Draw, line: []const u8) !void {
+pub fn draw(p: Prompt, d: *Draw, line: []const u8) !void {
     //const bgjobs = Jobs.getBgSlice(hsh.alloc) catch unreachable;
     //defer hsh.alloc.free(bgjobs);
     //try jobsContext(hsh, bgjobs);
     //try ctxContext(hsh, try Context.fetch(hsh, .git));
 
-    try p.prompt(draw);
-    try p.userText(draw, line, "");
+    const lex = &[_]Lexeme{
+        .styled(p.username, .blue_bold), .str("@"),
+        .str(p.hostname),                .str(" "),
+        .alt(p.cwd.*, .dir),             .str(p.brace),
+    };
+
+    d.draw(lex);
+    try p.userText(d, line, "");
+}
+
+pub fn render(p: Prompt, d: *Draw, line: []const u8) !void {
+    //const bgjobs = Jobs.getBgSlice(hsh.alloc) catch unreachable;
+    //defer hsh.alloc.free(bgjobs);
+    //try jobsContext(hsh, bgjobs);
+    //try ctxContext(hsh, try Context.fetch(hsh, .git));
+
+    try p.draw(d, line);
+    try d.render();
 }
 
 fn spinner(s: Spinners) Lexeme {
@@ -52,35 +68,25 @@ fn spinner(s: Spinners) Lexeme {
     return .str(s.spin(si));
 }
 
-fn userTextMultiline(_: Prompt, draw: *Draw, tkn: *Tokenizer) !void {
+fn userTextMultiline(_: Prompt, d: *Draw, tkn: *Tokenizer) !void {
     const err = if (tkn.err_idx > 0) tkn.err_idx else tkn.raw.items.len;
     const good = tkn.raw.items[0..err];
     const bad = tkn.raw.items[err..];
-    draw.draw(.{ .siblings = &.{ .str(good), .styled(bad, .red_bg) } });
+    d.draw(.{ .siblings = &.{ .str(good), .styled(bad, .red_bg) } });
 }
 
-fn userText(_: Prompt, draw: *Draw, good: []const u8, bad: []const u8) !void {
-    draw.draw(&[_]Lexeme{ .str(good), .styled(bad, .{ .bg = .red }) });
+fn userText(_: Prompt, d: *Draw, good: []const u8, bad: []const u8) !void {
+    d.draw(&[_]Lexeme{ .str(good), .styled(bad, .{ .bg = .red }) });
 }
 
-fn prompt(p: Prompt, draw: *Draw) !void {
-    const lex = &[_]Lexeme{
-        .styled(p.username, .blue_bold), .str("@"),
-        .str(p.hostname),                .str(" "),
-        .alt(p.cwd.*, .dir),             .str(p.brace),
-    };
-
-    draw.draw(lex);
-}
-
-fn jobsContext(draw: *Draw, jobs: *const Jobs) !void {
+fn jobsContext(d: *Draw, jobs: *const Jobs) !void {
     for (jobs) |j| {
         const lex = [_]Lexeme{
             .str("[ "), if (j.status == .background) .str(spinner(.dots2t3)) else .str("Z"),
             .str(" "),  .str(j.name orelse "Unknown Job"),
             .str(" ]"),
         };
-        draw.drawBefore(&lex);
+        d.drawBefore(&lex);
     }
 }
 

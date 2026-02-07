@@ -88,7 +88,7 @@ fn core(l: *Line, a: Allocator, io: Io) !Action {
         } catch |err| switch (err) {
             error.Io => return err,
             error.Signaled => {
-                log.err("signaled \n", .{});
+                log.debug("signaled \n", .{});
                 l.tkn.reset();
                 l.draw.clearCtx();
                 l.draw.clear();
