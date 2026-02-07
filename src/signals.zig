@@ -79,20 +79,17 @@ pub fn init() !void {
 }
 
 pub const SigEvent = enum {
-    none,
-    clear,
+    sigint,
+    unexpected,
 };
 
-pub fn do(hsh: *Hsh) SigEvent {
-    while (flags.int > 0) {
-        flags.int -|= 1;
-        // TODO do something
-        //hsh.tkn.reset();
-        hsh.draw.writer.writeAll("^C\n\r") catch {};
-        //if (hsh.hist) |*hist| {
-        //    hist.cnt = 0;
-        //}
-        return .clear;
+pub fn do(hsh: *Hsh) ?SigEvent {
+    if (flags.int > 0) {
+        while (flags.int > 0) {
+            flags.int -|= 1;
+            hsh.draw.str("^C");
+        }
+        return .sigint;
     }
 
     while (get()) |sig| {
@@ -133,7 +130,7 @@ pub fn do(hsh: *Hsh) SigEvent {
                 if (pid != 0) {
                     const child = hsh.jobs.getPtr(pid) catch {
                         log.warn("Unknown child on {} {}\n", .{ sig.info.code, pid });
-                        return .none;
+                        return .unexpected;
                     };
                     child.status = .fromLinux(@bitCast(sig.info.fields.common.second.sigchld.status));
                 }
@@ -167,7 +164,7 @@ pub fn do(hsh: *Hsh) SigEvent {
         hsh.draw.term_size = hsh.tty.geom() catch unreachable;
         flags.winch = false;
     }
-    return .none;
+    return null;
 }
 
 pub fn block() void {

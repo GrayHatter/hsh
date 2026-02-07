@@ -233,7 +233,11 @@ pub fn spin(hsh: *Hsh, a: Allocator, io: Io) bool {
 }
 
 fn doSignals(hsh: *Hsh) bool {
-    return Signals.do(hsh) != .none;
+    if (Signals.do(hsh)) |sig| switch (sig) {
+        .sigint => return true,
+        .unexpected => unreachable,
+    };
+    return false;
 }
 
 test {

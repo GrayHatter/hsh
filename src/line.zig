@@ -64,7 +64,7 @@ fn char(l: *Line, c: u8) !void {
         l.draw.cursor = @truncate(l.tkn.len - l.tkn.idx);
         try l.hsh.prompt.render(l.draw, l.peek());
     } else {
-        try l.draw.key(c);
+        l.draw.key(c);
     }
 
     // TODO FIXME
@@ -89,10 +89,11 @@ fn core(l: *Line, a: Allocator, io: Io) !Action {
             error.Io => return err,
             error.Signaled => {
                 log.debug("signaled \n", .{});
+                l.draw.key('\n');
                 l.tkn.reset();
-                l.draw.clearCtx();
                 l.draw.clear();
-                try l.draw.render();
+                l.draw.clearCtx();
+                try l.prompt.render(l.draw, &.{});
                 continue;
             },
         };

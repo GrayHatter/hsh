@@ -251,8 +251,12 @@ pub fn init(a: Allocator, hsh: *Hsh) !Draw {
     };
 }
 
-pub fn key(d: *Draw, c: u8) !void {
-    try d.unbuffered.writeByte(c);
+pub fn str(d: *Draw, comptime s: []const u8) void {
+    d.unbuffered.writeAll(s) catch {};
+}
+
+pub fn key(d: *Draw, c: u8) void {
+    d.unbuffered.writeByte(c) catch {};
 }
 
 pub fn clear(d: *Draw) void {
