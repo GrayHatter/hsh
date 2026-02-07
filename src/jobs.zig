@@ -2,7 +2,7 @@ jobs: ArrayList(Job),
 
 const Jobs = @This();
 
-pub const Pid = std.posix.pid_t;
+pub const Pid = system.pid_t;
 
 pub var global: ?*Jobs = null;
 
@@ -22,7 +22,7 @@ pub const Status = union(enum) {
     crashed: u8,
     unknown: void, // :<
 
-    const W = std.os.linux.W;
+    const W = system.W;
 
     pub fn fromLinux(s: Status_t) Status {
         return if (W.IFSIGNALED(s))
@@ -50,7 +50,7 @@ pub const Job = struct {
     name: ?[]const u8,
     pgid: ?Pid = null,
     status: Status = .unknown,
-    termattr: ?std.posix.termios = null,
+    termattr: ?system.termios = null,
 
     pub fn init(pid: Pid, name: ?[]const u8) Job {
         return .{
@@ -77,7 +77,7 @@ pub const Job = struct {
         return false;
     }
 
-    pub fn sendBackground(self: *Job, tio: std.posix.termios) !void {
+    pub fn sendBackground(self: *Job, tio: system.termios) !void {
         self.status = .background;
         self.termattr = tio;
         comptime unreachable; // send signal
@@ -85,9 +85,9 @@ pub const Job = struct {
 
     pub fn sendForground(j: *Job, tty: *Tty) !void {
         std.debug.assert(j.status == .paused or j.status.running == .background);
-        if (j.termattr) |tio| tty.setTTY(tio);
+        if (j.termattr) |tio| try tty.set(.child(tio));
         j.status = .{ .running = .forground };
-        try std.posix.kill(j.pid, std.posix.SIG.CONT);
+        try system.kill(j.pid, system.SIG.CONT);
     }
 
     pub fn format(self: Job, out: *std.Io.Writer) !void {
@@ -201,8 +201,8 @@ fn waitpid(pid: Pid, flags: u32) WaitError!WaitResult {
     var status: Status_t = undefined;
     const coerced_flags = flags;
     while (true) {
-        const rc = std.os.linux.waitpid(pid, &status, coerced_flags);
-        switch (std.posix.errno(rc)) {
+        const rc = system.waitpid(pid, &status, coerced_flags);
+        switch (system.errno(rc)) {
             .SUCCESS => return .{
                 .pid = @as(Pid, @intCast(rc)),
                 .status = @as(u32, @bitCast(status)),
@@ -237,26 +237,27 @@ pub fn waitFor(j: *Jobs, pid: Pid) !*const Job {
         }
     }
 
-    const s = try waitpid(pid, std.posix.W.UNTRACED);
+    const s = try waitpid(pid, system.W.UNTRACED);
     log.debug("status {} {} \n", .{ s.pid, s.status });
     if (s.pid == pid) {
         if (j.getPtr(s.pid)) |job| {
             job.status = .fromLinux(s.status);
+            const tty = Tty.current();
             switch (job.status) {
                 .paused => |p| {
-                    Tty.current().waitForFg();
+                    tty.waitForFg();
                     log.err("paused sig {s}\n", .{@tagName(p)});
-                    Tty.current().setRaw() catch unreachable;
+                    tty.set(.raw) catch unreachable;
                 },
                 .crashed => |cc| {
-                    Tty.current().waitForFg();
+                    tty.waitForFg();
                     log.err("crashed with sig {}\n", .{cc});
-                    Tty.current().setRaw() catch unreachable;
+                    tty.set(.raw) catch unreachable;
                 },
                 .exited => |ec| {
-                    Tty.current().waitForFg();
+                    tty.waitForFg();
                     log.debug("stop sig {}\n", .{ec});
-                    Tty.current().setRaw() catch unreachable;
+                    tty.set(.raw) catch unreachable;
                 },
                 else => unreachable,
             }
@@ -280,3 +281,4 @@ const Hsh = @import("hsh.zig");
 const SI_CODE = @import("signals.zig").SI_CODE;
 const log = @import("log.zig");
 const Tty = @import("tty.zig");
+const system = @import("system.zig");

@@ -6,8 +6,12 @@ pub const Which = @import("builtins/which.zig");
 
 var Builtin = @This();
 
+pub const Token = @import("token.zig");
+pub const ParsedIterator = @import("parse.zig").Iterator;
+pub const Variables = @import("variables.zig");
+
 pub const Err = error{
-    Unknown,
+    Internal,
     Memory,
     OutOfMemory,
     IO,
@@ -165,7 +169,7 @@ pub const Exit = struct {
         h.draw.raze(a);
         h.tty.raze(a);
         h.raze(a, io);
-        os.exit(code);
+        system.exit(code);
     }
 };
 
@@ -212,7 +216,7 @@ pub const Jobs = struct {
     };
     pub const Bg = struct {
         fn call(_: *Hsh, _: *ParsedIterator, _: Allocator, _: Io) Err!u8 {
-            print("bg not yet implemented\n", .{}) catch return Err.Unknown;
+            print("bg not yet implemented\n", .{}) catch return error.Internal;
             return 0;
         }
     };
@@ -256,11 +260,11 @@ pub const TtyDebug = struct {
         if (pi.next()) |next| {
             if (std.mem.eql(u8, "raw", next.resolved.str)) {
                 try print("changing tty from \n{any}\n", .{hsh.tty.getAttr().?});
-                hsh.tty.setRaw() catch return Err.Unknown;
+                hsh.tty.set(.raw) catch return error.Internal;
                 try print("to raw \n{}\n", .{hsh.tty.getAttr().?});
             } else if (std.mem.eql(u8, "orig", next.resolved.str)) {
                 try print("changing tty from \n{any}\n", .{hsh.tty.getAttr().?});
-                hsh.tty.setOrig() catch return Err.Unknown;
+                hsh.tty.set(.normal) catch return error.Internal;
                 try print("to orig \n{}\n", .{hsh.tty.getAttr().?});
             } else {
                 try print("changing tty from \n{any}\n", .{hsh.tty.getAttr().?});
@@ -276,7 +280,7 @@ pub const TtyDebug = struct {
 // Optional builtins may not be available depending on path binaries
 
 fn status(_: *Hsh, _: *ParsedIterator, _: Allocator, _: Io) Err!u8 {
-    print("status not yet implemented\n", .{}) catch return Err.Unknown;
+    print("status not yet implemented\n", .{}) catch return error.Internal;
     return 0;
 }
 
@@ -294,8 +298,5 @@ const Hsh = @import("hsh.zig");
 const Tty = @import("tty.zig");
 const log = @import("log.zig");
 const hsh_build = @import("hsh_build");
-pub const Token = @import("token.zig");
-pub const ParsedIterator = @import("parse.zig").Iterator;
-pub const Variables = @import("variables.zig");
 const assert = std.debug.assert;
-const os = std.os.linux;
+const system = @import("system.zig");

@@ -1,11 +1,21 @@
 dev: ?File,
 in: RStack,
 out: WStack,
-orig_attr: ?std.posix.termios,
-pid: std.posix.pid_t = undefined,
-owner: ?std.posix.pid_t = null,
+orig_attr: ?system.termios,
+pid: system.pid_t = undefined,
+owner: ?system.pid_t = null,
 
 const Tty = @This();
+
+pub const Mode = union(enum) {
+    normal: void,
+    raw: void,
+    child_tio: system.termios,
+
+    pub fn child(tio: system.termios) Mode {
+        return .{ .child_tio = tio };
+    }
+};
 
 pub const VTCmds = enum {
     CurPosGet,
@@ -40,8 +50,8 @@ pub fn init(a: Allocator, io: Io) !Tty {
     else
         null;
 
-    const in_tty = if (dev) |d| d else std.Io.File.stdin();
-    const out_tty = if (dev) |d| d else std.Io.File.stdout();
+    const in_tty = if (dev) |d| d else Io.File.stdin();
+    const out_tty = if (dev) |d| d else Io.File.stdout();
 
     const in_b = try a.alloc(u8, 2048);
     const out_b = try a.alloc(u8, 2048);
@@ -68,22 +78,22 @@ pub fn current() *Tty {
     return &(_current orelse unreachable);
 }
 
-fn tcAttr(tty_fd: i32) ?std.posix.termios {
-    return std.posix.tcgetattr(tty_fd) catch null;
+fn tcAttr(tty_fd: i32) ?system.termios {
+    return system.tcgetattr(tty_fd) catch null;
 }
 
-pub fn getAttr(t: *Tty) ?std.posix.termios {
+pub fn getAttr(t: *Tty) ?system.termios {
     return tcAttr((t.dev orelse return null).handle);
 }
 
-fn makeRaw(orig: ?std.posix.termios) std.posix.termios {
-    var next = orig orelse std.posix.termios{
+fn makeRaw(orig: ?system.termios) system.termios {
+    var next = orig orelse system.termios{
         .oflag = .{ .OPOST = true, .ONLCR = true },
         .cflag = .{ .CSIZE = .CS8, .CREAD = true, .CLOCAL = true },
         .lflag = .{ .ISIG = true, .ICANON = true, .ECHO = true, .IEXTEN = true, .ECHOE = true },
         .iflag = .{ .BRKINT = true, .ICRNL = true, .IMAXBEL = true },
         .line = 0,
-        .cc = [_]u8{0} ** std.posix.NCCS,
+        .cc = [_]u8{0} ** system.NCCS,
         .ispeed = .B9600,
         .ospeed = .B9600,
     };
@@ -95,58 +105,57 @@ fn makeRaw(orig: ?std.posix.termios) std.posix.termios {
     next.lflag.ECHONL = false;
     next.lflag.ICANON = false;
     next.lflag.IEXTEN = false;
-    next.cc[@intFromEnum(std.posix.system.V.TIME)] = 1; // 0.1 sec resolution
-    next.cc[@intFromEnum(std.posix.system.V.MIN)] = 0;
+    next.cc[@intFromEnum(system.V.TIME)] = 1; // 0.1 sec resolution
+    next.cc[@intFromEnum(system.V.MIN)] = 0;
     return next;
 }
 
-fn setTTYWhen(t: *Tty, mtio: ?std.posix.termios, when: TCSA) !void {
+fn setTtyWhen(t: *Tty, mtio: ?system.termios, when: system.TCSA) !void {
     const fd = t.dev orelse return error.NoTtyDevice;
-    if (mtio) |tio| try std.posix.tcsetattr(fd.handle, when, tio);
+    if (mtio) |tio| try system.tcsetattr(fd.handle, when, tio);
 }
 
-pub fn setTTY(t: *Tty, tio: ?std.posix.termios) void {
-    t.setTTYWhen(tio, .DRAIN) catch |err| {
-        log.err("TTY ERROR encountered, {} when popping.\n", .{err});
-    };
+pub fn set(t: *Tty, m: Mode) !void {
+    if (t.dev == null) unreachable;
+    switch (m) {
+        .normal => {
+            try t.setTtyWhen(t.orig_attr, .DRAIN);
+            // try t.command(.ReqMouseEvents, false);
+            try t.command(.ModOtherKeys, false);
+            //try t.command(.S8C1T, false);
+            try t.command(.DECCKM, false);
+        },
+        .raw => {
+            try t.setTtyWhen(makeRaw(t.orig_attr), .DRAIN);
+            // try t.command(.ReqMouseEvents, true);
+            try t.command(.ModOtherKeys, true);
+            //try t.command(.S8C1T, true);
+            try t.command(.DECCKM, false);
+        },
+        .child_tio => |tio| {
+            try t.setTtyWhen(tio, .DRAIN);
+        },
+    }
 }
 
-pub fn setOrig(t: *Tty) !void {
-    if (t.dev == null) return;
-    try t.setTTYWhen(t.orig_attr, .DRAIN);
-    // try t.command(.ReqMouseEvents, false);
-    try t.command(.ModOtherKeys, false);
-    //try t.command(.S8C1T, false);
-    try t.command(.DECCKM, false);
-}
-
-pub fn setRaw(t: *Tty) !void {
-    if (t.dev == null) return;
-    try t.setTTYWhen(makeRaw(t.orig_attr), .DRAIN);
-    // try t.command(.ReqMouseEvents, true);
-    try t.command(.ModOtherKeys, true);
-    //try t.command(.S8C1T, true);
-    try t.command(.DECCKM, false);
-}
-
-pub fn setOwner(t: *Tty, mpgrp: ?std.posix.pid_t) !void {
+pub fn setOwner(t: *Tty, mpgrp: ?system.pid_t) !void {
     if (t.owner == null) return;
     const pgrp = mpgrp orelse t.pid;
     const fd = t.dev orelse return error.NoTtyDevice;
-    _ = try std.posix.tcsetpgrp(fd.handle, pgrp);
+    _ = try system.tcsetpgrp(fd.handle, pgrp);
 }
 
-pub fn pwnTTY(t: *Tty) !void {
+pub fn pwn(t: *Tty) !void {
     const fd = t.dev orelse return error.NoTtyDevice;
-    t.pid = std.os.linux.getpid();
-    const ssid = custom_syscalls.getsid(0);
+    t.pid = system.getpid();
+    const ssid = system.getsid(0);
     log.debug("pwnTTY {} and {} \n", .{ t.pid, ssid });
-    if (ssid != t.pid) _ = std.os.linux.setpgid(t.pid, t.pid);
+    if (ssid != t.pid) _ = system.setpgid(t.pid, t.pid);
 
-    const res = std.posix.tcsetpgrp(fd.handle, t.pid) catch |err| {
+    const res = system.tcsetpgrp(fd.handle, t.pid) catch |err| {
         t.owner = t.pid;
         log.err("tcsetpgrp failed on pid {}, error was: {}\n", .{ t.pid, err });
-        const get = std.posix.tcgetpgrp(fd.handle) catch |err2| {
+        const get = system.tcgetpgrp(fd.handle) catch |err2| {
             log.err("tcgetpgrp err {}\n", .{err2});
             return err;
         };
@@ -154,22 +163,22 @@ pub fn pwnTTY(t: *Tty) !void {
         unreachable;
     };
     log.debug("tc pwnd {}\n", .{res});
-    const pgrp = std.posix.tcgetpgrp(fd.handle) catch unreachable;
+    const pgrp = system.tcgetpgrp(fd.handle) catch unreachable;
     log.debug("get new pgrp {}\n", .{pgrp});
 }
 
 pub fn waitForFg(t: *Tty) void {
     if (t.dev == null) return;
-    var pgid = custom_syscalls.getpgid(0);
-    var fg = std.posix.tcgetpgrp(t.dev.?.handle) catch |err| {
+    var pgid = system.getpgid(0);
+    var fg = system.tcgetpgrp(t.dev.?.handle) catch |err| {
         log.err("died waiting for fg {}\n", .{err});
         @panic("panic carefully!");
     };
     while (pgid != fg) {
-        std.posix.kill(-pgid, std.posix.SIG.TTIN) catch @panic("unable to send TTIN");
-        pgid = custom_syscalls.getpgid(0);
-        std.posix.tcsetpgrp(t.dev.?.handle, pgid) catch @panic("died in loop");
-        fg = std.posix.tcgetpgrp(t.dev.?.handle) catch @panic("died in loop");
+        system.kill(-pgid, system.SIG.TTIN) catch @panic("unable to send TTIN");
+        pgid = system.getpgid(0);
+        system.tcsetpgrp(t.dev.?.handle, pgid) catch @panic("died in loop");
+        fg = system.tcgetpgrp(t.dev.?.handle) catch @panic("died in loop");
     }
 }
 
@@ -183,15 +192,9 @@ pub fn command(tty: *Tty, comptime code: VTCmds, comptime enable: ?bool) !void {
     switch (code) {
         .CurPosGet => try tty.print("\x1B[6n", .{}),
         .CurPosSet => @panic("not implemented"),
-        .ModOtherKeys => {
-            try tty.print(if (enable.?) "\x1B[>4;2m" else "\x1b[>4m", .{});
-        },
-        .ReqMouseEvents => {
-            try tty.print(if (enable.?) "\x1B[?1004h" else "\x1B[?1004l", .{});
-        },
-        .S8C1T => {
-            try tty.print(if (enable.?) "\x1B G" else "\x1B F", .{});
-        },
+        .ModOtherKeys => try tty.print(if (enable.?) "\x1B[>4;2m" else "\x1b[>4m", .{}),
+        .ReqMouseEvents => try tty.print(if (enable.?) "\x1B[?1004h" else "\x1B[?1004l", .{}),
+        .S8C1T => try tty.print(if (enable.?) "\x1B G" else "\x1B F", .{}),
         .DECCKM => try tty.print(if (enable.?) "\x1B[?1h" else "\x1B[?1l", .{}),
     }
 }
@@ -213,23 +216,21 @@ pub fn command(tty: *Tty, comptime code: VTCmds, comptime enable: ?bool) !void {
 //}
 
 pub fn geom(t: *Tty) !Cord {
-    const fd = t.dev orelse return error.NoTtyDevice;
-    var size: std.posix.winsize = std.mem.zeroes(std.posix.winsize);
-    const err = std.posix.system.ioctl(fd.handle, std.posix.T.IOCGWINSZ, @intFromPtr(&size));
-    if (std.posix.errno(err) != .SUCCESS) {
-        return std.posix.unexpectedErrno(@enumFromInt(err));
+    const fd = t.dev orelse return error.NoDevice;
+    var size: system.winsize = std.mem.zeroes(system.winsize);
+    const err = system.ioctl(fd.handle, system.T.IOCGWINSZ, @intFromPtr(&size));
+    if (system.errno(err) != .SUCCESS) {
+        return system.unexpectedErrno(@enumFromInt(err));
     }
     return .{ .x = size.col, .y = size.row };
 }
 
 pub fn raze(t: *Tty, a: Allocator) void {
     if (t.orig_attr) |attr| {
-        t.setTTYWhen(attr, .NOW) catch |err| {
-            std.debug.print(
-                "\r\n\nTTY ERROR RAZE encountered, {} when attempting to raze.\r\n\n",
-                .{err},
-            );
-        };
+        t.setTtyWhen(attr, .NOW) catch |err| std.debug.print(
+            "\r\n\nTTY ERROR RAZE encountered, {} when attempting to raze.\r\n\n",
+            .{err},
+        );
     }
 
     a.free(t.in.r.interface.buffer);
@@ -243,12 +244,10 @@ pub fn panic(t: *Tty) void {
     }
     // we can't call raze without an allocator
     if (t.orig_attr) |attr| {
-        t.setTTYWhen(attr, .NOW) catch |err| {
-            std.debug.print(
-                "\r\n\nTTY ERROR RAZE encountered, {} when attempting to raze.\r\n\n",
-                .{err},
-            );
-        };
+        t.setTtyWhen(attr, .NOW) catch |err| std.debug.print(
+            "\r\n\nTTY ERROR RAZE encountered, {} when attempting to raze.\r\n\n",
+            .{err},
+        );
     }
 }
 
@@ -273,8 +272,5 @@ const File = Io.File;
 const Reader = File.Reader;
 const Writer = File.Writer;
 const Cord = @import("draw.zig").Cord;
-const custom_syscalls = @import("syscalls.zig");
-const pid_t = std.posix.pid_t;
-const fd_t = std.posix.fd_t;
 const log = @import("log.zig");
-const TCSA = std.os.linux.TCSA;
+const system = @import("system.zig");

@@ -123,7 +123,7 @@ pub fn init(env: Environ, a: Allocator, io: Io) !Fs {
             .{ .name = home, .dir = try Dir.openDirAbsolute(io, home, .{}) }
         else
             .{ .name = try a.dupe(u8, realpath[0..len]), .dir = try Dir.openDirAbsolute(io, realpath[0..len], .{}) },
-        .inotify_fd = @intCast((linux.inotify_init1(std.os.linux.IN.CLOEXEC | std.os.linux.IN.NONBLOCK))),
+        .inotify_fd = @intCast((system.inotify_init1(system.IN.CLOEXEC | system.IN.NONBLOCK))),
         .watches = .{},
     };
 
@@ -156,17 +156,17 @@ pub fn inotifyInstallRc(fs: *Fs, cb: ?INotify.Callback, a: Allocator) !void {
 /// TODO rename and maybe refactor
 pub fn checkINotify(fs: *Fs, h: *Hsh, a: Allocator, io: Io) bool {
     if (fs.inotify_fd) |fd| {
-        var buf: [4096]u8 align(@alignOf(linux.inotify_event)) = undefined;
-        const rcount = std.posix.read(fd, &buf) catch return true;
+        var buf: [4096]u8 align(@alignOf(system.inotify_event)) = undefined;
+        const rcount = system.read(fd, &buf) catch return true;
         if (rcount > 0) {
-            if (rcount < @sizeOf(linux.inotify_event)) {
+            if (rcount < @sizeOf(system.inotify_event)) {
                 log.err(
                     "inotify read size too small @{} expected {}\n",
-                    .{ rcount, @sizeOf(linux.inotify_event) },
+                    .{ rcount, @sizeOf(system.inotify_event) },
                 );
                 return true;
             }
-            const event: *const linux.inotify_event = @ptrCast(&buf);
+            const event: *const system.inotify_event = @ptrCast(&buf);
             // TODO optimize
             for (fs.watches.items) |*watch| {
                 if (watch.wdes == event.wd) {
@@ -206,7 +206,7 @@ pub fn cd(fs: *Fs, trgt: []const u8, a: Allocator, io: Io) !void {
     a.free(old_name);
     fs.cwd.dir.close(io);
     fs.cwd.dir = next;
-    if (linux.fchdir(fs.cwd.dir.handle) != 0) unreachable;
+    if (system.fchdir(fs.cwd.dir.handle) != 0) unreachable;
     log.debug("cd now '{s}'\n", .{fs.cwd.name});
 }
 
@@ -446,5 +446,5 @@ const Hsh = @import("hsh.zig");
 const vars = @import("variables.zig");
 const allocPrint = std.fmt.allocPrint;
 const bufPrint = std.fmt.bufPrint;
-const linux = std.os.linux;
 const builtin = @import("builtin");
+const system = @import("system.zig");

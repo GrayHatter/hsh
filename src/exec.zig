@@ -416,14 +416,14 @@ pub fn exec(input: []const u8, h: *Hsh, a: Allocator, io: Io, options: Options) 
     }
     defer a.free(stack);
 
-    h.tty.setOrig() catch |e| {
+    h.tty.set(.normal) catch |e| {
         log.err("TTY didn't respond {}\n", .{e});
         return error.Unknown;
     };
-    defer h.tty.setRaw() catch log.err("Unable to setRaw after child event\n", .{});
+    defer h.tty.set(.raw) catch log.err("Unable to setRaw after child event\n", .{});
     defer h.tty.setOwner(null) catch log.err("Unable to setOwner after child event\n", .{});
 
-    errdefer h.tty.setRaw() catch |e| {
+    errdefer h.tty.set(.raw) catch |e| {
         log.err("TTY didn't respond as expected after exec error{}\n", .{e});
     };
 
@@ -443,7 +443,7 @@ pub fn exec(input: []const u8, h: *Hsh, a: Allocator, io: Io, options: Options) 
                 .success => if (waited_job.status == .exited and waited_job.status.exited != 0) continue,
             }
             // repush original because spinning will revert
-            h.tty.setOrig() catch |e| {
+            h.tty.set(.normal) catch |e| {
                 log.err("TTY didn't respond {}\n", .{e});
                 return error.Unknown;
             };
@@ -557,7 +557,7 @@ pub fn childZ(argv: [:null]const ?[*:0]const u8, a: Allocator) !ChildResult {
     if (pid == 0) {
         // we kid nao
         defer comptime unreachable;
-        _ = system.dup2(stdout_child, std.posix.STDOUT_FILENO);
+        _ = system.dup2(stdout_child, system.STDOUT_FILENO);
         _ = system.close(stdout_ours);
         _ = system.close(stdout_child);
         const environ = Variables.henviron(a);
@@ -572,26 +572,6 @@ pub fn childZ(argv: [:null]const ?[*:0]const u8, a: Allocator) !ChildResult {
         .stdout = .{ .handle = stdout_ours },
     };
 }
-
-const system = struct {
-    _: void = {},
-
-    const os = std.os.linux;
-    const zsys = Io.Threaded;
-    const fd_t = std.posix.fd_t;
-    const pid_t = std.posix.pid_t;
-
-    const pipe2 = zsys.pipe2;
-    const exit = std.process.exit;
-    const dup2 = os.dup2;
-    const close = os.close;
-    const fork = os.fork;
-    const abort = std.process.abort;
-    const execve = os.execve;
-    const lseek = os.lseek;
-
-    const SEEK = os.SEEK;
-};
 
 test "mkstack" {
     var a = std.testing.allocator;
@@ -640,6 +620,7 @@ const Reader = Io.Reader;
 const File = Io.File;
 
 const Hsh = @import("hsh.zig");
+const system = @import("system.zig");
 const Jobs = @import("jobs.zig");
 const tokenizer = @import("tokenizer.zig");
 const Tokenizer = tokenizer.Tokenizer;

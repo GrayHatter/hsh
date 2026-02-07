@@ -141,7 +141,7 @@ pub const Event = union(enum) {
     }
 };
 
-pub fn init(stdin: std.posix.fd_t) Input {
+pub fn init(stdin: i32) Input {
     return .{ .stdin = stdin };
 }
 

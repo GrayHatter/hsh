@@ -1,8 +1,8 @@
 features: Features,
 env: std.process.Environ,
 fs: Fs,
-pid: std.posix.pid_t,
-pgrp: std.posix.pid_t = -1,
+pid: system.pid_t,
+pgrp: system.pid_t = -1,
 jobs: Jobs,
 tty: Tty = undefined,
 prompt: Prompt,
@@ -167,7 +167,7 @@ pub fn init(env: Environ, a: Allocator, io: Io) !Hsh {
         .features = .{},
         .prompt = .init(env.getPosix("USER") orelse "[env error]", hostname),
         .env = env,
-        .pid = os.getpid(),
+        .pid = system.getpid(),
         .jobs = .init(),
         .fs = Fs.init(env, a, io) catch return error.Memory,
     };
@@ -263,5 +263,5 @@ const Variables = @import("variables.zig");
 const Fs = @import("fs.zig");
 const Jobs = @import("jobs.zig");
 const shellbuiltin = @import("builtins.zig");
-const os = std.os.linux; // TODO add support for other oses
 const trim = std.mem.trim;
+const system = @import("system.zig");

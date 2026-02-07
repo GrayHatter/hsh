@@ -115,9 +115,9 @@ pub fn main(init: std.process.Init) !void {
     hsh.tty = try Tty.init(a, io);
     defer hsh.tty.raze(a);
 
-    try hsh.tty.setRaw();
+    try hsh.tty.set(.raw);
     // Look at me, I'm the captain now!
-    try hsh.tty.pwnTTY();
+    try hsh.tty.pwn();
 
     hsh.draw = Draw.init(a, &hsh) catch unreachable;
     defer hsh.draw.raze(a);
