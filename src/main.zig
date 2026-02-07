@@ -47,7 +47,7 @@ fn execTacC(mini: std.process.Init.Minimal, io: Io) u8 {
         tkzr.consumeSlice(arg);
     }
     const str = tkzr.getSlice();
-    Exec.exec(str, &hsh, a, io) catch |err| {
+    Exec.exec(str, &hsh, a, io, .default) catch |err| {
         log.err("-c error [{}]\n", .{err});
         return 1;
     };
@@ -136,7 +136,7 @@ pub fn main(init: std.process.Init) !void {
 
             //var itr = hsh.tkn.iterator();
             try hsh.draw.writer.writeByte('\n');
-            Exec.exec(str, &hsh, a, io) catch |err| switch (err) {
+            Exec.exec(str, &hsh, a, io, .default) catch |err| switch (err) {
                 error.ExeNotFound => {
                     const first = Exec.execFromInput(str, a, io) catch @panic("memory");
                     defer a.free(first);

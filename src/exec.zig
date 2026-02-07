@@ -16,6 +16,18 @@ pub const Error = error{
 const Arg = [*:0]u8;
 const ArgV = [:null]?Arg;
 
+pub const Options = struct {
+    fork: bool,
+
+    pub const default: Options = .{
+        .fork = true,
+    };
+
+    pub const no_fork: Options = .{
+        .fork = false,
+    };
+};
+
 const ProcIo = struct {
     in: ?system.fd_t = null,
     out: ?system.fd_t = null,
@@ -377,9 +389,10 @@ fn mkCallableStack(itr: *TokenIterator, fs: Fs, a: Allocator, io: Io) ![]Callabl
 }
 
 /// input is a string ownership is retained by the caller
-pub fn exec(input: []const u8, h: *Hsh, a: Allocator, io: Io) !void {
+pub fn exec(input: []const u8, h: *Hsh, a: Allocator, io: Io, options: Options) !void {
     // HACK I don't like it either, but LOOK OVER THERE!!!
-    var tty = h.tty;
+
+    if (!options.fork) return error.NotImplemented;
 
     var titr = TokenIterator{ .raw = input };
 
@@ -403,14 +416,14 @@ pub fn exec(input: []const u8, h: *Hsh, a: Allocator, io: Io) !void {
     }
     defer a.free(stack);
 
-    tty.setOrig() catch |e| {
+    h.tty.setOrig() catch |e| {
         log.err("TTY didn't respond {}\n", .{e});
         return error.Unknown;
     };
-    defer tty.setRaw() catch log.err("Unable to setRaw after child event\n", .{});
-    defer tty.setOwner(null) catch log.err("Unable to setOwner after child event\n", .{});
+    defer h.tty.setRaw() catch log.err("Unable to setRaw after child event\n", .{});
+    defer h.tty.setOwner(null) catch log.err("Unable to setOwner after child event\n", .{});
 
-    errdefer tty.setRaw() catch |e| {
+    errdefer h.tty.setRaw() catch |e| {
         log.err("TTY didn't respond as expected after exec error{}\n", .{e});
     };
 
@@ -430,7 +443,7 @@ pub fn exec(input: []const u8, h: *Hsh, a: Allocator, io: Io) !void {
                 .success => if (waited_job.status == .exited and waited_job.status.exited != 0) continue,
             }
             // repush original because spinning will revert
-            tty.setOrig() catch |e| {
+            h.tty.setOrig() catch |e| {
                 log.err("TTY didn't respond {}\n", .{e});
                 return error.Unknown;
             };

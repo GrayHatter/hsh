@@ -37,7 +37,7 @@ fn execBody(body: []const u8, h: *Hsh, a: Allocator, io: Io) !void {
     for (body) |b| {
         tzr.consumeChar(b) catch |err| {
             if (err == error.Exec) {
-                try exec_.exec(tzr.getSlice(), h, a, io);
+                try Exec.exec(tzr.getSlice(), h, a, io, .default);
                 tzr.reset();
             }
         };
@@ -163,7 +163,7 @@ const If = struct {
     fn execClause(self: *If, h: *Hsh, a: Allocator, io: Io) Error!bool {
         const clause = self.clause orelse return Error.InvalidLogic;
         log.debug("testing logic clasue \n    {s}\n", .{clause});
-        const child = exec_.childFromSlice(clause, h, a, io) catch |err| {
+        const child = Exec.childFromSlice(clause, h, a, io) catch |err| {
             log.err("Unexpected error ({}) when attempting to run logic\n", .{err});
             return Error.ExecFailure;
         };
@@ -459,7 +459,7 @@ const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const Token = @import("token.zig");
 const Tokenizer = @import("tokenizer.zig");
-const exec_ = @import("exec.zig");
+const Exec = @import("exec.zig");
 const log = @import("log.zig");
 
 const Hsh = @import("hsh.zig");
