@@ -132,20 +132,20 @@ pub const Event = union(enum) {
 
     fn esc(r: *Reader) !Event {
         if (r.bufferedLen() == 0) return Event.fromKey(.esc);
-        switch (try r.takeByte()) {
-            0x1B => unreachable, // I assume this is unreachable now? // return Event.fromKey(.esc),
-            '[' => return csi(r),
-            'O' => return Event.fromKey(try .sst(r)),
+        return switch (try r.takeByte()) {
+            0x1B => .fromKey(.esc),
+            '[' => csi(r),
+            'O' => Event.fromKey(try .sst(r)),
             else => |byte| {
                 log.warn("\n\nunknown input: escape {c} {d}\n", .{ byte, byte });
-                return Event{
+                return .{
                     .keysm = .{
                         .evt = .{ .ascii = byte },
                         .mods = .init(2),
                     },
                 };
             },
-        }
+        };
     }
 
     /// Control Sequence Introducer
