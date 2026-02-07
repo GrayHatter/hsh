@@ -233,10 +233,12 @@ pub fn suggest(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Alloc
 
     const command: ?Command = Command.init(tokens) catch null;
 
+    const current_token: ?*const Token = if (t_idx) |idx| &tokens[idx] else null;
+
     if (command) |cmd| switch (cmd) {
-        .git => try git.suggest(cs, tokens, t_idx, fs, a, io),
-        else => try filesystem.suggest(cs, tokens, t_idx, fs, a, io),
-    } else try filesystem.suggest(cs, tokens, t_idx, fs, a, io);
+        .git => try git.suggest(cs, current_token, tokens, fs, a, io),
+        else => try filesystem.suggest(cs, current_token, tokens, fs, a, io),
+    } else try filesystem.suggest(cs, current_token, tokens, fs, a, io);
 
     if (cs.originalStr()) |str| {
         //try tks.maybeReplace(str, a);
@@ -246,9 +248,9 @@ pub fn suggest(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Alloc
 
     // TODO orderedRemoveMany allows an optimization to iterate only a single range if presorted
     if (command) |cmd| switch (cmd) {
-        .git => git.filter(cs, tokens, t_idx),
-        else => filesystem.filter(cs, tokens, t_idx),
-    } else filesystem.filter(cs, tokens, t_idx);
+        .git => git.filter(cs, current_token, tokens),
+        else => filesystem.filter(cs, current_token, tokens),
+    } else filesystem.filter(cs, current_token, tokens);
 
     cs.sort();
     log.info("Completing found '{}'\n", .{cs.count()});
@@ -462,6 +464,7 @@ pub const Command = enum {
     git,
 
     pub fn init(tokens: []Token) !Command {
+        if (tokens.len == 0) return error.NotFound;
         inline for (@typeInfo(Command).@"enum".fields) |field| {
             if (eqlIgnoreCase(tokens[0].str, field.name)) {
                 return @enumFromInt(field.value);

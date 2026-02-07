@@ -1,17 +1,15 @@
 const Options = ArrayList(Option);
 
-pub fn suggest(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Allocator, io: Io) error{OutOfMemory}!void {
+pub fn suggest(cs: *Completion, cur_token: ?*const Token, all_tokens: []Token, fs: Fs, a: Allocator, io: Io) error{OutOfMemory}!void {
     cs.cursor_index = 0;
 
-    if (t_idx) |idx| {
-        log.err("Completion.filesystem idx '{}'\n", .{idx});
-        const token: Token = tokens[idx];
+    if (cur_token) |token| {
         const str = trim(u8, token.str, std.ascii.whitespace[0..]);
-        assert(idx != 0 or str.len > 0);
-        log.err("Completion.filesystem Token '{s}'\n", .{token.str});
+        assert(all_tokens.len > 0 or str.len > 0);
+        log.debug("Completion.filesystem Token '{s}'\n", .{token.str});
         if (findScalar(u8, str, '/')) |_| {
             try genOptionsResolveDir(cs, str, fs, a, io);
-        } else if (idx == 0) {
+        } else if (token == &all_tokens[0]) {
             try genOptionsFromPATH(cs, str, fs, a, io);
         } else {
             try genOptionsDir(cs, &.{}, str, fs.cwd.dir, a, io);
@@ -22,7 +20,7 @@ pub fn suggest(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Alloc
         //try genOptionsFromPATH(cs, "", fs, a, io);
     }
 
-    log.err("Completion.filesystem found '{}'\n", .{cs.count()});
+    log.debug("Completion.filesystem found '{}'\n", .{cs.count()});
     return;
 }
 
@@ -44,8 +42,7 @@ fn argExists(opt: Option, tokens: []Token) bool {
     return false;
 }
 
-pub fn filter(cs: *Completion, tokens: []Token, t_idx: ?usize) void {
-    _ = t_idx;
+pub fn filter(cs: *Completion, _: ?*const Token, tokens: []Token) void {
     var buf: [50]usize = undefined;
     var list: ArrayList(usize) = .initBuffer(&buf);
     for (cs.options.items, 0..) |opt, i| {

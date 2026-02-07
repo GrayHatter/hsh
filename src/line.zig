@@ -245,12 +245,13 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
         },
         .start => {
             try cmplt.suggest(tokens, line.tkn.cursorTokenIdx(), line.hsh.fs, a, io);
-            const start_tkn = line.tkn.cursorToken() catch unreachable;
-            log.debug("completion start '{s}'\n", .{start_tkn.str});
-            line.tkn.maybe.setOriginal(trim(u8, start_tkn.str, whitespace));
-            if (start_tkn.str.len > 0 and start_tkn.str[start_tkn.str.len - 1] == '/') {
-                line.tkn.maybe.commit(null);
-            }
+            if (line.tkn.cursorToken()) |token| {
+                log.debug("completion start '{s}'\n", .{token.str});
+                line.tkn.maybe.setOriginal(trim(u8, token.str, whitespace));
+                if (token.str.len > 0 and token.str[token.str.len - 1] == '/') {
+                    line.tkn.maybe.commit(null);
+                }
+            } else |_| {}
             if (cmplt.count() == 1) continue :sw .commit;
             continue :sw .redraw;
         },
@@ -351,10 +352,14 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
             continue :sw .input;
         },
         .empty => {
+            line.tkn.maybe.commit(null);
+            cmplt.raze(a);
+            line.draw.clearCtx();
+            try line.draw.render();
             line.draw.drawAfter(&[1]Draw.Lexeme{.styled("[ No completions found ]", .red_bold)});
             try line.hsh.prompt.render(line.draw, line.peek());
             try line.draw.render();
-            continue :sw .exit;
+            return;
         },
         .commit => {
             const chr: u8 = switch (cmplt.current().*) {
@@ -371,11 +376,11 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
         .finish => |extra| {
             log.debug("completion finish\n", .{});
             line.tkn.maybe.commit(extra);
-            line.draw.clearCtx();
             continue :sw .exit;
         },
         .exit => {
             cmplt.raze(a);
+            line.draw.clearCtx();
             log.debug("completion exit\n", .{});
             return;
         },

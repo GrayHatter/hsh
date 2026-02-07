@@ -15,6 +15,10 @@ pub const Named = union(enum) {
     closed_file: Closed,
     closed_dir: Closed,
 
+    pub const Options = struct {
+        iterate: bool = false,
+    };
+
     pub const File = struct {
         name: []const u8,
         file: Fs.File,
@@ -58,11 +62,15 @@ pub const Named = union(enum) {
         }
 
         pub fn openDir(c: *Closed, io: Io) !void {
+            return c.openDirItr(io, false);
+        }
+
+        pub fn openDirItr(c: *Closed, io: Io, iter: bool) !void {
             const n: *Named = @fieldParentPtr("closed_dir", c);
 
             const named: Named = .{ .dir = .{
                 .name = c.name,
-                .dir = try Fs.Dir.openDirAbsolute(io, c.name, .{}),
+                .dir = try Fs.Dir.openDirAbsolute(io, c.name, .{ .iterate = iter }),
             } };
             n.* = named;
         }
@@ -76,6 +84,15 @@ pub const Named = union(enum) {
         switch (n.*) {
             .closed_file => |*f| try f.openFile(io),
             .closed_dir => |*d| try d.openDir(io),
+            .dir => unreachable,
+            .file => unreachable,
+        }
+    }
+
+    fn openExt(n: *Named, io: Io, o: Options) !void {
+        switch (n.*) {
+            .closed_file => |*f| try f.openFile(io),
+            .closed_dir => |*d| try d.openDirItr(io, o.iterate),
             .dir => unreachable,
             .file => unreachable,
         }
@@ -107,7 +124,7 @@ pub fn init(env: Environ, a: Allocator, io: Io) !Fs {
         }
     }
     for (paths.items) |*path| {
-        path.open(io) catch |err| switch (err) {
+        path.openExt(io, .{ .iterate = true }) catch |err| switch (err) {
             error.FileNotFound => log.warn("Unable to open PATH entry '{s}'\n", .{path.closed_dir.name}),
             else => return err,
         };

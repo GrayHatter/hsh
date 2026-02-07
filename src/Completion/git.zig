@@ -1,8 +1,8 @@
 const Options = ArrayList(Completion.Option);
 
-pub fn suggest(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Allocator, io: Io) error{OutOfMemory}!void {
-    _ = tokens;
-    _ = t_idx;
+pub fn suggest(cs: *Completion, token: ?*const Token, all_tokens: []Token, fs: Fs, a: Allocator, io: Io) error{OutOfMemory}!void {
+    _ = token;
+    _ = all_tokens;
     _ = fs;
     const exec = Exec.child(&.{ "/usr/bin/git", "status", "--porcelain=v2" }, a) catch return;
     defer exec.raze();
@@ -75,10 +75,10 @@ const Status = enum(u8) {
     ignored = '!',
 };
 
-pub fn filter(cs: *Completion, tokens: []Token, t_idx: ?usize) void {
+pub fn filter(cs: *Completion, cur_token: ?*const Token, all_tokens: []Token) void {
     _ = cs;
-    _ = tokens;
-    _ = t_idx;
+    _ = cur_token;
+    _ = all_tokens;
     //unreachable;
 }
 
