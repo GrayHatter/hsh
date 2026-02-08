@@ -60,7 +60,8 @@ pub const Job = struct {
     }
 
     pub fn waitFor(j: *Job) !void {
-        const res = try waitpid(j.pid, Status.W.UNTRACED);
+        const res = try waitpid(j.pid, 0);
+        log.debug("waited {} {x}\n", .{ res.pid, res.status });
         j.status = .fromLinux(res.status);
     }
 

@@ -4,13 +4,16 @@ pub fn suggest(cs: *Completion, token: ?*const Token, all_tokens: []Token, fs: F
     _ = token;
     _ = all_tokens;
     _ = fs;
+
+    Signals.block();
+    defer Signals.unblock();
     const exec = Exec.child(&.{ "/usr/bin/git", "status", "--porcelain=v2" }, a) catch return;
     defer exec.raze();
     var r_b: [2048]u8 = undefined;
     var reader = exec.stdout.reader(io, &r_b);
     var r = &reader.interface;
 
-    errdefer {
+    defer {
         var job_: Jobs.Job = .init(exec.pid, null);
         _ = job_.waitFor() catch unreachable;
     }
@@ -97,3 +100,4 @@ const findScalarLast = std.mem.findScalarLast;
 const trim = std.mem.trim;
 const assert = std.debug.assert;
 const Jobs = @import("../jobs.zig");
+const Signals = @import("../signals.zig");

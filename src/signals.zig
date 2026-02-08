@@ -41,15 +41,11 @@ export fn sig_cb(sig: system.SIG, info: *const system.siginfo_t, _: ?*const anyo
     switch (sig) {
         system.SIG.INT => flags.int +|= 1,
         system.SIG.WINCH => flags.winch = true,
-        else => queue.appendBounded(Signal{ .signal = sig, .info = info.* }) catch unreachable,
+        else => queue.appendBounded(Signal{ .signal = sig, .info = info.* }) catch {
+            log.err("sig {}, {x}\n", .{ sig, std.mem.asBytes(info) });
+            unreachable;
+        },
     }
-}
-
-pub fn get() ?Signal {
-    if (queue.pop()) |node| {
-        return node;
-    }
-    return null;
 }
 
 pub fn init() !void {
@@ -92,7 +88,7 @@ pub fn do(hsh: *Hsh) ?SigEvent {
         return .sigint;
     }
 
-    while (get()) |sig| {
+    while (queue.pop()) |sig| {
         const info = sig.info;
         const first = info.fields.common.first;
         const second = info.fields.common.second;
@@ -113,16 +109,12 @@ pub fn do(hsh: *Hsh) ?SigEvent {
                     },
                     .STOPPED => child.status = .{ .paused = .paused },
                     .CONTINUED => child.status = .{ .running = .background }, // just guessing here
-                    else => {
-                        //log.warn("child code on {}\n", .{info.code});
-                        //child.status = .fromsystem.@bitCast(sig.info.fields.common.second.sigchld.status));
-                        switch (child.status) {
-                            .crashed => |cc| log.err("SIGNAL CHLD {} CRASH on {}\n", .{ child.pid, cc }),
-                            .exited => |ec| log.debug("Child exited {}\n", .{ec}),
-                            .running => log.debug("Child cont signal\n", .{}),
-                            .paused => {},
-                            .unknown => unreachable,
-                        }
+                    else => switch (child.status) {
+                        .crashed => |cc| log.err("SIGNAL CHLD {} CRASH on {}\n", .{ child.pid, cc }),
+                        .exited => |ec| log.debug("Child exited {}\n", .{ec}),
+                        .running => log.debug("Child cont signal\n", .{}),
+                        .paused => {},
+                        .unknown => unreachable,
                     },
                 }
             },
