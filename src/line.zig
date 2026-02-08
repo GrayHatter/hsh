@@ -90,11 +90,11 @@ fn core(l: *Line, a: Allocator, io: Io) !Action {
             error.Signaled => if (l.signal()) continue else |_| return err,
         };
 
-        switch (input) {
-            .char => |c| try l.char(c),
-            .control => |ctrl| {
+        switch (input.evt) {
+            .ascii => |c| try l.char(c),
+            .key => |ctrl| {
                 log.debug("control char = '{}'\n", .{ctrl});
-                switch (ctrl.c) {
+                switch (ctrl) {
                     .esc => continue,
                     .up => try l.findHistory(.up),
                     .down => try l.findHistory(.down),
@@ -260,9 +260,15 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
             if (cmplt.count() == 1) continue :sw .commit;
             continue :sw .redraw;
         },
-        .input => continue :sw .{ .key = try line.input.interactive(a, io) },
-        .key => |ks| switch (ks) {
-            .char => |c| switch (c) {
+        .input => if (line.input.interactive(a, io)) |key| continue :sw .{ .key = key } else |err| switch (err) {
+            error.Signaled => {
+                line.tkn.maybe.remove();
+                return err;
+            },
+            else => return err,
+        },
+        .key => |ks| switch (ks.evt) {
+            .ascii => |c| switch (c) {
                 0x00...0x1f => unreachable,
                 0x7f...0xff => unreachable,
                 ' ' => continue :sw .{ .finish = ' ' },
@@ -271,7 +277,7 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
                 '/' => if (cmplt.count() > 1) {
                     continue :sw .commit;
                 } else continue :sw .redraw,
-                else => if (cmplt.count() == 0) {
+                0x21...0x2e, 0x30...0x7e => if (cmplt.count() == 0) {
                     line.tkn.consumeChar(c) catch {};
                     continue :sw .exit;
                 } else {
@@ -279,11 +285,11 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
                     continue :sw .redraw;
                 },
             },
-            .control => |k| switch (k.c) {
+            .key => |k| switch (k) {
                 .tab => {
                     if (cmplt.count() == 0) continue :sw .empty;
                     if (cmplt.count() == 1) continue :sw .commit;
-                    if (k.mod.shift) {
+                    if (ks.mods._shift) {
                         cmplt.revr();
                         cmplt.revr();
                     }
