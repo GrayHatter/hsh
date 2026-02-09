@@ -249,8 +249,8 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
             continue :sw .start;
         },
         .start => {
-            try cmplt.suggest(tokens, line.tkn.cursorTokenIdx(), line.hsh.fs, a, io);
-            if (line.tkn.cursorToken()) |token| {
+            try cmplt.suggest(tokens, line.tkn.cursor.tokenIdx(), line.hsh.fs, a, io);
+            if (line.tkn.cursor.token()) |token| {
                 log.debug("completion start '{s}'\n", .{token.str});
                 line.tkn.maybe.copyCurrent();
                 if (token.str.len > 0 and token.str[token.str.len - 1] == '/') {

@@ -3,7 +3,6 @@ idx: usize = 0,
 len: usize = 0,
 maybe: Maybe = .{},
 prev_exec: ?[]u8 = null,
-c_tkn: usize = 0, // cursor is over this token
 err_idx: usize = 0,
 edited: bool = false,
 editor_mktmp: ?[]u8 = null,
@@ -55,6 +54,37 @@ pub const Cursor = enum(usize) {
         }
         tkzr.idx = @min(tkzr.idx, tkzr.len);
     }
+
+    pub fn tokenIdx(c: *const Cursor) ?usize {
+        const tkzr: *const Tokenizer = @fieldParentPtr("cursor", c);
+        if (tkzr.len == 0 or tkzr.idx == 0) return null;
+        var idx: usize = 0;
+        var c_tkn: usize = 0;
+        while (idx < tkzr.idx) {
+            const t = Token.any(tkzr.getSlice()[idx..]) catch break;
+            assert(t.str.len != 0);
+            c_tkn += 1;
+            idx += t.str.len;
+        }
+
+        c_tkn -|= 1;
+        return c_tkn;
+    }
+
+    pub fn token(c: *const Cursor) !Token {
+        const tkzr: *const Tokenizer = @fieldParentPtr("cursor", c);
+        var i: usize = 0;
+        var c_tkn: usize = 0;
+        if (tkzr.len == 0) return error.Empty;
+        while (i < tkzr.len) {
+            const t = Token.any(tkzr.getSlice()[i..]) catch break;
+            if (t.str.len == 0) break;
+            i += t.str.len;
+            if (i >= tkzr.idx) return t;
+            c_tkn += 1;
+        }
+        return error.TokenizeFailed;
+    }
 };
 
 pub const init: Tokenizer = .{};
@@ -88,35 +118,6 @@ fn cToBoundry(tkzr: *Tokenizer, comptime forward: bool) void {
         tkzr.cursor.move(cursor);
     }
     if (!forward and tkzr.idx != 0) tkzr.cursor.move(.inc);
-}
-
-pub fn cursorTokenIdx(tkzr: *Tokenizer) ?usize {
-    if (tkzr.len == 0 or tkzr.idx == 0) return null;
-    var idx: usize = 0;
-    tkzr.c_tkn = 0;
-    while (idx < tkzr.idx) {
-        const t = Token.any(tkzr.getSlice()[idx..]) catch break;
-        assert(t.str.len != 0);
-        tkzr.c_tkn += 1;
-        idx += t.str.len;
-    }
-
-    tkzr.c_tkn -|= 1;
-    return tkzr.c_tkn;
-}
-
-pub fn cursorToken(tkzr: *Tokenizer) !Token {
-    var i: usize = 0;
-    tkzr.c_tkn = 0;
-    if (tkzr.len == 0) return error.Empty;
-    while (i < tkzr.len) {
-        const t = Token.any(tkzr.getSlice()[i..]) catch break;
-        if (t.str.len == 0) break;
-        i += t.str.len;
-        if (i >= tkzr.idx) return t;
-        tkzr.c_tkn += 1;
-    }
-    return error.TokenizeFailed;
 }
 
 pub const iterator = iterate;
@@ -404,7 +405,6 @@ pub fn reset(tkzr: *Tokenizer) void {
     tkzr.idx = 0;
     tkzr.len = 0;
     tkzr.err_idx = 0;
-    tkzr.c_tkn = 0;
     tkzr.edited = false;
     tkzr.mode = .single;
 }
