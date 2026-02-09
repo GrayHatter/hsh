@@ -12,6 +12,7 @@ pub fn suggest(cs: *Completion, cur_token: ?*const Token, all_tokens: []Token, f
         } else if (token == &all_tokens[0]) {
             try genOptionsFromPATH(cs, str, fs, a, io);
         } else {
+            log.debug("Completion.filesystem Token '{s}'\n", .{token.str});
             try genOptionsDir(cs, &.{}, str, fs.cwd.dir, a, io);
         }
     } else {

@@ -362,6 +362,7 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
                 error.OutOfMemory => return error.OutOfMemory,
             };
             try cmplt.drawAll(line.draw);
+            //try line.hsh.prompt.renderHint(line.draw, line.peek(), line.tkn.maybe.slice());
             try line.hsh.prompt.render(line.draw, line.peek());
             try line.draw.render();
             continue :sw .input;

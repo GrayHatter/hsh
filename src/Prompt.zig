@@ -37,11 +37,6 @@ pub fn init(user: []const u8, host: ?[]const u8) Prompt {
 }
 
 pub fn draw(p: Prompt, d: *Draw, line: []const u8) !void {
-    //const bgjobs = Jobs.getBgSlice(hsh.alloc) catch unreachable;
-    //defer hsh.alloc.free(bgjobs);
-    //try jobsContext(hsh, bgjobs);
-    //try ctxContext(hsh, try Context.fetch(hsh, .git));
-
     const lex = &[_]Lexeme{
         .styled(p.username, .blue_bold), .str("@"),
         .str(p.hostname),                .str(" "),
@@ -59,6 +54,14 @@ pub fn render(p: Prompt, d: *Draw, line: []const u8) !void {
     //try ctxContext(hsh, try Context.fetch(hsh, .git));
 
     try p.draw(d, line);
+    try d.render();
+}
+
+pub fn renderHint(p: Prompt, d: *Draw, line: []const u8, hint: []const u8) !void {
+    try p.draw(d, line);
+    const lex = &[_]Lexeme{.styled(hint, .dim)};
+
+    d.draw(lex);
     try d.render();
 }
 

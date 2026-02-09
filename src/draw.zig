@@ -97,6 +97,8 @@ pub const Style = struct {
 
     pub const none: Style = .{};
 
+    pub const dim: Style = .{ .attr = .dim };
+
     pub const blue_bold: Style = .{ .attr = .bold, .fg = .blue };
     pub const cyan: Style = .{ .fg = .cyan };
     pub const green: Style = .{ .fg = .green };
