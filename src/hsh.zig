@@ -221,6 +221,7 @@ pub fn spin(hsh: *Hsh, a: Allocator, io: Io) bool {
         was_bg = true;
         hsh.sleep();
     }
+    _ = Jobs.waitSpin();
     if (was_bg) hsh.tty.setOwner(null) catch {
         log.err("Unable to setOwner after child event\n", .{});
     };

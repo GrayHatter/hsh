@@ -188,15 +188,23 @@ pub fn getFg(j: Jobs) ?*const Job {
 
 /// I'd like to delete these, but also, I don't want hsh to be tied to zig
 /// master every time I fix something in stdlib.
-const builtin = @import("builtin");
-const WaitError = if (@hasDecl(std.os, "WaitError")) std.os.WaitError else error{
-    CHILD,
+const WaitError = error{
+    NoChild,
 };
 
 pub const WaitResult = struct {
     pid: Pid,
     status: u32,
 };
+
+pub fn waitSpin() bool {
+    var res = waitpid(-1, system.W.NOHANG) catch |e| switch (e) {
+        error.NoChild => return false,
+        else => unreachable,
+    };
+    log.err("missed a pid for {} ({})\n", .{ res.pid, res.status });
+    return true;
+}
 
 fn waitpid(pid: Pid, flags: u32) WaitError!WaitResult {
     var status: Status_t = undefined;
@@ -209,7 +217,7 @@ fn waitpid(pid: Pid, flags: u32) WaitError!WaitResult {
                 .status = @as(u32, @bitCast(status)),
             },
             .INTR => continue,
-            .CHILD => return error.CHILD,
+            .CHILD => return error.NoChild,
             .INVAL => unreachable, // Invalid flags.
             else => unreachable,
         }
@@ -273,7 +281,7 @@ test {
     _ = &std.testing.refAllDecls(@This());
 }
 
-const Status_t = if (builtin.link_libc) c_int else u32;
+const Status_t = u32;
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
