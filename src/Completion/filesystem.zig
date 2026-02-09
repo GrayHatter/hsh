@@ -82,7 +82,7 @@ fn genOptionsResolveDir(cs: *Completion, target: []const u8, fs: Fs, a: Allocato
     if (findScalarLast(u8, target, '/')) |idx| {
         const path = target[0..idx];
         const str = target[idx + 1 ..];
-        log.err("genOptionResolvedDir path '{s}' str '{s}' \n", .{ path, str });
+        log.debug("genOptionResolvedDir path '{s}' str '{s}' \n", .{ path, str });
 
         var search_dir: Io.Dir = if (path.len == 0 or path[0] == '/')
             Fs.openDirAbsolute(io, "/", .{ .iterate = true }) catch return
