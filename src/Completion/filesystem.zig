@@ -24,17 +24,18 @@ pub fn suggest(cs: *Completion, cur_token: ?*const Token, all_tokens: []Token, f
     return;
 }
 
-fn argExists(opt: Option, tokens: []Token) bool {
-    for (tokens) |token| {
-        switch (opt) {
-            .file => |file| {
-                if (file.prefix.len > 0) {
+fn argExists(opt: Option, current: ?*const Token, tokens: []const Token) bool {
+    for (tokens) |*token| {
+        if (current) |cur| if (cur == token) continue;
+        switch (opt.kind) {
+            .file => {
+                if (opt.prefix.len > 0) {
                     if (findScalarLast(u8, token.str, '/')) |idx| {
                         const path = token.str[0..idx];
                         const str = token.str[idx + 1 ..];
-                        if (eql(u8, path, file.prefix) and eql(u8, str, file.str)) return true;
+                        if (eql(u8, path, opt.prefix) and eql(u8, str, opt.str)) return true;
                     } else continue; //if (eql(u8, token.str, opt.prefix)) return true;
-                } else if (eql(u8, token.str, file.str)) return true;
+                } else if (eql(u8, token.str, opt.str)) return true;
             },
             else => continue,
         }
@@ -42,11 +43,11 @@ fn argExists(opt: Option, tokens: []Token) bool {
     return false;
 }
 
-pub fn filter(cs: *Completion, _: ?*const Token, tokens: []Token) void {
+pub fn filter(cs: *Completion, current: ?*const Token, tokens: []Token) void {
     var buf: [50]usize = undefined;
     var list: ArrayList(usize) = .initBuffer(&buf);
     for (cs.options.items, 0..) |opt, i| {
-        if (argExists(opt, tokens)) {
+        if (argExists(opt, current, tokens)) {
             list.appendBounded(i) catch break;
         }
     }
@@ -65,11 +66,11 @@ fn genOptionsDir(cs: *Completion, prefix: []const u8, str: []const u8, search_di
         if (each.name[0] == '.' and skip_dot) continue;
         if (!startsWith(u8, each.name, str)) continue;
         log.debug("genOptionDir {s} saved \n", .{each.name});
-        try cs.options.append(a, .{ .file = .{
-            .prefix = prefix,
+        try cs.options.append(a, .{
             .str = try a.dupe(u8, each.name),
-            .kind = .fromFs(each.kind),
-        } });
+            .prefix = prefix,
+            .kind = .{ .file = .fromFs(each.kind) },
+        });
     } else |err| log.err("Completion directory read error {}\n", .{err});
 }
 
@@ -123,7 +124,11 @@ fn genOptionsFromPATH(cs: *Completion, target: []const u8, fs: Fs, a: Allocator,
                 return;
             }
 
-            try cs.options.append(a, .{ .executable = .{ .str = try a.dupe(u8, each.name) } });
+            try cs.options.append(a, .{
+                .str = try a.dupe(u8, each.name),
+                .prefix = &.{},
+                .kind = .executable,
+            });
         } else |err| log.err("Completion PATH read error {}\n", .{err});
     }
 }

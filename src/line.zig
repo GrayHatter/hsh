@@ -252,12 +252,18 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
             try cmplt.suggest(tokens, line.tkn.cursorTokenIdx(), line.hsh.fs, a, io);
             if (line.tkn.cursorToken()) |token| {
                 log.debug("completion start '{s}'\n", .{token.str});
-                line.tkn.maybe.setOriginal(trim(u8, token.str, whitespace));
+                line.tkn.maybe.copyCurrent();
                 if (token.str.len > 0 and token.str[token.str.len - 1] == '/') {
                     line.tkn.maybe.commit(null);
                 }
             } else |_| {}
-            if (cmplt.count() == 1) continue :sw .commit;
+
+            line.tkn.maybe.replace(cmplt.current().str) catch unreachable;
+            if (line.tkn.maybe.len > 1 and cmplt.count() == 1) {
+                log.debug("start commit '{s}' \n", .{line.tkn.maybe.slice()});
+
+                continue :sw .commit;
+            }
             continue :sw .redraw;
         },
         .input => if (line.input.interactive(a, io)) |key| continue :sw .{ .key = key } else |err| switch (err) {
@@ -293,18 +299,18 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
                         cmplt.revr();
                         cmplt.revr();
                     }
-                    line.tkn.maybe.replace(cmplt.next().str()) catch unreachable;
+                    line.tkn.maybe.replace(cmplt.next().str) catch unreachable;
 
                     continue :sw .redraw;
                 },
                 .left => {
                     cmplt.revr();
                     cmplt.revr();
-                    line.tkn.maybe.replace(cmplt.next().str()) catch unreachable;
+                    line.tkn.maybe.replace(cmplt.next().str) catch unreachable;
                     continue :sw .redraw;
                 },
                 .right => {
-                    line.tkn.maybe.replace(cmplt.next().str()) catch unreachable;
+                    line.tkn.maybe.replace(cmplt.next().str) catch unreachable;
                     continue :sw .redraw;
                 },
                 .up, .down => {
@@ -329,10 +335,11 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
                 },
                 .newline => continue :sw .{ .finish = ' ' },
                 .esc => {
-                    if (cmplt.originalStr()) |o| {
-                        line.tkn.maybe.replace(o) catch unreachable;
-                        line.tkn.maybe.commit(null);
-                    } else line.tkn.maybe.remove();
+                    //if (cmplt.originalStr()) |o| {
+                    //    line.tkn.maybe.replace(o) catch unreachable;
+                    //    line.tkn.maybe.commit(null);
+                    //} else line.tkn.maybe.remove();
+                    line.tkn.maybe.remove();
                     continue :sw .exit;
                 },
                 else => {
@@ -370,8 +377,9 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
             return;
         },
         .commit => {
-            const chr: u8 = switch (cmplt.current().*) {
-                .file => |file| switch (file.kind) {
+            log.debug("completion commit {}\n", .{cmplt.current().*});
+            const chr: u8 = switch (cmplt.current().kind) {
+                .file, .git => |file| switch (file) {
                     .dir => '/',
                     else => ' ',
                 },

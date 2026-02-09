@@ -98,7 +98,7 @@ pub fn do(hsh: *Hsh) ?SigEvent {
             .WINCH => unreachable,
             .CHLD => {
                 const child = hsh.jobs.getPtr(pid) catch {
-                    log.warn("Unknown child on {} {}\n", .{ info.code, pid });
+                    log.debug("Unknown child on {} {}\n", .{ info.code, pid });
                     continue;
                 };
                 switch (@as(system.CLD, @enumFromInt(info.code))) {

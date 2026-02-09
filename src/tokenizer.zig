@@ -138,18 +138,25 @@ pub fn count(tkzr: Tokenizer) usize {
 }
 
 pub const Maybe = struct {
-    bytes: [2048]u8 = undefined,
+    original: [2048]u8 = undefined,
+    suggested: [2048]u8 = undefined,
     len: usize = 0,
+    orig_len: usize = 0,
 
     pub fn slice(m: *const Maybe) []const u8 {
-        return m.bytes[0..m.len];
+        return m.suggested[0..m.len];
     }
 
-    pub fn setOriginal(maybe: *Maybe, orig: []const u8) void {
+    pub fn copyCurrent(maybe: *Maybe) void {
+        const tkzr: *Tokenizer = @fieldParentPtr("maybe", maybe);
+        if (tkzr.len == 0 or tkzr.idx == 0 or tkzr.buffer[tkzr.idx - 1] == '/' or tkzr.buffer[tkzr.idx - 1] == ' ') return;
+        const c = tkzr.countWord();
         assert(maybe.len == 0);
-        assert(orig.len <= maybe.bytes.len);
-        maybe.len = orig.len;
-        @memcpy(maybe.bytes[0..orig.len], orig);
+        assert(c <= maybe.original.len);
+        maybe.len = c;
+        maybe.orig_len = c;
+        @memcpy(maybe.original[0..c], tkzr.buffer[tkzr.idx - c ..][0..c]);
+        @memcpy(maybe.suggested[0..c], tkzr.buffer[tkzr.idx - c ..][0..c]);
     }
 
     /// remove the completion maybe from input
@@ -163,19 +170,21 @@ pub const Maybe = struct {
 
     pub fn clear(maybe: *Maybe) void {
         maybe.len = 0;
+        maybe.orig_len = 0;
     }
 
     pub fn add(maybe: *Maybe, str: []const u8) !void {
         const tkzr: *Tokenizer = @fieldParentPtr("maybe", maybe);
-        if (checkSafe(str)) {
-            maybe.setOriginal(str);
+        if (checkEscapeSome(str)) {
+            maybe.len = str.len;
+            @memcpy(maybe.suggested[0..str.len], str);
             tkzr.consumeSlice(str);
             return;
         }
 
-        const len = try memcpySafe(maybe.bytes[0..], str);
+        const len = try memcpyEscapeSome(maybe.suggested[0..], str);
         maybe.len = len;
-        tkzr.consumeSlice(maybe.bytes[0..len]);
+        tkzr.consumeSlice(maybe.suggested[0..len]);
     }
 
     /// This function edits user text, so extra care must be taken to ensure
@@ -185,20 +194,26 @@ pub const Maybe = struct {
         try maybe.add(new);
     }
 
-    pub fn commit(maybe: *Maybe, trailing: ?u8) void {
+    pub fn abort(maybe: *Maybe) void {
+        maybe.remove();
+        const tkzr: *Tokenizer = @fieldParentPtr("maybe", maybe);
+        tkzr.consumeSlice(maybe.original[0..maybe.orig_len]);
         maybe.clear();
-        if (trailing) |t| {
-            const tkzr: *Tokenizer = @fieldParentPtr("maybe", maybe);
-            tkzr.consumeChar(t) catch {};
-        }
     }
 
-    pub fn checkSafe(str: []const u8) bool {
+    pub fn commit(maybe: *Maybe, trailing: ?u8) void {
+        const tkzr: *Tokenizer = @fieldParentPtr("maybe", maybe);
+        //tkzr.consumeSlice(maybe.slice());
+        maybe.clear();
+        if (trailing) |t| tkzr.consumeChar(t) catch {};
+    }
+
+    pub fn checkEscapeSome(str: []const u8) bool {
         return findAny(u8, str, Token.BREAKING_CHAR) == null;
     }
 
     pub const prohibited_char = "\n";
-    pub fn memcpySafe(dst: []u8, src: []const u8) !usize {
+    pub fn memcpyEscapeSome(dst: []u8, src: []const u8) !usize {
         if (findAny(u8, src, prohibited_char)) |_| return error.ProhibitedChar;
 
         var idx: usize = 0;
@@ -216,10 +231,10 @@ pub const Maybe = struct {
         return idx;
     }
 
-    fn dupeSafe(str: []const u8, a: Allocator) ![]u8 {
+    fn dupeEscapeSome(str: []const u8, a: Allocator) ![]u8 {
         if (str.len == 0) return &.{};
         if (findAny(u8, str, prohibited_char)) |_| return error.ProhibitedChar;
-        if (checkSafe(str)) return a.dupe(u8, str);
+        if (checkEscapeSome(str)) return a.dupe(u8, str);
 
         var extra: usize = str.len;
         for (Token.BREAKING_CHAR) |t| {
@@ -228,45 +243,59 @@ pub const Maybe = struct {
         assert(extra > str.len);
 
         var safer = try a.alloc(u8, extra);
-        const len = try memcpySafe(safer, str);
+        const len = try memcpyEscapeSome(safer, str);
         assert(len == safer.len);
         return safer;
     }
 };
 
-fn removeWhitespace(tkzr: *Tokenizer) usize {
-    if (tkzr.idx == 0 or !isWhitespace(tkzr.buffer[tkzr.idx - 1])) {
-        return 0;
+fn countAlphanum(tkzr: *const Tokenizer) usize {
+    if (tkzr.idx == 0) return 0;
+    var extra: u1 = 0;
+    if (tkzr.buffer[tkzr.idx - 1] == '/' or tkzr.buffer[tkzr.idx - 1] == '.') extra = 1;
+    var idx = tkzr.idx - extra;
+    var c: usize = 0;
+    while (idx > 0 and (isAlphanumeric(tkzr.buffer[idx - 1]) or tkzr.buffer[idx - 1] == '-')) {
+        idx -= 1;
+        c += 1;
     }
+    return c + extra;
+}
+
+fn countWhitespace(tkzr: *const Tokenizer) usize {
+    if (tkzr.idx == 0 or !isWhitespace(tkzr.buffer[tkzr.idx - 1])) return 0;
     var c: usize = 0;
     var idx = tkzr.idx - 1;
     while (idx > 0 and isWhitespace(tkzr.buffer[idx])) {
         idx -= 1;
         c += 1;
     }
+    return c;
+}
 
+pub fn countWord(tkzr: *const Tokenizer) usize {
+    if (tkzr.len == 0 or tkzr.idx == 0) return 0;
+    const white = tkzr.countWhitespace();
+    const word = tkzr.countAlphanum();
+    const both = white + word;
+    var extra: usize = 0;
+    if (word > 0 and tkzr.idx - both > 0 and tkzr.buffer[tkzr.idx - both - 1] == ' ') {
+        extra = tkzr.countWhitespace();
+        extra -|= 1;
+    }
+    return white + word + extra;
+}
+
+fn removeWhitespace(tkzr: *Tokenizer) usize {
+    const c = tkzr.countWhitespace();
     tkzr.removeRange(c);
     return c;
 }
 
 fn removeAlphanum(tkzr: *Tokenizer) usize {
-    if (tkzr.idx == 0)
-        return 0;
-
-    var extra: u1 = 0;
-    if (tkzr.buffer[tkzr.idx - 1] == '/' or tkzr.buffer[tkzr.idx - 1] == '.') {
-        tkzr.remove();
-        extra = 1;
-    }
-    var idx = tkzr.idx;
-    var c: usize = 0;
-    while (idx > 0 and (isAlphanumeric(tkzr.buffer[idx - 1]) or tkzr.buffer[idx - 1] == '-')) {
-        idx -= 1;
-        c += 1;
-    }
-
+    const c = tkzr.countAlphanum();
     tkzr.removeRange(c);
-    return c + extra;
+    return c;
 }
 
 // this clearly needs a bit more love
@@ -559,7 +588,8 @@ test "replace token" {
 
     try std.testing.expectEqualStrings(tokens[2].str, "two");
     t.idx = 7;
-    t.maybe.setOriginal("two");
+    t.maybe.copyCurrent();
+    try expectEqual(3, t.maybe.len);
 
     try t.maybe.replace("TWO");
     try expectEqual(7, t.idx);
@@ -1110,6 +1140,21 @@ test "removeWord2" {
     try expectEqual(0, t.removeWord());
 }
 
+test "removeWord3" {
+    var t: Tokenizer = .{};
+    t.consumeSlice("ls -la /some/abs/directory/thats/long");
+
+    try expectEqualStrings("ls -la /some/abs/directory/thats/long", t.buffer[0..t.len]);
+    try expectEqual(4, t.countWord());
+    try expectEqualStrings("ls -la /some/abs/directory/thats/long", t.buffer[0..t.len]);
+    try expectEqual(4, t.removeWord());
+    try expectEqualStrings("ls -la /some/abs/directory/thats/", t.buffer[0..t.len]);
+    try expectEqual(6, t.countWord());
+    try expectEqualStrings("ls -la /some/abs/directory/thats/", t.buffer[0..t.len]);
+    try expectEqual(6, t.removeWord());
+    try expectEqualStrings("ls -la /some/abs/directory/", t.buffer[0..t.len]);
+}
+
 test "ualphanum" {
     const t = try Token.uAlphaNum("word word");
     try expect(t.str.len == 4);
@@ -1181,8 +1226,8 @@ test "subp" {
 
 test "make safe" {
     var a = std.testing.allocator;
-    try expect(Maybe.checkSafe("string"));
-    const str = try Maybe.dupeSafe("str ing", a);
+    try expect(Maybe.checkEscapeSome("string"));
+    const str = try Maybe.dupeEscapeSome("str ing", a);
     defer a.free(str);
     try expectEqualStrings("str\\ ing", str);
 }

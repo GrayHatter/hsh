@@ -112,7 +112,7 @@ const Cache = struct {
             comptime assert(eql(u8, @tagName(flavor), field.name));
             var end: usize = start;
             while (start < options.len and end < options.len) : (end += 1) {
-                if (options[end] != flavor) break;
+                if (options[end].kind != flavor) break;
             }
             if (end > start) {
                 try c.regenGroup(flavor, options[start..end], cursor, str, wh, a);
@@ -145,73 +145,62 @@ const Cache = struct {
     }
 };
 
-pub const Option = union(Flavor) {
-    original: Base,
-    any: Base,
-    args: Base,
-    executable: Base,
-    file: File,
-    git: File,
+pub const Option = struct {
+    str: []const u8,
+    prefix: []const u8,
+    kind: Extra,
 
-    pub fn str(opt: Option) []const u8 {
-        return switch (opt) {
-            inline else => |el| el.str,
-        };
-    }
-
-    pub const Base = struct {
-        str: []const u8,
+    pub const Extra = union(Flavor) {
+        original: void,
+        any: void,
+        args: void,
+        executable: void,
+        file: File,
+        git: File,
     };
 
-    pub const File = struct {
-        /// Prefix is owned by the caller
-        prefix: []const u8,
-        str: []const u8,
-        kind: File.Kind,
+    pub const File = enum {
+        file,
+        dir,
+        link,
+        pipe,
+        device,
+        socket,
+        whiteout,
+        door,
+        event_port,
+        unknown,
 
-        pub const Kind = enum {
-            file,
-            dir,
-            link,
-            pipe,
-            device,
-            socket,
-            whiteout,
-            door,
-            event_port,
-            unknown,
+        pub fn color(k: File) ?Draw.Color {
+            return switch (k) {
+                .dir => .blue,
+                .unknown => .red,
+                else => null,
+            };
+        }
 
-            pub fn color(k: File.Kind) ?Draw.Color {
-                return switch (k) {
-                    .dir => .blue,
-                    .unknown => .red,
-                    else => null,
-                };
-            }
-
-            pub fn fromFs(k: Io.File.Kind) File.Kind {
-                return switch (k) {
-                    .file => .file,
-                    .directory => .dir,
-                    .sym_link => .link,
-                    .named_pipe => .pipe,
-                    .unix_domain_socket => .socket,
-                    .block_device, .character_device => .device,
-                    .whiteout => .whiteout,
-                    .door => .door,
-                    .event_port => .event_port,
-                    .unknown => .unknown,
-                };
-            }
-        };
+        pub fn fromFs(k: Io.File.Kind) File {
+            return switch (k) {
+                .file => .file,
+                .directory => .dir,
+                .sym_link => .link,
+                .named_pipe => .pipe,
+                .unix_domain_socket => .socket,
+                .block_device, .character_device => .device,
+                .whiteout => .whiteout,
+                .door => .door,
+                .event_port => .event_port,
+                .unknown => .unknown,
+            };
+        }
     };
 
     pub fn style(opt: Option, active: bool) Draw.Style {
-        var sty: Draw.Style = switch (opt) {
-            .file => |file| switch (file.kind) {
-                .dir => .{ .attr = .bold, .fg = file.kind.color() },
-                .file => .fromName(opt.str()),
-                else => .{ .fg = file.kind.color() },
+        var sty: Draw.Style = switch (opt.kind) {
+            .file, .git => |file| switch (file) {
+                .dir => .{ .attr = .bold, .fg = file.color() },
+                .file => .fromName(opt.str),
+                else => .{ .fg = file.color() },
             },
             else => .none,
         };
@@ -220,7 +209,7 @@ pub const Option = union(Flavor) {
     }
 
     pub fn lexeme(opt: Option, active: bool) Draw.Lexeme {
-        return .styled(opt.str(), opt.style(active));
+        return .styled(opt.str, opt.style(active));
     }
 };
 
@@ -240,11 +229,11 @@ pub fn suggest(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Alloc
         else => try filesystem.suggest(cs, current_token, tokens, fs, a, io),
     } else try filesystem.suggest(cs, current_token, tokens, fs, a, io);
 
-    if (cs.originalStr()) |str| {
-        //try tks.maybeReplace(str, a);
-        try cs.searchStr(str);
-        log.debug("Completion original is {s}\n\n", .{str});
-    } else log.debug("Completion original is null\n\n", .{});
+    //if (cs.originalStr()) |str| {
+    //    //try tks.maybeReplace(str, a);
+    //    try cs.searchStr(str);
+    //    log.debug("Completion original is {s}\n\n", .{str});
+    //} else log.debug("Completion original is null\n\n", .{});
 
     // TODO orderedRemoveMany allows an optimization to iterate only a single range if presorted
     if (command) |cmd| switch (cmd) {
@@ -258,20 +247,10 @@ pub fn suggest(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Alloc
 }
 
 pub fn raze(comp: *Completion, a: Allocator) void {
-    for (comp.options.items) |opt| switch (opt) {
-        inline else => |el| a.free(el.str),
-    };
+    for (comp.options.items) |opt| a.free(opt.str);
     comp.options.clearAndFree(a);
     comp.cache.raze(a);
     comp.search_str_len = 0;
-}
-
-pub fn originalStr(comp: Completion) ?[]const u8 {
-    if (comp.options.items.len > 0) switch (comp.options.items[0]) {
-        .original => |orig| return orig.str,
-        else => return &.{},
-    };
-    return null;
 }
 
 pub fn recolorAll(comp: *Completion, wh: Cord, a: Allocator) !void {
@@ -307,21 +286,39 @@ fn sortAscStr(_: void, a: []const u8, b: []const u8) bool {
     return false;
 }
 
-fn sortAscOption(ctx: void, a: Option, b: Option) bool {
-    const l = switch (a) {
-        inline else => |_, t| @intFromEnum(t),
-    };
-    const r = switch (b) {
-        inline else => |_, t| @intFromEnum(t),
-    };
-    if (l < r) return true;
-    if (l > r) return false;
-
-    if (a == .file) {
-        if (a.file.kind == .dir and b.file.kind != .dir) return true;
-        if (b.file.kind == .dir) return false;
+fn optAsFile(o: *const Option) Option.File {
+    switch (o.kind) {
+        .git => return o.kind.git,
+        .file => return o.kind.file,
+        .original, .any, .args, .executable => unreachable,
     }
-    return sortAscStr(ctx, a.str(), b.str());
+}
+
+fn sortAscOption(ctx: void, l: Option, r: Option) bool {
+    //const l_tag = activeTag(l.kind);
+    //const r_tag = activeTag(r.kind);
+    if (@intFromEnum(l.kind) < @intFromEnum(r.kind)) return true;
+    if (@intFromEnum(l.kind) > @intFromEnum(r.kind)) return false;
+
+    switch (l.kind) {
+        inline else => |*p| {
+            switch (@TypeOf(p.*)) {
+                Option.File => {
+                    const l_file: *const Option.File = p;
+                    const r_file = optAsFile(&r);
+                    if (l_file.* == .dir and r_file != .dir) return true;
+                    if (r_file == .dir) return false;
+                },
+                else => {},
+            }
+        },
+
+        .original => {},
+        .any => {},
+        .args => {},
+        .executable => {},
+    }
+    return sortAscStr(ctx, l.str, r.str);
 }
 
 pub fn count(comp: *const Completion) usize {
@@ -332,7 +329,7 @@ pub fn countFiltered(comp: *const Completion) usize {
     var c: usize = 0;
     const str = comp.search();
     for (comp.options.items) |item| {
-        if (searchMatch(item.str(), str)) |_| {
+        if (searchMatch(item.str, str)) |_| {
             c += 1;
         }
     }
@@ -387,7 +384,7 @@ pub fn skip(comp: *Completion) void {
 
 fn curSearchMatch(comp: *Completion) bool {
     const curr = &comp.options.items[comp.cursor_index];
-    return searchMatch(curr.str(), comp.search()) != null;
+    return searchMatch(curr.str, comp.search()) != null;
 }
 
 pub fn revr(comp: *Completion) void {
@@ -436,7 +433,7 @@ fn searchMove(comp: *Completion) void {
     const str = comp.search();
     var best_cost: usize = ~@as(usize, 0);
     for (comp.options.items, 0..) |each, ei| {
-        if (searchMatch(each.str(), str)) |cost| {
+        if (searchMatch(each.str, str)) |cost| {
             mcount += 1;
             if (cost < best_cost) {
                 comp.cursor_index = ei;
@@ -509,3 +506,4 @@ const toUpper = std.ascii.toUpper;
 const trim = std.mem.trim;
 const eqlIgnoreCase = std.ascii.eqlIgnoreCase;
 const eql = std.mem.eql;
+const activeTag = std.meta.activeTag;
