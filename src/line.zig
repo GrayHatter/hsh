@@ -1,4 +1,3 @@
-alloc: Allocator,
 mode: union(enum) {
     interactive: void,
     scripted: void,
@@ -8,10 +7,10 @@ bytes: []u8,
 input: Input,
 tkn: Tokenizer,
 options: Options,
+history: History,
 hsh: *Hsh,
 draw: *Draw,
 prompt: *Prompt,
-history: History,
 hist_index: usize = 0,
 hist_search: ?[]u8 = null,
 completion: Completion,
@@ -29,7 +28,6 @@ const Action = enum {
 
 pub fn init(hsh: *Hsh, a: Allocator, io: Io, options: Options) !Line {
     return .{
-        .alloc = a,
         .mode = if (options.interactive) .{ .interactive = {} } else .{ .scripted = {} },
         .bytes = &.{},
         .hsh = hsh,
@@ -55,7 +53,6 @@ fn spin(input: *const Input, a: Allocator, io: Io) bool {
 fn char(l: *Line, c: u8) !void {
     if (l.hist_index > 0) {
         l.hist_index = 0;
-        l.alloc.free(l.bytes);
         l.bytes = &.{};
     }
     try l.tkn.consumeChar(c);
@@ -96,8 +93,8 @@ fn core(l: *Line, a: Allocator, io: Io) !Action {
                 log.debug("control char = '{}'\n", .{ctrl});
                 switch (ctrl) {
                     .esc => continue,
-                    .up => try l.findHistory(.up),
-                    .down => try l.findHistory(.down),
+                    .up => try l.findHistory(.up, a),
+                    .down => try l.findHistory(.down, a),
                     .left => l.cursorMove(if (input.mods._ctrl) .back else .dec),
                     .right => l.cursorMove(if (input.mods._ctrl) .word else .inc),
                     .home => l.cursorMove(.home),
@@ -137,10 +134,10 @@ fn signal(l: *Line) !void {
 pub fn do(line: *Line, a: Allocator, io: Io) ![]u8 {
     while (true) {
         return switch (try line.core(a, io)) {
-            .external => try line.externEditorRead(io),
+            .external => try line.externEditorRead(a, io),
             .exec => {
                 try line.draw.unbuffered.writeByte('\n');
-                if (line.peek().len > 0) return try line.dupe();
+                if (line.peek().len > 0) return try line.dupe(a);
                 line.draw.clear();
                 try line.prompt.render(line.draw, line.peek());
                 try line.draw.render();
@@ -150,19 +147,19 @@ pub fn do(line: *Line, a: Allocator, io: Io) ![]u8 {
     }
 }
 
-fn dupe(line: Line) ![]u8 {
-    return try line.alloc.dupe(u8, line.tkn.getSlice());
+fn dupe(line: Line, a: Allocator) ![]u8 {
+    return try a.dupe(u8, line.tkn.getSlice());
 }
 
 pub fn externEditor(line: *Line, a: Allocator, io: Io) ![]u8 {
-    line.mode = .{ .external_editor = Fs.mktemp(line.bytes, line.alloc, io) catch |err| {
+    line.mode = .{ .external_editor = Fs.mktemp(line.bytes, a, io) catch |err| {
         log.err("Unable to write prompt to tmp file {}\n", .{err});
         return err;
     } };
     return try allocPrint(a, "$EDITOR {s}", .{line.mode.external_editor});
 }
 
-pub fn externEditorRead(line: *Line, io: Io) ![]u8 {
+pub fn externEditorRead(line: *Line, a: Allocator, io: Io) ![]u8 {
     const tmp = line.mode.external_editor;
     defer line.mode = .{ .interactive = {} };
     defer line.alloc.free(tmp);
@@ -172,11 +169,11 @@ pub fn externEditorRead(line: *Line, io: Io) ![]u8 {
     defer file.close(io);
     var reader = file.reader(io, &.{});
 
-    line.bytes = reader.interface.allocRemaining(line.alloc, .limited(4096)) catch unreachable;
+    line.bytes = reader.interface.allocRemaining(a, .limited(4096)) catch unreachable;
     return line.bytes;
 }
 
-fn findHistory(l: *Line, dr: enum { up, down }) !void {
+fn findHistory(l: *Line, dr: enum { up, down }, a: Allocator) !void {
     var history = l.history;
 
     if (l.hist_index == 0) {
@@ -209,8 +206,8 @@ fn findHistory(l: *Line, dr: enum { up, down }) !void {
     assert(l.hist_index > 0);
     if (history_l) |hist_line| {
         // TODO optimize
-        l.alloc.free(l.bytes);
-        l.bytes = try l.alloc.dupe(u8, hist_line);
+        a.free(l.bytes);
+        l.bytes = try a.dupe(u8, hist_line);
         l.tkn.reset();
         l.tkn.consumeSlice(l.bytes);
         l.tkn.cursor.move(.end);
