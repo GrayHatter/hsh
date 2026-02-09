@@ -52,21 +52,71 @@ pub const Cursor = enum(usize) {
         while (!isWhitespace(c.char() orelse return) and tkzr.idx != tkzr.len) tkzr.cursor.move(m);
     }
 
+    pub inline fn lineIdx(c: *const Cursor) usize {
+        const tkzr: *const Tokenizer = @fieldParentPtr("cursor", c);
+        const slice = tkzr.getSlice();
+        const last = findScalarLast(u8, slice[0..tkzr.idx], '\n') orelse 0;
+        return tkzr.idx - last -| 1;
+    }
+
+    inline fn lineWidth(c: *const Cursor) usize {
+        const tkzr: *const Tokenizer = @fieldParentPtr("cursor", c);
+        const slice = tkzr.getSlice();
+        const prev = findScalarLast(u8, slice[0..tkzr.idx], '\n') orelse 0;
+        const next = findScalarPos(u8, slice, tkzr.idx, '\n') orelse slice.len;
+        return next - prev -| 1;
+    }
+
     pub fn move(c: *Cursor, m: Motion) void {
         const tkzr: *Tokenizer = @fieldParentPtr("cursor", c);
         if (tkzr.len == 0) return;
         switch (m) {
-            .home => tkzr.idx = 0,
-            .end => tkzr.idx = tkzr.len,
+            .home => if (tkzr.mode == .single) {
+                tkzr.idx = 0;
+            } else {
+                tkzr.idx -= c.lineIdx();
+            },
+            .end => if (tkzr.mode == .single) {
+                tkzr.idx = tkzr.len;
+            } else {
+                tkzr.idx += c.lineWidth() - c.lineWidth();
+            },
             .back => c.toBoundry(.dec),
             .word => c.toBoundry(.inc),
             .inc => tkzr.idx +|= 1,
             .dec => tkzr.idx -|= 1,
 
-            .prev_line => unreachable,
-            .next_line => unreachable,
+            .prev_line => {
+                const before_count = countScalar(u8, tkzr.getSlice()[0..tkzr.idx], '\n');
+                if (before_count > 0) {
+                    const line_idx = c.lineIdx();
+                    tkzr.idx -= line_idx + 1;
+                    const line_width = c.lineWidth();
+                    tkzr.idx -= line_width;
+                    tkzr.idx += @min(line_idx, line_width);
+                } else tkzr.idx = 0;
+            },
+            .next_line => {
+                const after_count = countScalar(u8, tkzr.getSlice()[tkzr.idx..], '\n');
+                if (after_count > 0) {
+                    log.err("after count {} \n", .{after_count});
+                    const line_idx = c.lineIdx();
+                    const line_width = c.lineWidth();
+                    tkzr.idx += line_width - line_idx + 1;
+                    tkzr.idx += @min(line_idx, c.lineWidth());
+                } else tkzr.idx = tkzr.len;
+            },
         }
         tkzr.idx = @min(tkzr.idx, tkzr.len);
+    }
+
+    pub fn line(c: *const Cursor) u16 {
+        const tkzr: *const Tokenizer = @fieldParentPtr("cursor", c);
+        if (tkzr.mode == .single) {
+            assert(countScalar(u8, tkzr.getSlice(), '\n') == 0);
+            return 0;
+        }
+        return @truncate(countScalar(u8, tkzr.getSlice()[tkzr.idx..], '\n'));
     }
 
     pub fn tokenIdx(c: *const Cursor) ?usize {
@@ -380,14 +430,15 @@ pub fn consumeChar(tkzr: *Tokenizer, c: u8) !void {
 
     if (c == '\n') {
         if (tkzr.idx == tkzr.len and tkzr.len > 1 and tkzr.buffer[tkzr.idx - 2] != '\\') {
-            tkzr.validate() catch |err| switch (err) {
+            if (tkzr.validate()) {
+                return error.Exec;
+            } else |err| switch (err) {
                 error.OpenGroup,
                 error.OpenLogic,
                 error.IllegalToken,
                 error.InvalidLogic,
-                => return,
-            };
-            return error.Exec;
+                => {},
+            }
         }
         tkzr.mode = .multiline;
     }
@@ -1475,6 +1526,30 @@ test "build functions" {
     try expectEqual(1, tzr.count());
 }
 
+test "lineIdx" {
+    var tzr: Tokenizer = .fromSlice(
+        \\echo "this
+        \\is some multi line
+        \\text with a bunch 
+        \\
+        \\of
+        \\words on it
+    );
+
+    try expectEqual(64, tzr.len);
+    try expectEqual(64, tzr.idx);
+    try expectEqual(11, tzr.cursor.lineIdx());
+    try expectEqual(11, tzr.cursor.lineWidth());
+    try expectEqual(0, tzr.cursor.line());
+    tzr.cursor.move(.prev_line);
+    try expectEqual(52, tzr.idx);
+    try expectEqual(2, tzr.cursor.lineIdx());
+    tzr.cursor.move(.home);
+    try expectEqual(50, tzr.idx);
+    try expectEqual(0, tzr.cursor.lineIdx());
+    try expectEqual(1, tzr.cursor.line());
+}
+
 test {
     _ = &std.testing.refAllDecls(@This());
 }
@@ -1490,4 +1565,6 @@ const assert = std.debug.assert;
 const isAlphanumeric = std.ascii.isAlphanumeric;
 const findAny = std.mem.findAny;
 const findScalar = std.mem.findScalar;
+const findScalarPos = std.mem.findScalarPos;
+const findScalarLast = std.mem.findScalarLast;
 const countScalar = std.mem.countScalar;

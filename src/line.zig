@@ -56,20 +56,24 @@ fn char(l: *Line, c: u8) !void {
         l.bytes = &.{};
     }
     try l.tkn.consumeChar(c);
-    if (l.tkn.len != l.tkn.idx) {
+    if (l.tkn.idx == l.tkn.len) {
+        l.draw.key(c);
+    } else if (l.tkn.mode == .multiline) {
+        l.draw.clear();
+        if (l.tkn.cursor.line() > 0) {
+            l.draw.cursor_line = l.tkn.cursor.line();
+            l.draw.cursor = @truncate(l.tkn.cursor.lineIdx());
+        } else {
+            l.draw.cursor = @truncate(l.tkn.len - l.tkn.idx);
+        }
+    } else {
         l.draw.clear();
         l.draw.cursor = @truncate(l.tkn.len - l.tkn.idx);
         try l.hsh.prompt.render(l.draw, l.peek());
-    } else {
-        l.draw.key(c);
     }
 
     // TODO FIXME
     //line.bytes = line.tkn.getSlice();
-}
-
-fn cursorMove(l: *Line, motion: Tokenizer.Cursor.Motion) void {
-    l.tkn.cursor.move(motion);
 }
 
 pub fn peek(line: Line) []const u8 {
@@ -93,12 +97,16 @@ fn core(l: *Line, a: Allocator, io: Io) !Action {
                 log.debug("control char = '{}'\n", .{ctrl});
                 switch (ctrl) {
                     .esc => continue,
-                    .up => try l.findHistory(.up, a),
-                    .down => try l.findHistory(.down, a),
-                    .left => l.cursorMove(if (input.mods._ctrl) .back else .dec),
-                    .right => l.cursorMove(if (input.mods._ctrl) .word else .inc),
-                    .home => l.cursorMove(.home),
-                    .end => l.cursorMove(.end),
+                    .up => if (l.tkn.mode == .multiline) {
+                        l.tkn.cursor.move(.prev_line);
+                    } else try l.findHistory(.up, a),
+                    .down => if (l.tkn.mode == .multiline) {
+                        l.tkn.cursor.move(.next_line);
+                    } else try l.findHistory(.down, a),
+                    .left => l.tkn.cursor.move(if (input.mods._ctrl) .back else .dec),
+                    .right => l.tkn.cursor.move(if (input.mods._ctrl) .word else .inc),
+                    .home => l.tkn.cursor.move(.home),
+                    .end => l.tkn.cursor.move(.end),
                     .backspace => l.tkn.remove(),
                     .newline => l.char('\n') catch return .exec,
                     .end_of_text => return .exec,
@@ -110,9 +118,12 @@ fn core(l: *Line, a: Allocator, io: Io) !Action {
                     else => |els| log.warn("unknown {}\n", .{els}),
                 }
                 l.draw.clear();
-                l.draw.cursor = @truncate(l.tkn.len - l.tkn.idx);
+                if (l.tkn.cursor.line() > 0) {
+                    l.draw.cursor_line = l.tkn.cursor.line();
+                    l.draw.cursor = @truncate(l.tkn.cursor.lineIdx());
+                } else l.draw.cursor = @truncate(l.tkn.len - l.tkn.idx);
                 try l.prompt.render(l.draw, l.peek());
-                try l.draw.render();
+                //try l.draw.render();
             },
             .mouse => |el| {
                 log.err("uncaptured {}\n", .{el});
@@ -191,7 +202,7 @@ fn findHistory(l: *Line, dr: enum { up, down }, a: Allocator) !void {
             } else l.bytes = &.{};
             l.tkn.reset();
             l.tkn.consumeSlice(l.bytes);
-            l.cursorMove(.end);
+            l.tkn.cursor.move(.end);
             return;
         } else l.hist_index += 1;
     } else {

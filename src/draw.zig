@@ -1,19 +1,24 @@
-cursor: u32 = 0,
+cursor: u16 = 0,
+cursor_line: u16 = 0,
 cursor_reposition: bool = true,
+
 writer: *Writer,
 unbuffered: *Writer,
 before: Writer = undefined,
 b: Writer = undefined,
 right: Writer = undefined,
 after: Writer = undefined,
+prolog_lines: u16 = 0,
+context_lines: u16 = 0,
 term_size: Cord = .{},
-lines: u16 = 0,
 internal: []u8,
 
 const Draw = @This();
 
 pub const Layout = @import("draw/layout.zig");
 const draw_buffer_size = 8192 * 4 * 16;
+
+const CLEAR_TO_END = "\r\x1B[J";
 
 pub const Cord = struct {
     x: isize = 0,
@@ -270,8 +275,10 @@ pub fn clear(d: *Draw) void {
 
 pub fn reset(d: *Draw) void {
     d.clear();
-    d.lines = 0;
     d.cursor = 0;
+    d.cursor_line = 0;
+    d.prolog_lines = 0;
+    d.context_lines = 0;
 }
 
 pub fn raze(d: *Draw, a: Allocator) void {
@@ -305,15 +312,18 @@ pub fn draw(d: *Draw, tree: []const Lexeme) void {
 /// provide the context, expecting not to know about, or touch the final user
 /// input line
 pub fn render(d: *Draw) error{WriteFailed}!void {
+    //defer d.cursor = 0;
+    //defer d.cursor_line = 0;
     try d.writer.writeByte('\r');
-    try d.move(.up, d.lines);
-    d.lines = 0;
+    try d.move(.up, d.prolog_lines);
+    try d.move(.up, d.context_lines);
+    d.context_lines = 0;
     // TODO vert position
 
     if (d.before.buffered().len > 0) {
         try d.writer.writeAll(d.before.buffered());
         try d.writer.writeByte('\n');
-        d.lines += @intCast(1 + count(u8, d.before.buffered(), '\n'));
+        d.prolog_lines = @intCast(1 + count(u8, d.before.buffered(), '\n'));
     }
 
     if (d.after.buffered().len > 0) {
@@ -335,18 +345,26 @@ pub fn render(d: *Draw) error{WriteFailed}!void {
 
     try d.writer.writeAll("\r\x1B[K");
     try d.writer.writeByte('\r');
+    const line_count = count(u8, d.b.buffered(), '\n');
+    if (line_count > 0) try d.writer.writeAll(CLEAR_TO_END);
     try d.writer.writeAll(d.b.buffered());
-    try d.move(.left, @truncate(d.cursor));
+    if (d.cursor_line > 0) {
+        try d.move(.up, @truncate(d.cursor_line));
+        try d.writer.writeByte('\r');
+        try d.move(.right, @truncate(d.cursor));
+    } else if (d.cursor > 0) {
+        try d.move(.left, @truncate(d.cursor));
+    }
     // TODO save backtrack line count?
-    d.lines += @intCast(count(u8, d.b.buffered(), '\n'));
+    d.context_lines += @intCast(line_count - d.cursor_line);
     try d.writer.flush();
 }
 
 pub fn clearCtx(d: *Draw) void {
-    d.move(.up, d.lines) catch {};
-    d.writer.writeAll("\r\x1B[J") catch {};
+    d.move(.up, d.context_lines) catch {};
+    d.writer.writeAll(CLEAR_TO_END) catch {};
     d.writer.writeAll(d.b.buffered()) catch {};
-    d.lines = @intCast(count(u8, d.b.buffered(), '\n'));
+    d.context_lines = @intCast(count(u8, d.b.buffered(), '\n'));
 }
 
 /// Any context before the prompt line should be cleared and replaced with the
