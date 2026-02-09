@@ -211,11 +211,12 @@ const ExeKind = enum {
     function,
 };
 
-pub fn execFromInput(str: []const u8, a: Allocator, _: Io) ![]u8 {
+pub fn execFromInput(str: []const u8, a: Allocator, io: Io) ![]u8 {
     var itr = TokenIterator{ .raw = str };
     const tokens = try itr.toSlice(a);
     defer a.free(tokens);
     var ps = try Resolver.iterate(a, tokens);
+    try ps.resolveAll(a, io);
     defer ps.raze(a);
     return a.dupe(u8, ps.first().resolved.str);
 }
@@ -267,6 +268,7 @@ pub fn makeAbsExecutable(str: []const u8, fs: Fs, a: Allocator, io: Io) ![]u8 {
 
     var next: []u8 = "";
     for (fs.paths.items) |path| {
+        if (path == .closed_dir) continue;
         next = try std.mem.join(a, "/", &[2][]const u8{ path.dir.name, str });
         if (validPathAbs(next, io)) return next;
         a.free(next);
