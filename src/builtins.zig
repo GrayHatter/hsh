@@ -33,6 +33,7 @@ pub const Builtins = union(enum) {
     cd: Cd,
     die: Die,
     echo: Echo,
+    exec: Exec,
     exit: Exit,
     fg: Jobs.Fg,
     jobs: Jobs,
@@ -67,16 +68,6 @@ pub fn raze(a: Allocator) void {
     Export.raze(a);
 }
 
-pub fn builtinToName(comptime bi: Builtins) []const u8 {
-    return @tagName(bi);
-}
-
-pub fn exec(self: Builtins) BuiltinFn {
-    return switch (self) {
-        inline else => |_, t| @TypeOf(t).call,
-    };
-}
-
 /// Optional builtins "exist" only if they don't already exist on the system.
 pub fn execOpt(self: BuiltinWeak) BuiltinFn {
     return switch (self) {
@@ -99,7 +90,7 @@ pub fn strExec(str: []const u8) BuiltinFn {
 
 pub fn exists(str: []const u8) bool {
     inline for (@typeInfo(Builtins).@"union".fields) |f| {
-        if (std.mem.eql(u8, f.name, str)) return true;
+        if (eql(u8, f.name, str)) return true;
     }
     return false;
 }
@@ -108,7 +99,7 @@ pub fn exists(str: []const u8) bool {
 /// this is not enforced internally callers are expected to behave
 pub fn existsOptional(str: []const u8) bool {
     inline for (@typeInfo(BuiltinWeak).@"enum".fields[0..]) |f| {
-        if (std.mem.eql(u8, f.name, str)) return true;
+        if (eql(u8, f.name, str)) return true;
     }
     return false;
 }
@@ -191,6 +182,13 @@ pub const Echo = struct {
         }
         if (newline) try print("\n", .{});
         return 0;
+    }
+};
+
+pub const Exec = struct {
+    const hshExec = @import("exec.zig");
+    pub fn call(_: *Hsh, _: *ParsedIterator, _: Allocator, _: Io) Err!u8 {
+        unreachable;
     }
 };
 
