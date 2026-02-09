@@ -100,7 +100,7 @@ fn core(l: *Line, a: Allocator, io: Io) !Action {
                     .home => l.cursorMove(.home),
                     .end => l.cursorMove(.end),
                     .backspace => l.tkn.remove(),
-                    .newline => return .exec,
+                    .newline => l.char('\n') catch return .exec,
                     .end_of_text => return .exec,
                     .delete_word => _ = l.tkn.removeWord(),
                     .tab => l.complete(a, io) catch |e| switch (e) {

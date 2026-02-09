@@ -120,7 +120,7 @@ pub fn iterate(tkzr: *const Tokenizer) Iterator {
 }
 
 /// Returns a Token error
-pub fn validate(tkzr: *Tokenizer) !void {
+pub fn validate(tkzr: *const Tokenizer) !void {
     var i: usize = 0;
     while (i < tkzr.len) {
         const t = try Token.any(tkzr.buffer[i..tkzr.len]);
@@ -380,8 +380,13 @@ pub fn consumeChar(tkzr: *Tokenizer, c: u8) !void {
 
     if (c == '\n') {
         if (tkzr.idx == tkzr.len and tkzr.len > 1 and tkzr.buffer[tkzr.idx - 2] != '\\') {
-            var itr = tkzr.iterator();
-            while (itr.next()) |_| {}
+            tkzr.validate() catch |err| switch (err) {
+                error.OpenGroup,
+                error.OpenLogic,
+                error.IllegalToken,
+                error.InvalidLogic,
+                => return,
+            };
             return error.Exec;
         }
         tkzr.mode = .multiline;

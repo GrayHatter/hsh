@@ -25,8 +25,6 @@ pub const OpKind = enum {
 };
 
 pub const Error = error{
-    Unknown,
-    OutOfMemory,
     IllegalToken,
     InvalidLogic,
     OpenGroup,
@@ -417,19 +415,11 @@ pub const Iterator = struct {
 
     pub fn peek(self: *Self) ?Token {
         if (self.index) |i| {
-            if (i >= self.raw.len) {
-                return null;
-            }
-            if (any(self.raw[i..])) |t| {
-                return t;
-            } else |e| {
-                log.err("tokenizer error {}\n", .{e});
-                return null;
-            }
-        } else {
-            self.index = 0;
-            return self.peek();
+            if (i >= self.raw.len) return null;
+            return any(self.raw[i..]) catch return null;
         }
+        self.index = 0;
+        return self.peek();
     }
 
     pub fn first(self: *Self) Token {
