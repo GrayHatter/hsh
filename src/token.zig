@@ -8,11 +8,12 @@ pub const BREAKING_CHAR = " \t\n\"\\'`${|><#;}";
 const BSLH = '\\';
 
 pub const IOKind = enum {
-    In,
-    HDoc,
-    Out,
-    Append,
-    Err,
+    heredoc,
+    stderr,
+    stderr_append,
+    stdin,
+    stdout,
+    stdout_append,
 };
 
 pub const OpKind = enum {
@@ -26,9 +27,7 @@ pub const OpKind = enum {
 pub const Error = error{
     Unknown,
     OutOfMemory,
-    LineTooLong,
-    TokenizeFailed,
-    InvalidSrc,
+    IllegalToken,
     InvalidLogic,
     OpenGroup,
     OpenLogic,
@@ -53,6 +52,12 @@ pub const Kind = union(enum) {
     word: void,
     ws: void,
 
+    pub const Quote = enum(u8) {
+        bt = '`',
+        dq = '"',
+        sq = '\'',
+    };
+
     pub fn continues(k: Kind) bool {
         return switch (k) {
             .ws, .oper => false,
@@ -60,6 +65,19 @@ pub const Kind = union(enum) {
         };
     }
 };
+
+fn seekTo(str: []const u8, char: u8) ?usize {
+    var idx: usize = 0;
+    while (idx < str.len) : (idx += 1) {
+        const c = str[idx];
+        if (c == '\\') {
+            idx += 1;
+            if (char == '\\' and idx < str.len and str[idx] == '\\') return idx;
+        } else if (c == char) {
+            return idx;
+        }
+    } else return null;
+}
 
 pub fn make(str: []const u8, k: Kind) Token {
     return .{ .str = str, .kind = k };
@@ -72,35 +90,35 @@ pub fn any(src: []const u8) Error!Token {
         '{', '(' => group(src), // TODO magic
         ' ', '\t', '\n' => space(src),
         '~', '/' => path(src),
-        '>', '<' => ioredir(src),
+        '>', '<' => ioRedirect(src),
         '|', '&', ';' => execOp(src),
         '$' => dollar(src),
         '#' => comment(src),
-        '\\' => bkslsh(src),
+        '\\' => backslsh(src),
         else => wordExpanded(src),
     };
 }
 
-fn ioredir(src: []const u8) Error!Token {
-    if (src.len < 3) return Error.InvalidSrc;
+fn ioRedirect(src: []const u8) Error!Token {
+    if (src.len < 3) return error.IllegalToken;
     var i: usize = 1;
-    var t = Token.make(src[0..1], .{ .io = .Err });
+    var t: Token = .make(src[0..1], .{ .io = .stderr });
     switch (src[0]) {
         '<' => {
             t.str = if (src[1] == '<') src[0..2] else src[0..1];
-            t.kind = .{ .io = .In };
+            t.kind = .{ .io = .stdin };
         },
         '>' => {
             if (src[1] == '>') {
                 t.str = src[0..2];
-                t.kind = .{ .io = .Append };
+                t.kind = .{ .io = .stdout_append };
                 i = 2;
             } else {
                 t.str = src[0..1];
-                t.kind = .{ .io = .Out };
+                t.kind = .{ .io = .stdout };
             }
         },
-        else => return Error.InvalidSrc,
+        else => return error.IllegalToken,
     }
     while (src[i] == ' ' or src[i] == '\t') : (i += 1) {}
     const target = (try word(src[i..])).str;
@@ -110,20 +128,16 @@ fn ioredir(src: []const u8) Error!Token {
 
 fn execOp(src: []const u8) Error!Token {
     switch (src[0]) {
-        ';' => return Token.make(src[0..1], .{ .oper = .next }),
-        '&' => {
-            if (src.len > 1 and src[1] == '&') {
-                return Token.make(src[0..2], .{ .oper = .success });
-            }
-            return Token.make(src[0..1], .{ .oper = .background });
-        },
-        '|' => {
-            if (src.len > 1 and src[1] == '|') {
-                return Token.make(src[0..2], .{ .oper = .fail });
-            }
-            return Token.make(src[0..1], .{ .oper = .pipe });
-        },
-        else => return Error.InvalidSrc,
+        ';' => return .make(src[0..1], .{ .oper = .next }),
+        '&' => if (src.len > 1 and src[1] == '&')
+            return .make(src[0..2], .{ .oper = .success })
+        else
+            return .make(src[0..1], .{ .oper = .background }),
+        '|' => if (src.len > 1 and src[1] == '|')
+            return .make(src[0..2], .{ .oper = .fail })
+        else
+            return .make(src[0..1], .{ .oper = .pipe }),
+        else => return error.IllegalToken,
     }
 }
 
@@ -146,21 +160,20 @@ pub fn comment(src: []const u8) Error!Token {
 }
 
 pub fn dollar(src: []const u8) Error!Token {
-    if (src.len <= 1) return Error.InvalidSrc;
+    if (src.len <= 1) return error.IllegalToken;
     assert(src[0] == '$');
 
     switch (src[1]) {
         '{' => return vari(src),
-        '(' => return cmdsub(src),
+        '(' => return subCommand(src),
         else => return vari(src),
     }
 }
 
-pub fn cmdsub(src: []const u8) Error!Token {
+pub fn subCommand(src: []const u8) Error!Token {
+    assert(src.len > 2);
     assert(src[0] == '$');
     assert(src[1] == '(');
-    if (src.len <= 2) return Error.InvalidSrc;
-
     var offset: usize = 2;
     // loop over the token sort functions to find the final ) which will
     // close this command substitution. We can't simply look for the )
@@ -178,27 +191,27 @@ pub fn cmdsub(src: []const u8) Error!Token {
     }
     if (offset >= src.len) {
         if (offset > src.len or src[offset - 1] != ')') {
-            return Error.InvalidSrc;
+            return error.IllegalToken;
         }
     } else if (src[offset] == ')' and src[offset - 1] != ')') offset += 1;
 
-    return Token.make(src[0..offset], .subp);
+    return .make(src[0..offset], .subp);
 }
 
 pub fn vari(src: []const u8) Error!Token {
-    if (src.len <= 1) return Error.InvalidSrc;
     assert(src[0] == '$');
+    if (src.len <= 1) return error.IllegalToken;
 
     if (src[1] == '{') {
-        if (src.len < 4) return Error.InvalidSrc;
-        if (std.ascii.isDigit(src[2])) return Error.InvalidSrc;
+        if (src.len < 4) return error.IllegalToken;
+        if (std.ascii.isDigit(src[2])) return error.IllegalToken;
         if (findScalar(u8, src, '}')) |end| {
             var t = try uAlphaNum(src[2..end]);
             return .make(src[0 .. t.str.len + 3], .vari);
-        } else return Error.InvalidSrc;
+        } else return error.IllegalToken;
     }
 
-    if (std.ascii.isDigit(src[1])) return Error.InvalidSrc;
+    if (std.ascii.isDigit(src[1])) return error.IllegalToken;
     const SPECIALS = "@*#?-$!0";
     for (SPECIALS) |s| if (src[1] == s) return .make(src[0..2], .vari);
 
@@ -246,11 +259,11 @@ pub fn wordExpanded(src: []const u8) Error!Token {
 }
 
 pub fn logic(src: []const u8) Error!Token {
-    const end = std.mem.indexOfAny(u8, src, BREAKING_CHAR) orelse {
+    const end = findAny(u8, src, BREAKING_CHAR) orelse {
         if (Reserved.fromStr(src)) |typ| {
-            return Token.make(src, .{ .resr = typ });
+            return .make(src, .{ .resr = typ });
         }
-        return Error.InvalidSrc;
+        return error.InvalidLogic;
     };
     const r = Reserved.fromStr(src[0..end]) orelse unreachable;
 
@@ -259,7 +272,7 @@ pub fn logic(src: []const u8) Error!Token {
         .Case => .Esac,
         .While => .Done,
         .For => .Done,
-        else => return Token.make(src[0..end], .{ .resr = r }),
+        else => return .make(src[0..end], .{ .resr = r }),
     };
 
     var offset: usize = end;
@@ -268,21 +281,21 @@ pub fn logic(src: []const u8) Error!Token {
         offset += t.str.len;
         if (t.kind == .resr) {
             if (t.kind.resr == marker) {
-                return Token.make(src[0..offset], .{ .logic = .{} });
+                return .make(src[0..offset], .{ .logic = .{} });
             }
         }
     }
-    return Error.OpenLogic;
+    return error.OpenLogic;
 }
 
 pub fn func(src: []const u8) Error!Token {
-    if (src.len < 4) return Error.InvalidSrc;
+    if (src.len < 4) return error.InvalidLogic;
     if (src[0] != '(' or src[1] != ')') {
-        return Error.InvalidSrc;
+        return error.InvalidLogic;
     }
     const ws = try space(src[2..]);
     var end: usize = 2 + ws.str.len;
-    if (src[end] != '{') return Error.InvalidSrc;
+    if (src[end] != '{') return error.InvalidLogic;
     const t = try any(src[end..]);
     end += t.str.len;
 
@@ -292,12 +305,12 @@ pub fn func(src: []const u8) Error!Token {
 pub fn oper(src: []const u8) Error!Token {
     switch (src[0]) {
         '=' => return Token.make(src[0..1], .{ .io = .Err }),
-        else => return Error.InvalidSrc,
+        else => return error.InvalidSrc,
     }
 }
 
 pub fn group(src: []const u8) Error!Token {
-    if (src.len <= 1) return Error.OpenGroup;
+    if (src.len <= 1) return error.OpenGroup;
     return switch (src[0]) {
         '\'' => quoteSingle(src),
         '"' => quoteDouble(src),
@@ -305,7 +318,7 @@ pub fn group(src: []const u8) Error!Token {
         '[' => bracket(src),
         '{' => bracketCurly(src),
         '`' => backtick(src),
-        else => Error.InvalidSrc,
+        else => unreachable,
     };
 }
 
@@ -323,17 +336,11 @@ pub fn backtick(src: []const u8) Error!Token {
 
 pub fn quote(src: []const u8, close: u8) Error!Token {
     // TODO posix says a ' cannot appear within 'string'
-    if (src.len <= 1 or src[0] == BSLH) {
-        return Error.InvalidSrc;
-    }
+    const c = src[0];
+    assert(c == '\'' or c == '"' or c == '`');
 
-    var end: usize = 1;
-    for (src[1..], 1..) |s, i| {
-        end += 1;
-        if (s == close and !(src[i - 1] == BSLH and src[i - 2] != BSLH)) break;
-    }
-
-    if (src[end - 1] != close) return Error.OpenGroup;
+    var end: usize = seekTo(src[1..], close) orelse return error.OpenGroup;
+    end += 2;
 
     return Token{
         .str = src[0..end],
@@ -372,7 +379,7 @@ pub fn brace(src: []const u8, close: u8) Error!Token {
         if (s == close) break;
     }
 
-    if (src[end - 1] != close) return Error.OpenGroup;
+    if (src[end - 1] != close) return error.OpenGroup;
 
     return .{
         .str = src[0..end],
@@ -380,7 +387,7 @@ pub fn brace(src: []const u8, close: u8) Error!Token {
     };
 }
 
-fn bkslsh(src: []const u8) Error!Token {
+fn backslsh(src: []const u8) Error!Token {
     assert(src.len > 1);
     assert(src[0] == '\\');
 
@@ -472,7 +479,7 @@ pub const Iterator = struct {
     // start at the following word slice.
     // calling this invalidates the previously returned pointer from next/peek
     pub fn toSliceExec(self: *Self, a: std.mem.Allocator) ![]Token {
-        var list: std.ArrayList(Token) = .{};
+        var list: ArrayList(Token) = .{};
         if (self.nextExec()) |n| {
             try list.append(a, n);
         } else if (self.next()) |n| {
@@ -519,7 +526,7 @@ test "quotes" {
     try expectEqualStrings(t.str, "\"a\"");
 
     var terr = Token.group("\"this is invalid");
-    try std.testing.expectError(Error.OpenGroup, terr);
+    try std.testing.expectError(error.OpenGroup, terr);
 
     t = try Token.group("\"this is some text\" more text");
     try expectEql(19, t.str.len);
@@ -536,7 +543,7 @@ test "quotes" {
     terr = Token.group(
         \\"this is some text\" more text
     );
-    try std.testing.expectError(Error.OpenGroup, terr);
+    try std.testing.expectError(error.OpenGroup, terr);
 
     t = try Token.group("\"this is some text\\\" more text\"");
     try expectEql(31, t.str.len);
@@ -557,8 +564,11 @@ test "path" {
 }
 
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 const log = @import("log.zig");
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const findScalar = std.mem.findScalar;
+const findScalarPos = std.mem.findScalarPos;
 const findAny = std.mem.findAny;
 const assert = std.debug.assert;

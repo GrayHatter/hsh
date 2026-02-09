@@ -343,20 +343,20 @@ fn mkCallableStack(itr: *TokenIterator, fs: Fs, a: Allocator, io: Io) ![]Callabl
         for (eslice) |maybeio| {
             if (maybeio.kind == .io) {
                 switch (maybeio.kind.io) {
-                    .Out, .Append => |appnd| {
-                        const f = Fs.openFileStdout(maybeio.str, io, appnd == .Append) catch |err| {
+                    .stdout, .stdout_append => |appnd| {
+                        const f = Fs.openFileStdout(maybeio.str, io, appnd == .stdout_append) catch |err| {
                             switch (err) {
                                 error.NoClobber => log.err("Noclobber is enabled.\n", .{}),
                                 else => log.err("Failed to open file {s}\n", .{maybeio.str}),
                             }
                             return error.StdIOerror;
                         };
-                        if (appnd == .Append) {
+                        if (appnd == .stdout_append) {
                             assert(system.lseek(f.handle, 0, system.SEEK.END) >= 0);
                         }
                         io_mode.out = f.handle;
                     },
-                    .In, .HDoc => {
+                    .stdin, .heredoc => {
                         if (prev_stdout) |out| {
                             if (system.close(out) != 0) unreachable;
                             prev_stdout = null;
@@ -365,7 +365,7 @@ fn mkCallableStack(itr: *TokenIterator, fs: Fs, a: Allocator, io: Io) ![]Callabl
                             io_mode.in = file.handle;
                         }
                     },
-                    .Err => unreachable,
+                    .stderr, .stderr_append => unreachable,
                 }
             }
         }

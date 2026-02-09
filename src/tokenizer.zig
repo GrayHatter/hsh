@@ -38,14 +38,28 @@ pub const Cursor = enum(usize) {
         pub const right: Motion = .inc;
     };
 
+    fn char(c: *const Cursor) ?u8 {
+        const tkzr: *const Tokenizer = @fieldParentPtr("cursor", c);
+        if (tkzr.len == 0 or tkzr.idx == 0) return null;
+        return tkzr.buffer[tkzr.idx - 1];
+    }
+
+    fn toBoundry(c: *Cursor, comptime m: Motion) void {
+        const tkzr: *Tokenizer = @fieldParentPtr("cursor", c);
+        assert(tkzr.len > 0);
+        tkzr.cursor.move(m);
+        while (isWhitespace(c.char() orelse return) and tkzr.idx != tkzr.len) tkzr.cursor.move(m);
+        while (!isWhitespace(c.char() orelse return) and tkzr.idx != tkzr.len) tkzr.cursor.move(m);
+    }
+
     pub fn move(c: *Cursor, m: Motion) void {
         const tkzr: *Tokenizer = @fieldParentPtr("cursor", c);
         if (tkzr.len == 0) return;
         switch (m) {
             .home => tkzr.idx = 0,
             .end => tkzr.idx = tkzr.len,
-            .back => tkzr.cToBoundry(false),
-            .word => tkzr.cToBoundry(true),
+            .back => c.toBoundry(.dec),
+            .word => c.toBoundry(.inc),
             .inc => tkzr.idx +|= 1,
             .dec => tkzr.idx -|= 1,
 
@@ -97,27 +111,6 @@ pub fn fromSlice(str: []const u8) Tokenizer {
 
 pub fn getSlice(tkzr: *const Tokenizer) []const u8 {
     return tkzr.buffer[0..tkzr.len];
-}
-
-fn cChar(tkzr: *Tokenizer) ?u8 {
-    if (tkzr.len == 0) return null;
-    if (tkzr.idx == tkzr.len) return tkzr.buffer[tkzr.idx - 1];
-    return tkzr.buffer[tkzr.idx];
-}
-
-fn cToBoundry(tkzr: *Tokenizer, comptime forward: bool) void {
-    assert(tkzr.len > 0);
-    const cursor = if (forward) .inc else .dec;
-    tkzr.cursor.move(cursor);
-
-    while (isWhitespace(tkzr.cChar().?) and tkzr.idx > 0 and tkzr.idx < tkzr.len) {
-        tkzr.cursor.move(cursor);
-    }
-
-    while (!isWhitespace(tkzr.cChar().?) and tkzr.idx != 0 and tkzr.idx < tkzr.len) {
-        tkzr.cursor.move(cursor);
-    }
-    if (!forward and tkzr.idx != 0) tkzr.cursor.move(.inc);
 }
 
 pub const iterator = iterate;
@@ -387,10 +380,11 @@ pub fn consumeChar(tkzr: *Tokenizer, c: u8) !void {
 
     if (c == '\n') {
         if (tkzr.idx == tkzr.len and tkzr.len > 1 and tkzr.buffer[tkzr.idx - 2] != '\\') {
+            var itr = tkzr.iterator();
+            while (itr.next()) |_| {}
             return error.Exec;
-        } else {
-            tkzr.mode = .multiline;
         }
+        tkzr.mode = .multiline;
     }
 }
 
@@ -823,7 +817,7 @@ test "token > file" {
     ti.skip();
     var iot = ti.next().?;
     try expectEqualStrings("> file.txt", iot.str);
-    try std.testing.expect(iot.kind.io == .Out);
+    try std.testing.expect(iot.kind.io == .stdout);
 }
 
 test "token > file extra ws" {
@@ -857,7 +851,7 @@ test "token > execSlice" {
     ti.skip();
     var iot = ti.next().?;
     try expectEqualStrings("> file.txt", iot.str);
-    try std.testing.expect(iot.kind.io == .Out);
+    try std.testing.expect(iot.kind.io == .stdout);
 
     ti.restart();
     try std.testing.expect(ti.peek() != null);
@@ -879,7 +873,7 @@ test "token >> file" {
     try expectEqualStrings("ls", ti.first().str);
     ti.skip();
     var iot = ti.next().?;
-    try std.testing.expectEqual(.Append, iot.kind.io);
+    try std.testing.expectEqual(.stdout_append, iot.kind.io);
     try expectEqualStrings(">> file.txt", iot.str);
 }
 
@@ -889,7 +883,7 @@ test "token >>file" {
     ti.skip();
     const iot = ti.next().?;
     try expectEqualStrings(">>file.txt", iot.str);
-    try std.testing.expectEqual(.Append, iot.kind.io);
+    try std.testing.expectEqual(.stdout_append, iot.kind.io);
 }
 
 test "token < file" {
