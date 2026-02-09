@@ -8,6 +8,7 @@ err_idx: usize = 0,
 edited: bool = false,
 editor_mktmp: ?[]u8 = null,
 mode: Mode = .single,
+cursor: Cursor = .start,
 
 const Tokenizer = @This();
 
@@ -18,7 +19,9 @@ pub const Mode = enum {
     multiline,
 };
 
+/// Cursor is currently an experimental interface and currently just reaches into tokenizer for `idx`
 pub const Cursor = enum(usize) {
+    start = 0,
     _,
 
     pub const Motion = enum(u8) {
@@ -35,6 +38,23 @@ pub const Cursor = enum(usize) {
         pub const left: Motion = .dec;
         pub const right: Motion = .inc;
     };
+
+    pub fn move(c: *Cursor, m: Motion) void {
+        const tkzr: *Tokenizer = @fieldParentPtr("cursor", c);
+        if (tkzr.len == 0) return;
+        switch (m) {
+            .home => tkzr.idx = 0,
+            .end => tkzr.idx = tkzr.len,
+            .back => tkzr.cToBoundry(false),
+            .word => tkzr.cToBoundry(true),
+            .inc => tkzr.idx +|= 1,
+            .dec => tkzr.idx -|= 1,
+
+            .prev_line => unreachable,
+            .next_line => unreachable,
+        }
+        tkzr.idx = @min(tkzr.idx, tkzr.len);
+    }
 };
 
 pub const init: Tokenizer = .{};
@@ -58,32 +78,16 @@ fn cChar(tkzr: *Tokenizer) ?u8 {
 fn cToBoundry(tkzr: *Tokenizer, comptime forward: bool) void {
     assert(tkzr.len > 0);
     const cursor = if (forward) .inc else .dec;
-    tkzr.move(cursor);
+    tkzr.cursor.move(cursor);
 
     while (isWhitespace(tkzr.cChar().?) and tkzr.idx > 0 and tkzr.idx < tkzr.len) {
-        tkzr.move(cursor);
+        tkzr.cursor.move(cursor);
     }
 
     while (!isWhitespace(tkzr.cChar().?) and tkzr.idx != 0 and tkzr.idx < tkzr.len) {
-        tkzr.move(cursor);
+        tkzr.cursor.move(cursor);
     }
-    if (!forward and tkzr.idx != 0) tkzr.move(.inc);
-}
-
-pub fn move(tkzr: *Tokenizer, motion: Cursor.Motion) void {
-    if (tkzr.len == 0) return;
-    switch (motion) {
-        .home => tkzr.idx = 0,
-        .end => tkzr.idx = tkzr.len,
-        .back => tkzr.cToBoundry(false),
-        .word => tkzr.cToBoundry(true),
-        .inc => tkzr.idx +|= 1,
-        .dec => tkzr.idx -|= 1,
-
-        .prev_line => unreachable,
-        .next_line => unreachable,
-    }
-    tkzr.idx = @min(tkzr.idx, tkzr.len);
+    if (!forward and tkzr.idx != 0) tkzr.cursor.move(.inc);
 }
 
 pub fn cursorTokenIdx(tkzr: *Tokenizer) ?usize {
@@ -435,8 +439,8 @@ test consumeChar {
     try expectEqualStrings("01256", t.getSlice());
     try expectEqual(5, t.idx);
     try expectEqual(5, t.len);
-    t.move(.left);
-    t.move(.dec);
+    t.cursor.move(.left);
+    t.cursor.move(.dec);
     try expectEqual(3, t.idx);
     try expectEqualStrings("01256", t.getSlice());
     try t.consumeChar('3');
@@ -447,7 +451,7 @@ test consumeChar {
     try expectEqual(5, t.idx);
     try expectEqual(7, t.len);
     try expectEqualStrings("0123456", t.getSlice());
-    t.move(.home);
+    t.cursor.move(.home);
     try expectEqual(0, t.idx);
     try t.consumeChar('_');
     try expectEqual(1, t.idx);

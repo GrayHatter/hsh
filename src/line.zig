@@ -72,7 +72,7 @@ fn char(l: *Line, c: u8) !void {
 }
 
 fn cursorMove(l: *Line, motion: Tokenizer.Cursor.Motion) void {
-    l.tkn.move(motion);
+    l.tkn.cursor.move(motion);
 }
 
 pub fn peek(line: Line) []const u8 {
@@ -213,7 +213,7 @@ fn findHistory(l: *Line, dr: enum { up, down }) !void {
         l.bytes = try l.alloc.dupe(u8, hist_line);
         l.tkn.reset();
         l.tkn.consumeSlice(l.bytes);
-        l.tkn.move(.end);
+        l.tkn.cursor.move(.end);
     } else {
         if (dr == .up) l.hist_index -= 1 else l.hist_index += 1;
         l.draw.drawAfter(&[1]Lexeme{.styled("[ End of History ]", .red_bold)});
