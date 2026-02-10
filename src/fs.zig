@@ -224,6 +224,7 @@ pub fn cd(fs: *Fs, trgt: []const u8, a: Allocator, io: Io) !void {
     fs.cwd.dir.close(io);
     fs.cwd.dir = next;
     if (system.fchdir(fs.cwd.dir.handle) != 0) unreachable;
+    intergr.dirChange(fs.cwd);
     log.debug("cd now '{s}'\n", .{fs.cwd.name});
 }
 
@@ -465,3 +466,4 @@ const allocPrint = std.fmt.allocPrint;
 const bufPrint = std.fmt.bufPrint;
 const builtin = @import("builtin");
 const system = @import("system.zig");
+const intergr = @import("intergrations.zig");
