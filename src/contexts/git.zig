@@ -1,14 +1,11 @@
-idx_b: [8]u8 = undefined,
-tree_b: [8]u8 = undefined,
-buffer: [0x20]u8 = undefined,
+buffer: [256]u8 = undefined,
 next: []const u8 = &.{},
 enabled: bool = true,
 
 const Git = @This();
 
-pub fn init(a: std.mem.Allocator) error{ OutOfMemory, InitFailed }!Git {
-    _ = a;
-    return .{};
+pub fn init(g: *Git) error{InitFailed}!void {
+    g.* = .{};
 }
 
 pub fn fetch(g: *const Git) Lexeme {
@@ -50,13 +47,22 @@ pub fn update(g: *Git, _: *Hsh, a: std.mem.Allocator, io: Io) error{ OutOfMemory
         else => log.warn("status error {}\n", .{err}),
     }
 
-    const idx_str = std.fmt.bufPrint(&g.idx_b, "{}", .{index}) catch unreachable;
-    const tree_str = std.fmt.bufPrint(&g.tree_b, "{}", .{tree}) catch unreachable;
+    var name_b: [60]u8 = undefined;
+    const name: []const u8 = ext.git.getBranch(&name_b, io) catch &.{};
 
-    g.next = std.fmt.bufPrint(&g.buffer, " [{f}|{f}]", .{
-        Lexeme.styled(idx_str, if (index > 0) .red else .green),
-        Lexeme.styled(tree_str, if (tree > 0) .red else .green),
-    }) catch unreachable;
+    var idx_b: [8]u8 = undefined;
+    var tree_b: [8]u8 = undefined;
+    const idx_str = std.fmt.bufPrint(&idx_b, "{}", .{index}) catch unreachable;
+    const tree_str = std.fmt.bufPrint(&tree_b, "{}", .{tree}) catch unreachable;
+    if (index > 0 or tree > 0) {
+        g.next = std.fmt.bufPrint(&g.buffer, " [{f}|{f}|{f}]", .{
+            Lexeme.styled(name, .red),
+            Lexeme.styled(idx_str, if (index > 0) .red else .green),
+            Lexeme.styled(tree_str, if (tree > 0) .red else .green),
+        }) catch unreachable;
+    } else {
+        g.next = std.fmt.bufPrint(&g.buffer, " [{f}]", .{Lexeme.styled(name, .green)}) catch unreachable;
+    }
 }
 
 pub fn raze(_: *Git, _: std.mem.Allocator) void {}

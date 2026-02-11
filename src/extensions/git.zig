@@ -1,6 +1,20 @@
 const git = @This();
 
-pub fn getStatus(w: *std.Io.Writer, io: std.Io) !usize {
+pub fn getBranch(buffer: []u8, io: Io) ![]u8 {
+    var file_buf: [2048]u8 = undefined;
+    const data = try Fs.getCwd().dir.readFile(io, ".git/HEAD", &file_buf);
+
+    if (cutPrefix(u8, data, "ref: refs/")) |ref| {
+        if (cutPrefix(u8, ref, "heads/")) |branch| {
+            return try bufPrint(buffer, "{s}", .{trim(u8, branch, " \n")});
+        } else if (cutPrefix(u8, ref, "tags/")) |tag| {
+            return try bufPrint(buffer, "tag:{s}", .{trim(u8, tag, " \n")});
+        }
+    }
+    return try bufPrint(buffer, "[unsupported HEAD prefix]", .{});
+}
+
+pub fn getStatus(w: *Writer, io: Io) !usize {
     Signals.block();
     defer Signals.unblock();
     const exec = try Exec.childExec(&.{
@@ -205,9 +219,15 @@ test {
 }
 
 const std = @import("std");
-const Reader = std.Io.Reader;
+const Io = std.Io;
+const Reader = Io.Reader;
+const Writer = Io.Writer;
+const Fs = @import("../Fs.zig");
 const parseInt = std.fmt.parseInt;
 const log = @import("../log.zig");
 const Exec = @import("../exec.zig");
 const Jobs = @import("../jobs.zig");
 const Signals = @import("../signals.zig");
+const cutPrefix = std.mem.cutPrefix;
+const bufPrint = std.fmt.bufPrint;
+const trim = std.mem.trim;

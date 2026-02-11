@@ -147,7 +147,7 @@ pub fn init(env: Environ, a: Allocator, io: Io) !Hsh {
     Variables.load(env, a) catch return error.Memory;
     // builtins that wish to save data depend on this being available
     shellbuiltin.init(a);
-    try Context.init(a);
+    try Context.init();
 
     if (Fs.open("/etc/hostname", io)) |*file| {
         defer file.close(io);

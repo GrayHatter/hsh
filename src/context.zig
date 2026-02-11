@@ -8,19 +8,17 @@ var self: Context = undefined;
 pub const Git = @import("contexts/git.zig");
 
 const State = struct {
-    pub fn init(_: std.mem.Allocator) error{ OutOfMemory, InitFailed }!State {
-        return .{};
-    }
+    pub fn init(_: *State) error{InitFailed}!void {}
 
     pub fn fetch(_: *const State) Lexeme {
         unreachable;
     }
 
-    pub fn update(_: *State, _: *Hsh, _: std.mem.Allocator, _: Io) error{ OutOfMemory, UpdateFailed }!void {
+    pub fn update(_: *State, _: *Hsh, _: Allocator, _: Io) error{ OutOfMemory, UpdateFailed }!void {
         unreachable;
     }
 
-    pub fn raze(_: *Git, _: std.mem.Allocator) void {}
+    pub fn raze(_: *Git, _: Allocator) void {}
 };
 
 pub const Flavor = enum {
@@ -28,11 +26,9 @@ pub const Flavor = enum {
     state, // some internal state of hsh
 };
 
-pub fn init(a: Allocator) !void {
-    self = .{
-        .git = try .init(a),
-        .state = try .init(a),
-    };
+pub fn init() !void {
+    try self.git.init();
+    try self.state.init();
 }
 
 pub fn raze(a: Allocator) void {

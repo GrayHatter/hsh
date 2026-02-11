@@ -228,6 +228,12 @@ pub fn cd(fs: *Fs, trgt: []const u8, a: Allocator, io: Io) !void {
     log.debug("cd now '{s}'\n", .{fs.cwd.name});
 }
 
+pub fn getCwd() Named.Dir {
+    if (g_fs) |fs| {
+        return fs.cwd;
+    } else unreachable;
+}
+
 pub fn mktemp(data: ?[]const u8, a: Allocator, io: Io) ![]u8 {
     var bytes: [7]u8 = undefined;
     io.random(&bytes);
