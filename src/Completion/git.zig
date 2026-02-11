@@ -15,7 +15,7 @@ pub fn suggest(cs: *Completion, token: ?*const Token, all_tokens: []Token, fs: F
         _ = job_.waitFor() catch unreachable;
     }
 
-    const F = struct { path: []const u8, name: []const u8, unstaged: Status };
+    const F = struct { path: []const u8, name: []const u8, unstaged: ext.git.Status };
     var files_b: [256]F = undefined;
     var files: ArrayList(F) = .initBuffer(&files_b);
 
@@ -39,9 +39,9 @@ pub fn suggest(cs: *Completion, token: ?*const Token, all_tokens: []Token, fs: F
         switch (line[0]) {
             '1' => {
                 //log.err("", .{line[2]}
-                const staged: Status = @enumFromInt(line[2]);
+                const staged: ext.git.Status = @enumFromInt(line[2]);
                 _ = staged;
-                const unstaged: Status = @enumFromInt(line[3]);
+                const unstaged: ext.git.Status = @enumFromInt(line[3]);
                 const filename = line[113..];
                 if (dir_prefix) |dir_pre| {
                     if (!startsWith(u8, filename, dir_pre)) continue;
@@ -139,42 +139,6 @@ pub fn suggest(cs: *Completion, token: ?*const Token, all_tokens: []Token, fs: F
     //}
 }
 
-const Status = enum(u8) {
-    // ' ' [AMD] not updated
-    // M [ MTD] updated in index
-    // T [ MTD] type changed in index
-    // A [ MTD] added to index
-    // D [] deleted from index
-    // R [ MTD] renamed in index
-    // C [ MTD] copied in index
-    // [MTARC] ' ' index and work tree matches
-    // [ MTARC] M work tree changed since index
-    // [ MTARC] T type changed in work tree since index
-    // [ MTARC] D deleted in work tree
-    // ' ' R renamed in work tree
-    // ' ' C copied in work tree
-    // D D unmerged, both deleted
-    // A U unmerged, added by us
-    // U D unmerged, deleted by them
-    // U A unmerged, added by them
-    // D U unmerged, deleted by us
-    // A A unmerged, both added
-    // U U unmerged, both modified
-    // ? ? untracked
-    // ! ! ignored
-    nothing = ' ',
-    nothing_v2 = '.',
-    modified = 'M',
-    type_change = 'T',
-    added = 'A',
-    deleted = 'D',
-    renamed = 'R',
-    copied = 'C',
-    updated = 'U',
-    untracked = '?',
-    ignored = '!',
-};
-
 pub fn filter(cs: *Completion, cur_token: ?*const Token, all_tokens: []Token) void {
     _ = cs;
     _ = cur_token;
@@ -186,6 +150,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const Io = std.Io;
+const ext = @import("../extensions.zig");
 const Completion = @import("../Completion.zig");
 const Fs = @import("../Fs.zig");
 const Token = @import("../token.zig");
