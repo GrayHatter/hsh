@@ -21,9 +21,12 @@ pub fn fetch(g: *const Git) Lexeme {
 pub fn update(g: *Git, _: *Hsh, a: std.mem.Allocator, io: Io) error{ OutOfMemory, UpdateFailed }!void {
     var allocating: Writer.Allocating = try .initCapacity(a, 8196);
     defer allocating.deinit();
-    _ = ext.git.getStatus(&allocating.writer, io) catch |err| {
-        log.err("unable to get git status {}\n", .{err});
-        return;
+    _ = ext.git.getStatus(&allocating.writer, io) catch |err| switch (err) {
+        error.EndOfStream => {},
+        else => {
+            log.err("unable to get git status {}\n", .{err});
+            return;
+        },
     };
 
     var index: usize = 0;
