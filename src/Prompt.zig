@@ -36,6 +36,18 @@ pub fn init(user: []const u8, host: ?[]const u8) Prompt {
     };
 }
 
+pub fn drawWithContext(p: Prompt, d: *Draw, line: []const u8) !void {
+    const lex = &[_]Lexeme{
+        .styled(p.username, .blue_bold), .str("@"),
+        .str(p.hostname),                .str(" "),
+        .alt(p.cwd.*, .dir),             Context.fetch(.git),
+        .str(p.brace),
+    };
+    d.draw(lex);
+
+    try p.userText(d, line, "");
+}
+
 pub fn draw(p: Prompt, d: *Draw, line: []const u8) !void {
     const lex = &[_]Lexeme{
         .styled(p.username, .blue_bold), .str("@"),
@@ -53,7 +65,8 @@ pub fn render(p: Prompt, d: *Draw, line: []const u8) !void {
     //try jobsContext(hsh, bgjobs);
     //try ctxContext(hsh, try Context.fetch(hsh, .git));
 
-    try p.draw(d, line);
+    //try p.draw(d, line);
+    try p.drawWithContext(d, line);
     try d.render();
 }
 
@@ -93,6 +106,10 @@ fn jobsContext(d: *Draw, jobs: *const Jobs) !void {
     }
 }
 
+test {
+    _ = &std.testing.refAllDecls(Prompt);
+}
+
 const std = @import("std");
 const Io = std.Io;
 const Writer = Io.Writer;
@@ -102,3 +119,4 @@ const Jobs = @import("jobs.zig");
 const Feature = @import("hsh.zig").Features;
 const Lexeme = Draw.Lexeme;
 const fmt = @import("fmt.zig");
+const Context = @import("context.zig");

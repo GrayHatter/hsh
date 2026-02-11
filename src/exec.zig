@@ -95,7 +95,7 @@ const Binary = struct {
 
     fn exec(e: Binary, a: Allocator) noreturn {
         // TODO manage env
-        const environ = Variables.henviron(a);
+        const environ = Variables.currentRebuildDirty(a);
         _ = system.execve(e.arg, e.argv, @ptrCast(environ));
         system.abort();
         //switch (res) {
@@ -534,7 +534,8 @@ pub fn childFromSlice(string: []const u8, h: *Hsh, a: Allocator, io: Io) !ChildR
     defer while (args_list.pop()) |argZ| if (argZ) |arg| a.free(span(arg));
 
     const argv: [:null]const ?[*:0]const u8 = args_list.items[0 .. args_list.items.len - 1 :null];
-    const chld = try childZ(argv, a);
+    Variables.rebuild(a) catch unreachable;
+    const chld = try childExec(argv);
     try h.jobs.add(chld.job(a), a);
     return chld;
 }
@@ -547,12 +548,13 @@ pub fn child(comptime argv: []const [:0]const u8, a: Allocator) !ChildResult {
     defer signal.unblock();
     var list: [argv.len + 1]?[*:0]const u8 = @splat(null);
     inline for (list[0..argv.len], argv) |*dst, arg| dst.* = arg.ptr;
-    return childZ(list[0..argv.len :null], a);
+    Variables.rebuild(a) catch unreachable;
+    return childExec(list[0..argv.len :null]);
 }
 
-/// Preformatted version of child. Accepts the null, and 0 terminated versions
-/// to pass directly to exec. Caller maintains ownership of argv
-pub fn childZ(argv: [:null]const ?[*:0]const u8, a: Allocator) !ChildResult {
+/// Preformatted version of child. Accepts the null, and 0 terminated versions passed directly
+/// to exec. Caller maintains ownership of argv, and should call `signal.block()` before calling
+pub fn childExec(argv: [:null]const ?[*:0]const u8) !ChildResult {
     const stdout_ours, const stdout_child = system.pipe2(.{}) catch unreachable;
     const pid = system.fork();
     if (pid < 0) unreachable;
@@ -562,7 +564,7 @@ pub fn childZ(argv: [:null]const ?[*:0]const u8, a: Allocator) !ChildResult {
         _ = system.dup2(stdout_child, system.STDOUT_FILENO);
         _ = system.close(stdout_ours);
         _ = system.close(stdout_child);
-        const environ = Variables.henviron(a);
+        const environ = Variables.current();
         _ = system.execve(argv[0].?, argv.ptr, environ);
         system.abort();
     }

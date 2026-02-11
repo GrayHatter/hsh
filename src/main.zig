@@ -5,7 +5,6 @@ fn core(hsh: *Hsh, a: Allocator, io: Io) ![]u8 {
     var line = try Line.init(hsh, alloc, io, .{ .interactive = hsh.tty.dev != null });
 
     defer hsh.draw.reset();
-    //try Context.update(hsh, &[_]Context.Contexts{.git});
 
     var redraw = true;
     // TODO drop hsh
@@ -204,7 +203,6 @@ const log = @import("log.zig");
 const Tty = @import("tty.zig");
 const Draw = @import("draw.zig");
 const Prompt = @import("Prompt.zig");
-const Context = @import("context.zig");
 const Hsh = @import("hsh.zig");
 const Exec = @import("exec.zig");
 const Signals = @import("signals.zig");

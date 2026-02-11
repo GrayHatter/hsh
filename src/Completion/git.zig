@@ -3,19 +3,7 @@ const Options = ArrayList(Completion.Option);
 pub fn suggest(cs: *Completion, token: ?*const Token, all_tokens: []Token, fs: Fs, a: Allocator, io: Io) error{OutOfMemory}!void {
     _ = all_tokens;
     _ = fs;
-    Signals.block();
-    defer Signals.unblock();
-    const exec = Exec.child(&.{ "/usr/bin/git", "status", "--porcelain=v2" }, a) catch return;
-    defer exec.raze();
-    var reader = exec.stdout.reader(io, try a.alloc(u8, 65536));
-    defer a.free(reader.interface.buffer);
-    var r = &reader.interface;
-    defer {
-        var job_: Jobs.Job = .init(exec.pid, null);
-        _ = job_.waitFor() catch unreachable;
-    }
-
-    const F = struct { path: []const u8, name: []const u8, unstaged: ext.git.Status };
+    const F = struct { path: []const u8, name: []const u8, unstaged: ext.git.Change.Code };
     var files_b: [256]F = undefined;
     var files: ArrayList(F) = .initBuffer(&files_b);
 
@@ -35,38 +23,35 @@ pub fn suggest(cs: *Completion, token: ?*const Token, all_tokens: []Token, fs: F
         token_search orelse "[null]",
     });
 
+    var allocating: Writer.Allocating = .init(a);
+    defer allocating.deinit();
+    _ = ext.git.getStatus(&allocating.writer, io) catch |err| {
+        log.err("unable to get git status {}\n", .{err});
+        return;
+    };
+    var r: Io.Reader = .fixed(allocating.writer.buffered());
+
     while (r.takeSentinel('\n')) |line| {
-        switch (line[0]) {
-            '1' => {
-                //log.err("", .{line[2]}
-                const staged: ext.git.Status = @enumFromInt(line[2]);
-                _ = staged;
-                const unstaged: ext.git.Status = @enumFromInt(line[3]);
-                const filename = line[113..];
-                if (dir_prefix) |dir_pre| {
-                    if (!startsWith(u8, filename, dir_pre)) continue;
-                }
-                switch (unstaged) {
-                    .nothing, .nothing_v2, .ignored => {},
-                    else => {
-                        if (findScalarLast(u8, filename, '/')) |last| {
-                            try files.appendBounded(.{
-                                .path = filename[0 .. last + 1],
-                                .name = filename[last + 1 ..],
-                                .unstaged = unstaged,
-                            });
-                        } else {
-                            try files.appendBounded(.{
-                                .path = &.{},
-                                .name = filename,
-                                .unstaged = unstaged,
-                            });
-                        }
-                    },
-                }
-            },
-            '2' => log.warn("V2 unsupported from git status\n '{s}'", .{line}),
-            else => return log.err("Unexpected output from git status\n '{s}'", .{line}),
+        const change: ext.git.Change = ext.git.Change.parse(line) catch |err| {
+            log.warn("invalid git change line {} '{s}'\n", .{ err, line });
+            continue;
+        };
+
+        if (dir_prefix) |dir_pre| {
+            if (!startsWith(u8, change.name, dir_pre)) continue;
+        }
+        if (findScalarLast(u8, change.name, '/')) |last| {
+            try files.appendBounded(.{
+                .path = change.name[0 .. last + 1],
+                .name = change.name[last + 1 ..],
+                .unstaged = change.tree,
+            });
+        } else {
+            try files.appendBounded(.{
+                .path = &.{},
+                .name = change.name,
+                .unstaged = change.tree,
+            });
         }
     } else |err| switch (err) {
         error.EndOfStream => {},
@@ -150,12 +135,12 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const Io = std.Io;
+const Writer = Io.Writer;
 const ext = @import("../extensions.zig");
 const Completion = @import("../Completion.zig");
 const Fs = @import("../Fs.zig");
 const Token = @import("../token.zig");
 const log = @import("../log.zig");
-const Exec = @import("../exec.zig");
 const findScalar = std.mem.findScalar;
 const startsWith = std.mem.startsWith;
 const findScalarLast = std.mem.findScalarLast;
@@ -163,5 +148,3 @@ const trim = std.mem.trim;
 const eql = std.mem.eql;
 const cutPrefix = std.mem.cutPrefix;
 const assert = std.debug.assert;
-const Jobs = @import("../jobs.zig");
-const Signals = @import("../signals.zig");

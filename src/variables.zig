@@ -26,7 +26,7 @@ pub fn load(env: std.process.Environ, a: Allocator) !void {
     put("SHELL", "/usr/bin/hsh", a) catch unreachable;
 }
 
-fn environBuild(a: Allocator) ![:null]?[*:0]u8 {
+pub fn rebuild(a: Allocator) !void {
     const count = variables.count() + 1;
     if (!a.resize(environ, count)) {
         var env = try a.realloc(environ, count);
@@ -49,12 +49,15 @@ fn environBuild(a: Allocator) ![:null]?[*:0]u8 {
     const last = @as(*?[*:0]u8, &environ[index]);
     last.* = null;
     environ_dirty = false;
+}
+
+pub fn current() [:null]?[*:0]u8 {
     return environ;
 }
 
-pub fn henviron(a: Allocator) [:null]?[*:0]u8 {
-    if (!environ_dirty) return environ;
-    return environBuild(a) catch @panic("unable to build environ");
+pub fn currentRebuildDirty(a: Allocator) [:null]?[*:0]u8 {
+    if (environ_dirty) rebuild(a) catch @panic("unable to build environ");
+    return environ;
 }
 
 pub fn get(k: []const u8) ?[]const u8 {

@@ -27,6 +27,7 @@ const Action = enum {
 };
 
 pub fn init(hsh: *Hsh, a: Allocator, io: Io, options: Options) !Line {
+    Context.update(hsh, a, io) catch {};
     return .{
         .mode = if (options.interactive) .{ .interactive = {} } else .{ .scripted = {} },
         .bytes = &.{},
@@ -430,9 +431,10 @@ const History = @import("History.zig");
 const Input = @import("input.zig");
 const Keys = @import("keys.zig");
 const Prompt = @import("Prompt.zig");
-
 const Draw = @import("draw.zig");
 const Lexeme = Draw.Lexeme;
+const Context = @import("context.zig");
+
 const assert = std.debug.assert;
 const bufPrint = std.fmt.bufPrint;
 const allocPrint = std.fmt.allocPrint;

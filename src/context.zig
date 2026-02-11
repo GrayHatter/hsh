@@ -1,71 +1,54 @@
-pub const git = @import("contexts/git.zig");
+git: Git,
+state: State,
+
+const Context = @This();
+
+var self: Context = undefined;
+
+pub const Git = @import("contexts/git.zig");
+
+const State = struct {
+    pub fn init(_: std.mem.Allocator) error{ OutOfMemory, InitFailed }!State {
+        return .{};
+    }
+
+    pub fn fetch(_: *const State) Lexeme {
+        unreachable;
+    }
+
+    pub fn update(_: *State, _: *Hsh, _: std.mem.Allocator, _: Io) error{ OutOfMemory, UpdateFailed }!void {
+        unreachable;
+    }
+
+    pub fn raze(_: *Git, _: std.mem.Allocator) void {}
+};
 
 pub const Flavor = enum {
     git, // I know, I'm sorry, but... *runs*
     state, // some internal state of hsh
 };
 
-/// Context priority clones log priority for simplicity, but isn't required to
-/// follow it's naming explicitly. E.g. Panic is the most extreme level, but
-/// context that doesn't result in app an crash is still able to use it.
-const Priority = enum {
-    Panic,
-    Error,
-    Warning,
-    Notice,
-    Info,
-    Debug,
-    Trace,
-    Noise,
-    Off,
-};
-
-const Init = *const fn () error{InitFailed}!void;
-const Raze = *const fn (Allocator) void;
-const Update = *const fn (*Hsh, Allocator, Io) error{ OutOfMemory, UpdateFailed }!void;
-const Fetch = *const fn (*const Hsh) Lexeme;
-
-pub const Ctx = struct {
-    priority: Priority = .Noise,
-    name: []const u8 = undefined,
-    // unstable
-    kind: Flavor = .state,
-    init: Init,
-    raze: Raze,
-    fetch: Fetch,
-    update: Update,
-};
-
-var a_contexts: ArrayList(Ctx) = .{};
-
 pub fn init(a: Allocator) !void {
-    try a_contexts.append(a, git.ctx);
-
-    for (a_contexts.items) |c| {
-        try c.init();
-    }
+    self = .{
+        .git = try .init(a),
+        .state = try .init(a),
+    };
 }
 
 pub fn raze(a: Allocator) void {
-    for (a_contexts.items) |c| {
-        c.raze(a);
+    self.git.raze(a);
+}
+
+pub fn update(h: *Hsh, a: Allocator, io: Io) !void {
+    try self.git.update(h, a, io);
+}
+
+pub fn fetch(c: Flavor) Lexeme {
+    switch (c) {
+        inline else => |f| {
+            return @field(self, @tagName(f)).fetch();
+        },
     }
-    a_contexts.clearAndFree(a);
-}
-
-var git_flavored = [1]Flavor{.git};
-pub fn available(hsh: *const Hsh) ![]Flavor {
-    return if (hsh.pid > 0) &git_flavored else &.{};
-}
-
-pub fn update(requested: []const Flavor, h: *Hsh, a: Allocator, io: Io) !void {
-    for (requested) |r| {
-        try a_contexts.items[@intFromEnum(r)].update(h, a, io);
-    }
-}
-
-pub fn fetch(h: *const Hsh, c: Flavor) Lexeme {
-    return a_contexts.items[@intFromEnum(c)].fetch(h);
 }
 
 test {

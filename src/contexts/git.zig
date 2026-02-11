@@ -1,44 +1,69 @@
+idx_b: [8]u8 = undefined,
+tree_b: [8]u8 = undefined,
+buffer: [0x20]u8 = undefined,
+next: []const u8 = &.{},
+enabled: bool = true,
+
 const Git = @This();
 
-pub const ctx: context.Ctx = .{
-    .name = "git",
-    .kind = .git,
-    .init = init,
-    .raze = raze,
-    .fetch = fetch,
-    .update = update,
-};
-
-var buffer: [0x20]u8 = undefined;
-var next: []const u8 = undefined;
-
-fn init() error{InitFailed}!void {}
-
-fn fetch(_: *const Hsh) Lexeme {
-    return .str(next);
+pub fn init(a: std.mem.Allocator) error{ OutOfMemory, InitFailed }!Git {
+    _ = a;
+    return .{};
 }
 
-fn update(_: *Hsh, a: std.mem.Allocator, io: Io) error{ OutOfMemory, UpdateFailed }!void {
-    const result = exec.childZ(&[_:null]?[*:0]const u8{
-        "git",
-        "status",
-        "--porcelain",
-    }, a) catch unreachable;
+pub fn fetch(g: *const Git) Lexeme {
+    if (g.enabled)
+        return .str(g.next)
+    else
+        return .str(&.{});
+}
 
-    defer result.raze();
-    const stdout = result.waitCollectAlloc(a, io);
-    defer a.free(stdout);
+pub fn update(g: *Git, _: *Hsh, a: std.mem.Allocator, io: Io) error{ OutOfMemory, UpdateFailed }!void {
+    var allocating: Writer.Allocating = try .initCapacity(a, 8196);
+    defer allocating.deinit();
+    _ = ext.git.getStatus(&allocating.writer, io) catch |err| {
+        log.err("unable to get git status {}\n", .{err});
+        return;
+    };
 
-    next = std.fmt.bufPrint(&buffer, "{} changed files", .{
-        std.mem.countScalar(u8, stdout, '\n'),
+    var index: usize = 0;
+    var tree: usize = 0;
+    var r: Io.Reader = .fixed(allocating.writer.buffered());
+    while (r.takeSentinel('\n')) |line| {
+        const change: ext.git.Change = ext.git.Change.parse(line) catch |err| {
+            log.warn("invalid git change line {} '{s}'\n", .{ err, line });
+            continue;
+        };
+        switch (change.index) {
+            .nothing, .nothing_v2, .ignored => {},
+            else => index += 1,
+        }
+        switch (change.tree) {
+            .nothing, .nothing_v2, .ignored => {},
+            else => tree += 1,
+        }
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => log.warn("status error {}\n", .{err}),
+    }
+
+    const idx_str = std.fmt.bufPrint(&g.idx_b, "{}", .{index}) catch unreachable;
+    const tree_str = std.fmt.bufPrint(&g.tree_b, "{}", .{tree}) catch unreachable;
+
+    g.next = std.fmt.bufPrint(&g.buffer, " [{f}|{f}]", .{
+        Lexeme.styled(idx_str, if (index > 0) .red else .green),
+        Lexeme.styled(tree_str, if (tree > 0) .red else .green),
     }) catch unreachable;
 }
 
-fn raze(_: std.mem.Allocator) void {}
+pub fn raze(_: *Git, _: std.mem.Allocator) void {}
 
 const std = @import("std");
 const Io = std.Io;
+const Writer = Io.Writer;
 const Hsh = @import("../hsh.zig");
 const context = @import("../context.zig");
 const exec = @import("../exec.zig");
 const Lexeme = @import("../draw.zig").Lexeme;
+const ext = @import("../extensions.zig");
+const log = @import("../log.zig");
