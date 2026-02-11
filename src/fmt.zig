@@ -25,5 +25,5 @@ pub fn Alt(fmtFn: *const FmtFn) type {
 
 const std = @import("std");
 const Writer = std.Io.Writer;
-const Fs = @import("fs.zig");
+const Fs = @import("Fs.zig");
 const cutPrefix = std.mem.cutPrefix;

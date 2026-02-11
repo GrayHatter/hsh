@@ -109,7 +109,7 @@ test {
 const std = @import("std");
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
-const Fs = @import("fs.zig");
+const Fs = @import("Fs.zig");
 const Io = std.Io;
 const FixedBufferAllocator = std.heap.FixedBufferAllocator;
 const startsWith = std.mem.startsWith;

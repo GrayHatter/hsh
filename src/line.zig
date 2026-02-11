@@ -423,7 +423,7 @@ const Io = std.Io;
 
 const log = @import("log.zig");
 const Tokenizer = @import("tokenizer.zig");
-const Fs = @import("fs.zig");
+const Fs = @import("Fs.zig");
 const Hsh = @import("hsh.zig");
 const Completion = @import("Completion.zig");
 const History = @import("History.zig");

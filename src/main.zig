@@ -210,5 +210,5 @@ const Exec = @import("exec.zig");
 const Signals = @import("signals.zig");
 const Jobs = @import("jobs.zig");
 const Line = @import("line.zig");
-const Fs = @import("fs.zig");
+const Fs = @import("Fs.zig");
 const Tokenizer = @import("tokenizer.zig");

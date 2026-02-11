@@ -4,4 +4,4 @@ pub fn dirChange(new: Fs.Named.Dir) void {
 
 const git = @import("intergrations/git.zig");
 
-const Fs = @import("fs.zig");
+const Fs = @import("Fs.zig");
