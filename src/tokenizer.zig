@@ -429,6 +429,11 @@ pub fn consumeChar(tkzr: *Tokenizer, c: u8) !void {
     tkzr.len += 1;
 
     if (c == '\n') {
+        if (tkzr.len == 1) {
+            tkzr.idx = 0;
+            tkzr.len = 0;
+            return;
+        }
         if (tkzr.idx == tkzr.len and tkzr.len > 1 and tkzr.buffer[tkzr.idx - 2] != '\\') {
             if (tkzr.validate()) {
                 return error.Exec;
@@ -1081,6 +1086,12 @@ test "dollar posix" {
     var t = try Token.any("$!");
     try expect(t.kind == .vari);
     try expectEqualStrings("$!", t.str);
+}
+
+test "no exec" {
+    var t: Tokenizer = .{};
+    try t.consumeChar('\n');
+    try expectEqual(0, t.len);
 }
 
 test "all execs" {
