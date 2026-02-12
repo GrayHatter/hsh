@@ -26,7 +26,7 @@ const Action = enum {
     external,
 };
 
-pub fn init(hsh: *Hsh, a: Allocator, io: Io, options: Options) !Line {
+pub fn init(hsh: *Hsh, a: Allocator, io: Io, options: Options) Line {
     Context.update(hsh, a, io) catch {};
     return .{
         .mode = if (options.interactive) .{ .interactive = {} } else .{ .scripted = {} },
@@ -38,7 +38,7 @@ pub fn init(hsh: *Hsh, a: Allocator, io: Io, options: Options) !Line {
         .tkn = .{},
         .completion = .init(),
         .options = options,
-        .history = try .init(hsh.fs.history, a, io),
+        .history = .init(hsh.fs.history, a, io),
     };
 }
 
@@ -51,7 +51,7 @@ fn spin(input: *const Input, a: Allocator, io: Io) bool {
     return line.hsh.spin(a, io);
 }
 
-fn char(l: *Line, c: u8) !void {
+fn char(l: *Line, c: u8) error{Exec}!void {
     if (l.hist_index > 0) {
         l.hist_index = 0;
         l.bytes = &.{};
@@ -70,7 +70,7 @@ fn char(l: *Line, c: u8) !void {
     } else {
         l.draw.clear();
         l.draw.cursor = @truncate(l.tkn.len - l.tkn.idx);
-        try l.hsh.prompt.render(l.draw, l.peek());
+        l.hsh.prompt.render(l.draw, l.peek());
     }
 
     // TODO FIXME
@@ -81,7 +81,7 @@ pub fn peek(line: Line) []const u8 {
     return line.tkn.getSlice();
 }
 
-fn core(l: *Line, a: Allocator, io: Io) !Action {
+fn core(l: *Line, a: Allocator, io: Io) Error!Action {
     while (true) {
         const input = switch (l.mode) {
             .interactive => l.input.interactive(a, io),
@@ -93,7 +93,7 @@ fn core(l: *Line, a: Allocator, io: Io) !Action {
         };
 
         switch (input.evt) {
-            .ascii => |c| try l.char(c),
+            .ascii => |c| l.char(c) catch return .exec,
             .key => |ctrl| {
                 log.debug("control char = '{}'\n", .{ctrl});
                 switch (ctrl) {
@@ -123,7 +123,7 @@ fn core(l: *Line, a: Allocator, io: Io) !Action {
                     l.draw.cursor_line = l.tkn.cursor.line();
                     l.draw.cursor = @truncate(l.tkn.cursor.lineIdx());
                 } else l.draw.cursor = @truncate(l.tkn.len - l.tkn.idx);
-                try l.prompt.render(l.draw, l.peek());
+                l.prompt.render(l.draw, l.peek());
                 //try l.draw.render();
             },
             .mouse => |el| {
@@ -140,10 +140,20 @@ fn signal(l: *Line) !void {
     l.tkn.reset();
     l.draw.clear();
     l.draw.clearCtx();
-    try l.prompt.render(l.draw, &.{});
+    l.prompt.render(l.draw, &.{});
 }
 
-pub fn do(line: *Line, a: Allocator, io: Io) ![]u8 {
+const Error = error{
+    Io,
+    NotImplemented,
+    OutOfMemory,
+    PermissionDenied,
+    Signaled,
+    Unexpected,
+    WriteFailed,
+};
+
+pub fn do(line: *Line, a: Allocator, io: Io) Error![]u8 {
     while (true) {
         return switch (try line.core(a, io)) {
             .external => try line.externEditorRead(a, io),
@@ -151,8 +161,7 @@ pub fn do(line: *Line, a: Allocator, io: Io) ![]u8 {
                 try line.draw.unbuffered.writeByte('\n');
                 if (line.peek().len > 0) return try line.dupe(a);
                 line.draw.clear();
-                try line.prompt.render(line.draw, line.peek());
-                try line.draw.render();
+                line.prompt.render(line.draw, line.peek());
                 continue;
             },
         };
@@ -372,8 +381,8 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
             };
             try cmplt.drawAll(line.draw);
             //try line.hsh.prompt.renderHint(line.draw, line.peek(), line.tkn.maybe.slice());
-            try line.hsh.prompt.render(line.draw, line.peek());
-            try line.draw.render();
+            line.hsh.prompt.render(line.draw, line.peek());
+            //try line.draw.render();
             continue :sw .input;
         },
         .empty => {
@@ -382,8 +391,8 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
             line.draw.clearCtx();
             try line.draw.render();
             line.draw.drawAfter(&[1]Draw.Lexeme{.styled("[ No completions found ]", .red_bold)});
-            try line.hsh.prompt.render(line.draw, line.peek());
-            try line.draw.render();
+            line.hsh.prompt.render(line.draw, line.peek());
+            //try line.draw.render();
             return;
         },
         .commit => {

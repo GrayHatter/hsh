@@ -1,28 +1,27 @@
-fn core(hsh: *Hsh, a: Allocator, io: Io) ![]u8 {
+fn core(hsh: *Hsh, a: Allocator, io: Io) CoreError![]u8 {
     var array_alloc = std.heap.ArenaAllocator.init(a);
     defer array_alloc.deinit();
     const alloc = array_alloc.allocator();
-    var line = try Line.init(hsh, alloc, io, .{ .interactive = hsh.tty.dev != null });
+    var line = Line.init(hsh, alloc, io, .{ .interactive = hsh.tty.dev != null });
 
     defer hsh.draw.reset();
-
-    var redraw = true;
-    // TODO drop hsh
-
+    hsh.prompt.render(&hsh.draw, line.peek());
     while (true) {
         hsh.draw.clear();
-        redraw = hsh.spin(a, io) or redraw;
-
-        if (redraw) {
-            try hsh.prompt.render(&hsh.draw, line.peek());
-            try hsh.draw.render();
-            redraw = false;
-        }
-
-        // TOOD fixme this is the wrong place for the arena
+        //hsh.spin(a, io);
         return try a.dupe(u8, try line.do(a, io));
     }
 }
+
+const CoreError = error{
+    Io,
+    NotImplemented,
+    OutOfMemory,
+    PermissionDenied,
+    Signaled,
+    Unexpected,
+    WriteFailed,
+};
 
 fn usage() void {
     std.debug.print("hsh usage:\n", .{});
@@ -122,10 +121,10 @@ pub fn main(init: std.process.Init) !void {
     defer hsh.draw.raze(a);
     hsh.draw.term_size = hsh.tty.geom() catch unreachable;
 
-    var inerr = false;
+    var errcnt: u8 = 0;
     while (true) {
         if (core(&hsh, a, io)) |str| {
-            inerr = false;
+            errcnt = 0;
             if (str.len == 0) {
                 std.debug.print("\n goodbye :) \n", .{});
                 break;
@@ -133,16 +132,12 @@ pub fn main(init: std.process.Init) !void {
             defer a.free(str);
             std.debug.assert(str.len != 0);
 
-            //var itr = hsh.tkn.iterator();
-            try hsh.draw.writer.writeByte('\n');
             Exec.exec(str, &hsh, a, io, .default) catch |err| switch (err) {
                 error.ExeNotFound => {
                     const first = Exec.execFromInput(str, a, io) catch @panic("memory");
                     defer a.free(first);
                     hsh.draw.drawAfter(&[3]Draw.Lexeme{
-                        .styled("[ Unable to find ", .red_bold),
-                        .styled(first, .red_bold),
-                        .styled(" ]", .red_bold),
+                        .styled("[ Unable to find ", .red_bold), .styled(first, .red_bold), .styled(" ]", .red_bold),
                     });
                     try hsh.draw.render();
                 },
@@ -156,18 +151,20 @@ pub fn main(init: std.process.Init) !void {
             switch (err) {
                 error.Io => {
                     hsh.tty.waitForFg();
-                    //@breakpoint();
                     log.err("{} crash in main\n", .{err});
-                    if (!inerr) {
-                        inerr = true;
+                    if (errcnt < 4) {
+                        errcnt += 1;
                         continue;
                     }
                     @panic("too many errors");
                 },
-                else => {
-                    std.debug.print("unexpected error {}\n", .{err});
-                    unreachable;
-                },
+                error.NotImplemented,
+                error.OutOfMemory,
+                error.PermissionDenied,
+                error.Signaled,
+                error.Unexpected,
+                error.WriteFailed,
+                => @panic("unhandled error in main.zig"),
             }
         }
     }

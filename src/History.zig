@@ -6,27 +6,44 @@ lines: ArrayList([]const u8) = .{},
 
 const History = @This();
 
-pub fn init(file: ?Fs.Named.File, a: Allocator, io: Io) !History {
+pub const empty: History = .{
+    .fd = null,
+    .cursor = 0,
+    .reader = undefined,
+    .fba = undefined,
+};
+
+pub fn init(file: ?Fs.Named.File, a: Allocator, io: Io) History {
     if (file) |f| {
         log.debug("hist file {} name {s}\n", .{ f.file, f.name });
-        const cursor = (try f.file.stat(io)).size;
+        const stat = f.file.stat(io) catch |err| switch (err) {
+            error.AccessDenied, error.PermissionDenied => {
+                log.err("unable to read hsh history, file system access denied\n", .{});
+                return .empty;
+            },
+            error.Canceled => unreachable,
+            error.SystemResources => unreachable,
+            error.Unexpected => unreachable,
+            error.Streaming => unreachable,
+        };
+        const cursor = stat.size;
         var h: History = .{
             .fd = f.file,
-            .reader = f.file.reader(io, try a.alloc(u8, 65536)),
+            .reader = f.file.reader(io, a.alloc(u8, 65536) catch @panic("OOM")),
             .cursor = cursor,
-            .fba = .init(try a.alloc(u8, @max(cursor, 65536) * 2)),
+            .fba = .init(a.alloc(u8, @max(cursor, 65536) * 2) catch @panic("OOM")),
         };
         const fbaa = h.fba.allocator();
         while (h.reader.interface.takeSentinel('\n')) |next| {
-            try h.lines.append(a, fbaa.dupe(u8, next) catch unreachable);
+            h.lines.append(a, fbaa.dupe(u8, next) catch unreachable) catch @panic("OOM");
         } else |_| {}
         log.debug("hist count {}\n", .{h.lines.items.len});
         return h;
-    } else return error.NotImplemented;
+    } else return .empty;
 }
 
 pub fn raze(h: History, a: Allocator, io: Io) void {
-    if (h.fd) |f| f.close(io);
+    if (h.fd) |f| f.close(io) else return;
     if (h.fd) |_| a.free(h.reader.interface.buffer);
 }
 

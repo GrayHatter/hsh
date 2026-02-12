@@ -36,7 +36,7 @@ pub fn init(user: []const u8, host: ?[]const u8) Prompt {
     };
 }
 
-pub fn drawWithContext(p: Prompt, d: *Draw, line: []const u8) !void {
+pub fn drawWithContext(p: Prompt, d: *Draw, line: []const u8) void {
     const lex = &[_]Lexeme{
         .styled(p.username, .blue_bold), .str("@"),
         .str(p.hostname),                .str(" "),
@@ -45,10 +45,10 @@ pub fn drawWithContext(p: Prompt, d: *Draw, line: []const u8) !void {
     };
     d.draw(lex);
 
-    try p.userText(d, line, "");
+    p.userText(d, line, "");
 }
 
-pub fn draw(p: Prompt, d: *Draw, line: []const u8) !void {
+pub fn draw(p: Prompt, d: *Draw, line: []const u8) void {
     const lex = &[_]Lexeme{
         .styled(p.username, .blue_bold), .str("@"),
         .str(p.hostname),                .str(" "),
@@ -56,26 +56,24 @@ pub fn draw(p: Prompt, d: *Draw, line: []const u8) !void {
     };
 
     d.draw(lex);
-    try p.userText(d, line, "");
+    p.userText(d, line, "");
 }
 
-pub fn render(p: Prompt, d: *Draw, line: []const u8) !void {
+pub fn render(p: Prompt, d: *Draw, line: []const u8) void {
     //const bgjobs = Jobs.getBgSlice(hsh.alloc) catch unreachable;
     //defer hsh.alloc.free(bgjobs);
     //try jobsContext(hsh, bgjobs);
     //try ctxContext(hsh, try Context.fetch(hsh, .git));
 
     //try p.draw(d, line);
-    try p.drawWithContext(d, line);
-    try d.render();
+    p.drawWithContext(d, line);
+    d.render() catch @panic("unable to render prompt");
 }
 
-pub fn renderHint(p: Prompt, d: *Draw, line: []const u8, hint: []const u8) !void {
-    try p.draw(d, line);
-    const lex = &[_]Lexeme{.styled(hint, .dim)};
-
-    d.draw(lex);
-    try d.render();
+pub fn renderHint(p: Prompt, d: *Draw, line: []const u8, hint: []const u8) void {
+    p.draw(d, line);
+    d.draw(&[_]Lexeme{.styled(hint, .dim)});
+    d.render() catch @panic("unable to render prompt with hint");
 }
 
 fn spinner(s: Spinners) Lexeme {
@@ -91,7 +89,7 @@ fn userTextMultiline(_: Prompt, d: *Draw, tkn: *Tokenizer) !void {
     d.draw(.{ .siblings = &.{ .str(good), .styled(bad, .red_bg) } });
 }
 
-fn userText(_: Prompt, d: *Draw, good: []const u8, bad: []const u8) !void {
+fn userText(_: Prompt, d: *Draw, good: []const u8, bad: []const u8) void {
     d.draw(&[_]Lexeme{ .str(good), .styled(bad, .{ .bg = .red }) });
 }
 
