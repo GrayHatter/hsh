@@ -29,12 +29,12 @@ fn usage() void {
 /// No, I don't really like this hack either, but autoformatting :/
 /// return 255 == unknown
 /// return   1 == exec error
-fn execTacC(mini: std.process.Init.Minimal, io: Io) u8 {
+fn execTacC(mini: std.process.Init.Minimal, args: *std.process.Args.Iterator, io: Io) u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const a = gpa.allocator();
     var hsh = Hsh.initStateless(mini.environ, a, io) catch return 255;
     defer hsh.razeStateless(a, io);
-    var args = mini.args.iterate();
+    //var args = mini.args.iterate();
 
     var tkzr: Tokenizer = .{};
     while (args.next()) |arg| {
@@ -75,7 +75,7 @@ fn readArgs(mini: std.process.Init.Minimal, io: Io) ?u8 {
             // and print the config file[s] that would be sourced or updated
             @panic("Not Implemented");
         } else if (std.mem.eql(u8, "-c", arg)) {
-            return execTacC(mini, io);
+            return execTacC(mini, &args, io);
         } else {
             log.warn("unknown arg: {s}\n", .{arg});
         }
