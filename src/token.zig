@@ -7,7 +7,7 @@ pub const Reserved = @import("logic.zig").Reserved;
 pub const BREAKING_CHAR = " \t\n\"\\'`${|><#;}";
 const BSLH = '\\';
 
-pub const IOKind = enum {
+pub const IoMode = enum {
     heredoc,
     stderr,
     stderr_append,
@@ -16,7 +16,7 @@ pub const IOKind = enum {
     stdout_append,
 };
 
-pub const OpKind = enum {
+pub const OpMode = enum {
     pipe,
     next,
     success,
@@ -38,10 +38,10 @@ pub const Kind = union(enum) {
     comment: void,
     err: void,
     escp: u8,
-    io: IOKind,
+    io: IoMode,
     logic: Logic,
     nos: void,
-    oper: OpKind,
+    oper: OpMode,
     path: void,
     quote: u8,
     resr: Reserved,

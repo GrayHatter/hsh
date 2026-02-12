@@ -165,22 +165,25 @@ pub const Exit = struct {
 };
 
 pub const Echo = struct {
-    pub fn call(_: *Hsh, pi: *ParsedIterator, a: Allocator, _: Io) Err!u8 {
-        std.debug.assert(std.mem.eql(u8, "echo", pi.first().resolved.str));
+    pub fn call(_: *Hsh, pi: *ParsedIterator, a: Allocator, io: Io) Err!u8 {
+        assert(std.mem.eql(u8, "echo", pi.first().resolved.str));
         defer pi.raze(a);
-        var newline = true;
+        var newline: ?bool = null;
 
-        if (pi.next()) |next| {
-            if (std.mem.eql(u8, "-n", next.resolved.str)) {
-                newline = false;
-            } else {
-                try print("{s} ", .{next.resolved.str});
-            }
-        }
+        const stdout = std.Io.File.stdout();
+        var r_b: [2048]u8 = undefined;
+        var writer = stdout.writer(io, &r_b);
+        const w = &writer.interface;
+        defer w.flush() catch {};
+
         while (pi.next()) |next| {
-            try print("{s} ", .{next.resolved.str});
+            if (next.resolved.construct == .io_mode) continue;
+            if (newline == null) {
+                newline = !eql(u8, "-n", next.resolved.str);
+            } else w.writeByte(' ') catch return error.StdOut;
+            w.print("{s}", .{next.resolved.str}) catch return error.StdOut;
         }
-        if (newline) try print("\n", .{});
+        if (newline.?) w.writeByte('\n') catch return error.StdOut;
         return 0;
     }
 };

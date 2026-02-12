@@ -83,9 +83,11 @@ const Binary = struct {
             return e;
         });
 
-        while (itr.next()) |t| {
-            try argv.append(a, try a.dupeZ(u8, t.resolved.str));
-        }
+        while (itr.next()) |t| switch (t.resolved.construct) {
+            .io_mode => {},
+            .op_mode => {},
+            else => try argv.append(a, try a.dupeZ(u8, t.resolved.str)),
+        };
 
         return .{
             .arg = argv.items[0].?,
@@ -324,30 +326,26 @@ fn mkCallableStack(itr: *TokenIterator, fs: Fs, a: Allocator, io: Io) ![]Callabl
         var io_mode: ProcIo = .{ .in = prev_stdout };
         const condition: ?Conditional = conditional_rule;
 
-        // peek is now the exec operator because of how the iterator works :<
-        if (peek.kind == .oper) {
-            switch (peek.kind.oper) {
-                .pipe => {
-                    const pipe = system.pipe2(.{}) catch return error.OSErr;
-                    io_mode.pipe = true;
-                    io_mode.out = pipe[1];
-                    prev_stdout = pipe[0];
+        while (parsed.next()) |maybeio| {
+            switch (maybeio.resolved.construct) {
+                .op_mode => |mode| switch (mode) {
+                    .pipe => {
+                        const pipe = system.pipe2(.{}) catch return error.OSErr;
+                        io_mode.pipe = true;
+                        io_mode.out = pipe[1];
+                        prev_stdout = pipe[0];
+                    },
+                    .fail => conditional_rule = .failure,
+                    .success => conditional_rule = .success,
+                    .next => conditional_rule = .after,
+                    .background => {},
                 },
-                .fail => conditional_rule = .failure,
-                .success => conditional_rule = .success,
-                .next => conditional_rule = .after,
-                .background => {},
-            }
-        }
-
-        for (eslice) |maybeio| {
-            if (maybeio.kind == .io) {
-                switch (maybeio.kind.io) {
+                .io_mode => |mode| switch (mode) {
                     .stdout, .stdout_append => |appnd| {
-                        const f = Fs.openFileStdout(maybeio.str, io, appnd == .stdout_append) catch |err| {
+                        const f = Fs.openFileStdout(maybeio.resolved.str, io, appnd == .stdout_append) catch |err| {
                             switch (err) {
                                 error.NoClobber => log.err("Noclobber is enabled.\n", .{}),
-                                else => log.err("Failed to open file {s}\n", .{maybeio.str}),
+                                else => log.err("Failed to open file {s}\n", .{maybeio.resolved.str}),
                             }
                             return error.StdIOerror;
                         };
@@ -361,14 +359,16 @@ fn mkCallableStack(itr: *TokenIterator, fs: Fs, a: Allocator, io: Io) ![]Callabl
                             if (system.close(out) != 0) unreachable;
                             prev_stdout = null;
                         }
-                        if (Fs.writable(maybeio.str, io, .create)) |file| {
+                        if (Fs.writable(maybeio.resolved.str, io, .create)) |file| {
                             io_mode.in = file.handle;
                         }
                     },
                     .stderr, .stderr_append => unreachable,
-                }
+                },
+                else => {},
             }
         }
+        parsed.r_index = 0;
 
         for (eslice) |s| log.debug("exe slice {}\n", .{s});
         const exe_str = parsed.first().resolved.str;

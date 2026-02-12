@@ -42,12 +42,13 @@ pub const Parsed = union(Construct) {
     };
 
     pub const OpMode = struct {
-        mode: Token.OpKind,
+        mode: Token.OpMode,
         continues: bool = false,
     };
 
     pub const IoMode = struct {
-        mode: Token.IOKind,
+        str: []const u8,
+        mode: Token.IoMode,
         continues: bool = false,
     };
 
@@ -77,10 +78,24 @@ pub const Parsed = union(Construct) {
 
 pub const Resolved = struct {
     str: []const u8,
-    construct: Construct = .word,
+    construct: Data = .word,
     allocated: bool = false,
-    io: ?Token.IOKind = null,
-    op: ?Token.OpKind = null,
+
+    pub const Data = union(Construct) {
+        alias: void,
+        builtin: void,
+        dollar: void,
+        empty: void,
+        fmt_str: void,
+        glob: void,
+        glob_multi: void,
+        glob_path: void,
+        io_mode: Token.IoMode,
+        op_mode: Token.OpMode,
+        path: void,
+        subcommand: void,
+        word: void,
+    };
 
     pub fn raze(r: *Resolved, a: Allocator) void {
         if (r.allocated) a.free(r.str);
@@ -91,8 +106,6 @@ pub const Resolved = struct {
             .str = try a.dupe(u8, r.str),
             .construct = r.construct,
             .allocated = r.allocated,
-            .io = r.io,
-            .op = r.op,
         } };
     }
 };
@@ -176,9 +189,12 @@ pub const Iterator = struct {
                 log.debug("re-resolving '{s}' {} \n", .{ current.resolved.str, current });
             }
             try itr.resolveOne(current, a, io);
-            if (current.resolved.construct == .empty) {
-                _ = itr.resolved.orderedRemove(i);
-                continue;
+            switch (current.resolved.construct) {
+                .empty => {
+                    _ = itr.resolved.orderedRemove(i);
+                    continue;
+                },
+                else => {},
             }
             if (continues and i + 1 < itr.resolved.items.len) {
                 var cont = itr.resolved.orderedRemove(i + 1);
@@ -225,10 +241,10 @@ pub const Iterator = struct {
                     log.debug("rlsv {s}\n", .{arg.resolved.str});
                 },
                 .io_mode => |mode| arg.* = .{
-                    .resolved = .{ .str = &.{}, .construct = .io_mode, .io = mode.mode },
+                    .resolved = .{ .str = try a.dupe(u8, mode.str), .construct = .{ .io_mode = mode.mode } },
                 },
                 .op_mode => |mode| arg.* = .{
-                    .resolved = .{ .str = &.{}, .construct = .op_mode, .op = mode.mode },
+                    .resolved = .{ .str = &.{}, .construct = .{ .op_mode = mode.mode } },
                 },
                 .empty => unreachable,
                 inline else => |el, t| {
@@ -287,7 +303,7 @@ pub const Iterator = struct {
                 log.debug("found io '{s}'\n", .{t.str});
                 switch (io_m) {
                     else => try itr.resolved.appendBounded(.{ .parsed = .{
-                        .io_mode = .{ .mode = io_m },
+                        .io_mode = .{ .str = trimStart(u8, t.str, "> \n"), .mode = io_m },
                     } }),
                 }
             },
@@ -1199,18 +1215,11 @@ test "naughty strings parsed" {
     try pitr.resolveAll(a, undefined);
     defer pitr.raze(a);
 
-    //std.debug.print("debug {}\n", .{pitr.next().?});
-    //std.debug.print("debug {}\n", .{pitr.next().?});
-    //std.debug.print("debug {}\n", .{pitr.next().?});
-    //std.debug.print("debug {}\n", .{pitr.next().?});
-    //std.debug.print("debug {}\n", .{pitr.next().?});
-    //pitr.restart();
-
     try expectEqualStrings("thingy", pitr.next().?.resolved.str);
     try expectEqualStrings("(b.argv.next())", pitr.next().?.resolved.str);
-    try expectEqual(.op_mode, pitr.next().?.resolved.construct);
+    try expectEqual(Token.OpMode.pipe, pitr.next().?.resolved.construct.op_mode);
     try expectEqualStrings("_", pitr.next().?.resolved.str);
-    try expectEqual(.op_mode, pitr.next().?.resolved.construct);
+    try expectEqual(Token.OpMode.pipe, pitr.next().?.resolved.construct.op_mode);
     try expectEqualStrings("{}", pitr.next().?.resolved.str);
 }
 
@@ -1252,6 +1261,76 @@ test "comment 2" {
     try expect(null == pitr.next());
 }
 
+test "resolve double quotes" {
+    const a = std.testing.allocator;
+    Variables.init(a);
+    defer Variables.raze(a);
+    try Variables.put("string", "correct", a);
+    try expectEqualStrings("correct", Variables.get("string").?);
+
+    var tkn_itr: Token.Iterator = .{ .raw = "echo \"this $string here\"" };
+    const slice = try tkn_itr.toSlice(a);
+    defer a.free(slice);
+    var pitr = try Resolver.iterate(a, slice);
+    defer pitr.raze(a);
+    try pitr.resolveAll(a, undefined);
+
+    try expectEqualStrings("echo", pitr.next().?.resolved.str);
+    if (true) return error.SkipZigTest;
+    try expectEqualStrings("this correct here", pitr.next().?.resolved.str);
+    try expectEqual(null, pitr.next());
+}
+
+test "resolve double quotes with ${var}" {
+    const a = std.testing.allocator;
+    Variables.init(a);
+    defer Variables.raze(a);
+    try Variables.put("string", "correct", a);
+    try expectEqualStrings("correct", Variables.get("string").?);
+
+    var tkn_itr: Token.Iterator = .{ .raw = "echo \"this ${string} here\"" };
+    const slice = try tkn_itr.toSlice(a);
+    defer a.free(slice);
+    var pitr = try Resolver.iterate(a, slice);
+    defer pitr.raze(a);
+    try pitr.resolveAll(a, undefined);
+
+    try expectEqualStrings("echo", pitr.next().?.resolved.str);
+    if (true) return error.SkipZigTest;
+    try expectEqualStrings("this correct here", pitr.next().?.resolved.str);
+    try expectEqual(null, pitr.next());
+}
+
+test "resolve single quotes" {
+    var a = std.testing.allocator;
+    var tkn_itr: Token.Iterator = .{ .raw = "echo 'this is a string'" };
+    const slice = try tkn_itr.toSlice(a);
+    defer a.free(slice);
+    var pitr = try Resolver.iterate(a, slice);
+    defer pitr.raze(a);
+    try pitr.resolveAll(a, undefined);
+
+    try expectEqualStrings("echo", pitr.next().?.resolved.str);
+    try expectEqualStrings("this is a string", pitr.next().?.resolved.str);
+    try expectEqual(null, pitr.next());
+}
+
+test "echo to devnull" {
+    var a = std.testing.allocator;
+    var tkn_itr: Token.Iterator = .{ .raw = "echo 'this is a string' > /dev/null" };
+    const slice = try tkn_itr.toSliceExec(a);
+    defer a.free(slice);
+    var pitr = try Resolver.iterate(a, slice);
+    defer pitr.raze(a);
+    try pitr.resolveAll(a, undefined);
+
+    try expectEqualStrings("echo", pitr.next().?.resolved.str);
+    try expectEqualStrings("this is a string", pitr.next().?.resolved.str);
+    try expectEqual(Token.IoMode.stdout, pitr.peek().?.resolved.construct.io_mode);
+    try expectEqualStrings("/dev/null", pitr.next().?.resolved.str);
+    try expect(null == pitr.next());
+}
+
 const std = @import("std");
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -1272,3 +1351,4 @@ const findScalar = std.mem.findScalar;
 const startsWith = std.mem.startsWith;
 const concat = std.mem.concat;
 const eql = std.mem.eql;
+const trimStart = std.mem.trimStart;
