@@ -225,6 +225,9 @@ pub const Lexeme = struct {
 };
 
 var colorize: bool = true;
+pub const Options = struct {
+    colorize: bool = true,
+};
 
 const Direction = enum {
     up,
@@ -233,6 +236,7 @@ const Direction = enum {
     right,
     absolute,
 };
+
 pub fn move(d: *Draw, comptime dir: Direction, width: u16) !void {
     if (width == 0) return;
     try d.writer.print(comptime switch (dir) {
@@ -244,12 +248,12 @@ pub fn move(d: *Draw, comptime dir: Direction, width: u16) !void {
     }, .{width});
 }
 
-pub fn init(a: Allocator, hsh: *Hsh) !Draw {
-    colorize = hsh.enabled(.colorize);
+pub fn init(buffered: *Writer, unbuffered: *Writer, a: Allocator, opt: Options) !Draw {
+    colorize = opt.colorize;
     const buffer = try a.alloc(u8, draw_buffer_size);
     return .{
-        .writer = &hsh.tty.out.w.interface,
-        .unbuffered = &hsh.tty.out.unbuffered.interface,
+        .writer = buffered,
+        .unbuffered = unbuffered,
         .before = .fixed(buffer[0..][0 .. draw_buffer_size / 4]),
         .b = .fixed(buffer[draw_buffer_size / 4 * 1 ..][0 .. draw_buffer_size / 4]),
         .right = .fixed(buffer[draw_buffer_size / 4 * 2 ..][0 .. draw_buffer_size / 4]),

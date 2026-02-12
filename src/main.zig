@@ -32,10 +32,8 @@ fn usage() void {
 fn execTacC(mini: std.process.Init.Minimal, io: Io) u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const a = gpa.allocator();
-    var hsh = Hsh.init(mini.environ, a, io) catch return 255;
+    var hsh = Hsh.initStateless(mini.environ, a, io) catch return 255;
     defer hsh.razeStateless(a, io);
-    hsh.tty = Tty.init(a, io) catch return 255;
-    defer hsh.tty.raze(a);
     var args = mini.args.iterate();
 
     var tkzr: Tokenizer = .{};
@@ -89,36 +87,32 @@ pub fn main(init: std.process.Init) !void {
     var threaded: std.Io.Threaded = .init_single_threaded;
     const io = threaded.io();
 
-    if (readArgs(init.minimal, io)) |err| {
-        std.process.exit(err);
-    }
+    if (readArgs(init.minimal, io)) |err| std.process.exit(err);
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer if (gpa.detectLeaks() > 0) {
         std.debug.print("Leaked\n", .{});
-        Io.sleep(io, .fromSeconds(6), .real) catch unreachable;
+        io.sleep(.fromSeconds(6), .real) catch unreachable;
     };
     const a = gpa.allocator();
 
     var hsh = try Hsh.init(init.minimal.environ, a, io);
     defer hsh.raze(a, io);
-
     hsh.prompt.cwd = &hsh.fs.cwd.name;
     Fs.g_fs = &hsh.fs;
-
-    try Signals.init();
-    defer Signals.raze();
-
-    hsh.tty = try Tty.init(a, io);
-    defer hsh.tty.raze(a);
-
     try hsh.tty.set(.raw);
     // Look at me, I'm the captain now!
     try hsh.tty.pwn();
+    hsh.draw = try .init(
+        &hsh.tty.out.w.interface,
+        &hsh.tty.out.unbuffered.interface,
+        a,
+        .{ .colorize = hsh.enabled(.colorize) },
+    );
+    hsh.draw.term_size = try hsh.tty.geom();
 
-    hsh.draw = Draw.init(a, &hsh) catch unreachable;
-    defer hsh.draw.raze(a);
-    hsh.draw.term_size = hsh.tty.geom() catch unreachable;
+    try Signals.init();
+    defer Signals.raze();
 
     var errcnt: u8 = 0;
     while (true) {

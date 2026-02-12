@@ -41,30 +41,28 @@ pub const WStack = struct {
 var _current: ?Tty = null;
 
 /// Calling init multiple times is UB
-pub fn init(a: Allocator, io: Io) !Tty {
+pub fn init(in_buffer: []u8, out_buffer: []u8, io: Io) Tty {
     std.debug.assert(_current == null);
     const sys_stdout = std.Io.File.stdout();
 
-    const dev: ?File = if (try sys_stdout.isTty(io))
-        Io.Dir.openFileAbsolute(io, "/dev/tty", .{ .mode = .read_write }) catch unreachable
+    const dev: ?File = if (sys_stdout.isTty(io) catch false)
+        Io.Dir.openFileAbsolute(io, "/dev/tty", .{ .mode = .read_write }) catch null
     else
         null;
 
     const in_tty = if (dev) |d| d else Io.File.stdin();
     const out_tty = if (dev) |d| d else Io.File.stdout();
 
-    const in_b = try a.alloc(u8, 2048);
-    const out_b = try a.alloc(u8, 2048);
     const t = Tty{
         .dev = dev,
         .in = .{
             .fd = in_tty,
-            .r = in_tty.readerStreaming(io, in_b),
+            .r = in_tty.readerStreaming(io, in_buffer),
             .unbuffered = in_tty.readerStreaming(io, &.{}),
         },
         .out = .{
             .fd = out_tty,
-            .w = out_tty.writerStreaming(io, out_b),
+            .w = out_tty.writerStreaming(io, out_buffer),
             .unbuffered = in_tty.writerStreaming(io, &.{}),
         },
         .orig_attr = tcAttr(dev.?.handle),

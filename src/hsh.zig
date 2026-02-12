@@ -1,14 +1,13 @@
-features: Features,
-env: std.process.Environ,
+env: Environ,
 fs: Fs,
+tty: Tty,
+draw: Draw,
+prompt: Prompt,
+features: Features,
+waiting: bool = false,
 pid: system.pid_t,
 pgrp: system.pid_t = -1,
 jobs: Jobs,
-tty: Tty = undefined,
-prompt: Prompt,
-draw: Draw = undefined,
-line: *Line = undefined,
-waiting: bool = false,
 
 const Hsh = @This();
 
@@ -136,13 +135,7 @@ fn writeLine(f: std.fs.File, line: []const u8) !usize {
 //    outf.setEndPos(cpos) catch return error.Other;
 //}
 
-pub fn init(env: Environ, a: Allocator, io: Io) !Hsh {
-    // I'm pulling all of env out at startup only because that's the first
-    // example I found. It's probably sub optimal, but ¯\_(ツ)_/¯. We may
-    // decide we care enough to fix this, or not. The internet seems to think
-    // it's a mistake to alter the env for a running process.
-
-    // Init shell
+fn initCommon(env: Environ, a: Allocator, io: Io) !Hsh {
     Variables.init(a);
     Variables.load(env, a) catch return error.Memory;
     // builtins that wish to save data depend on this being available
@@ -160,17 +153,33 @@ pub fn init(env: Environ, a: Allocator, io: Io) !Hsh {
             }
         }
     } else log.err("unable to read hostname\n", .{});
-    const hostname: ?[]const u8 = Variables.get("HOSTNAME");
 
-    // TODO there's errors other than just mem here
-    var hsh: Hsh = .{
+    return .{
         .features = .{},
-        .prompt = .init(env.getPosix("USER") orelse "[env error]", hostname),
         .env = env,
         .pid = system.getpid(),
         .jobs = .init(),
-        .fs = Fs.init(env, a, io) catch return error.Memory,
+        .fs = try .init(env, a, io),
+        .tty = undefined,
+        .prompt = undefined,
+        .draw = undefined,
     };
+}
+
+pub fn initStateless(env: Environ, a: Allocator, io: Io) !Hsh {
+    var hsh: Hsh = try .initCommon(env, a, io);
+
+    hsh.tty = .init(try a.alloc(u8, 256), try a.alloc(u8, 256), io);
+    return hsh;
+}
+
+pub fn init(env: Environ, a: Allocator, io: Io) !Hsh {
+    var hsh: Hsh = try .initCommon(env, a, io);
+
+    const hostname: ?[]const u8 = Variables.get("HOSTNAME");
+    hsh.prompt = .init(env.getPosix("USER") orelse "[env error]", hostname);
+    hsh.tty = .init(try a.alloc(u8, 2048), try a.alloc(u8, 2048), io);
+
     hsh.fs.inotifyInstallRc(readRCINotify, a) catch {
         log.err("Unable to install rc INotify\n", .{});
     };
@@ -195,15 +204,17 @@ pub fn raze(hsh: *Hsh, a: Allocator, io: Io) void {
         //shellbuiltin.save(hsh, &fw.interface) catch unreachable;
         //fw.interface.flush() catch unreachable;
     }
+    Context.raze(a);
+    hsh.draw.raze(a);
+    hsh.jobs.raze(a);
     hsh.razeStateless(a, io);
 }
 
 pub fn razeStateless(hsh: *Hsh, a: Allocator, io: Io) void {
-    Context.raze(a);
     shellbuiltin.raze(a);
     Variables.raze(a);
-    hsh.jobs.raze(a);
     hsh.fs.raze(a, io);
+    hsh.tty.raze(a);
 }
 
 fn sleep(_: *Hsh) void {
