@@ -14,6 +14,7 @@ fn core(hsh: *Hsh, a: Allocator, io: Io) CoreError![]u8 {
 }
 
 const CoreError = error{
+    Done,
     Io,
     OutOfMemory,
     Signaled,
@@ -123,10 +124,7 @@ pub fn main(init: std.process.Init) !void {
     while (true) {
         if (core(&hsh, a, io)) |str| {
             errcnt = 0;
-            if (str.len == 0) {
-                std.debug.print("\n goodbye :) \n", .{});
-                break;
-            }
+            if (str.len == 0) {}
             defer a.free(str);
             std.debug.assert(str.len != 0);
 
@@ -147,6 +145,7 @@ pub fn main(init: std.process.Init) !void {
             continue;
         } else |err| {
             switch (err) {
+                error.Done => return std.debug.print("\n goodbye :) \n", .{}),
                 error.Io => {
                     hsh.tty.waitForFg();
                     log.err("{} crash in main\n", .{err});

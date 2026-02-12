@@ -110,7 +110,7 @@ fn core(l: *Line, a: Allocator, io: Io) Error!Action {
                     .end => l.tkn.cursor.move(.end),
                     .backspace => l.tkn.remove(),
                     .newline => l.char('\n') catch return .exec,
-                    .end_of_text => return .exec,
+                    .end_of_text => return if (l.tkn.len > 0) .exec else error.Done,
                     .delete_word => _ = l.tkn.removeWord(),
                     .tab => l.complete(a, io) catch |e| switch (e) {
                         error.Signaled => if (l.signal()) continue else |_| return e,
@@ -144,6 +144,7 @@ fn signal(l: *Line) !void {
 }
 
 const Error = error{
+    Done,
     Io,
     OutOfMemory,
     Signaled,
@@ -151,13 +152,13 @@ const Error = error{
     WriteFailed,
 };
 
-pub fn do(line: *Line, a: Allocator, io: Io) Error![]u8 {
+pub fn do(line: *Line, a: Allocator, io: Io) Error![]const u8 {
     while (true) {
         return switch (try line.core(a, io)) {
             .external => try line.externEditorRead(a, io),
             .exec => {
                 try line.draw.unbuffered.writeByte('\n');
-                if (line.peek().len > 0) return try line.dupe(a);
+                if (line.peek().len > 0) return line.tkn.getSlice();
                 line.draw.clear();
                 line.prompt.render(line.draw, line.peek());
                 continue;
