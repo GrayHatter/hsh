@@ -266,7 +266,13 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
             continue :sw .start;
         },
         .start => {
-            try cmplt.suggest(tokens, line.tkn.cursor.tokenIdx(), line.hsh.fs, a, io);
+            if (line.tkn.len == 0) {
+                var cmds = try line.history.usedCommands(a);
+                defer cmds.deinit(a);
+                try cmplt.suggestHistory(&cmds, a);
+            } else {
+                try cmplt.suggest(tokens, line.tkn.cursor.tokenIdx(), line.hsh.fs, a, io);
+            }
             if (line.tkn.cursor.token()) |token| {
                 log.debug("completion start '{s}'\n", .{token.str});
                 line.tkn.maybe.copyCurrent();
@@ -288,6 +294,9 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
         .input => if (line.input.interactive(a, io)) |key| continue :sw .{ .key = key } else |err| switch (err) {
             error.Signaled => {
                 line.tkn.maybe.remove();
+                cmplt.raze(a);
+                line.draw.clearCtx();
+                log.debug("completion signaled\n", .{});
                 return err;
             },
             else => return err,

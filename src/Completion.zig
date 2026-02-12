@@ -154,7 +154,7 @@ pub const Option = struct {
         original: void,
         any: void,
         args: void,
-        executable: void,
+        executable: u16,
         file: File,
         git: File,
     };
@@ -229,12 +229,6 @@ pub fn suggest(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Alloc
         else => try filesystem.suggest(cs, current_token, tokens, fs, a, io),
     } else try filesystem.suggest(cs, current_token, tokens, fs, a, io);
 
-    //if (cs.originalStr()) |str| {
-    //    //try tks.maybeReplace(str, a);
-    //    try cs.searchStr(str);
-    //    log.debug("Completion original is {s}\n\n", .{str});
-    //} else log.debug("Completion original is null\n\n", .{});
-
     // TODO orderedRemoveMany allows an optimization to iterate only a single range if presorted
     if (command) |cmd| switch (cmd) {
         .git => git.filter(cs, current_token, tokens),
@@ -244,6 +238,19 @@ pub fn suggest(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Alloc
     cs.sort();
     log.info("Completing found '{}'\n", .{cs.count()});
     return;
+}
+
+pub fn suggestHistory(cs: *Completion, cmds: *const History.CmdMap, a: Allocator) error{OutOfMemory}!void {
+    var itr = cmds.iterator();
+    while (itr.next()) |entry| {
+        try cs.options.append(a, .{
+            // TODO don't alloc
+            .str = try a.dupe(u8, entry.key_ptr.*),
+            .prefix = &.{},
+            .kind = .{ .executable = entry.value_ptr.* },
+        });
+    }
+    cs.sort();
 }
 
 pub fn raze(comp: *Completion, a: Allocator) void {
@@ -295,28 +302,27 @@ fn optAsFile(o: *const Option) Option.File {
 }
 
 fn sortAscOption(ctx: void, l: Option, r: Option) bool {
-    //const l_tag = activeTag(l.kind);
-    //const r_tag = activeTag(r.kind);
     if (@intFromEnum(l.kind) < @intFromEnum(r.kind)) return true;
     if (@intFromEnum(l.kind) > @intFromEnum(r.kind)) return false;
 
     switch (l.kind) {
-        inline else => |*p| {
-            switch (@TypeOf(p.*)) {
-                Option.File => {
-                    const l_file: *const Option.File = p;
-                    const r_file = optAsFile(&r);
-                    if (l_file.* == .dir and r_file != .dir) return true;
-                    if (r_file == .dir) return false;
-                },
-                else => {},
-            }
+        inline .git, .file => |*p| switch (@TypeOf(p.*)) {
+            Option.File => {
+                const l_file: *const Option.File = p;
+                const r_file = optAsFile(&r);
+                if (l_file.* == .dir and r_file != .dir) return true;
+                if (r_file == .dir) return false;
+            },
+            else => {},
         },
 
         .original => {},
         .any => {},
         .args => {},
-        .executable => {},
+        .executable => return if (l.kind.executable == r.kind.executable)
+            sortAscStr(ctx, l.str, r.str)
+        else
+            l.kind.executable > r.kind.executable,
     }
     return sortAscStr(ctx, l.str, r.str);
 }
@@ -496,8 +502,8 @@ const git = @import("Completion/git.zig");
 const log = @import("log.zig");
 const Fs = @import("Fs.zig");
 const Token = @import("token.zig");
-//const Resolver = @import("parse.zig").Resolver;
 const Draw = @import("draw.zig");
+const History = @import("History.zig");
 const Lexeme = Draw.Lexeme;
 const Cord = Draw.Cord;
 const assert = std.debug.assert;

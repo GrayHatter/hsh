@@ -66,7 +66,7 @@ pub fn readLineFiltered(h: *History, req_ln_num: usize, search: []const u8) ?[]c
     return line;
 }
 
-pub const CmdMap = std.StringHashMapUnmanaged(u8);
+pub const CmdMap = std.StringHashMapUnmanaged(u16);
 
 // CmdMap is returned unsorted
 // map keys remained owned by `History`, and do not outlive `History`
@@ -74,7 +74,9 @@ pub fn usedCommands(h: *const History, a: Allocator) !CmdMap {
     var set: CmdMap = .{};
     for (h.lines.items) |line| {
         const bin = if (findScalar(u8, line, ' ')) |i| line[0..i] else trim(u8, line, whitespace);
+        if (bin.len > 64) continue;
         if (findAny(u8, bin, BREAKING_CHAR)) |_| continue;
+        if (startsWith(u8, bin, ".")) continue;
         const gop = try set.getOrPut(a, bin);
         if (gop.found_existing) {
             gop.value_ptr.* +|= 1;

@@ -128,7 +128,7 @@ fn genOptionsFromPATH(cs: *Completion, target: []const u8, fs: Fs, a: Allocator,
             try cs.options.append(a, .{
                 .str = try a.dupe(u8, each.name),
                 .prefix = &.{},
-                .kind = .executable,
+                .kind = .{ .executable = 1 },
             });
         } else |err| log.err("Completion PATH read error {}\n", .{err});
     }
