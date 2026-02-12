@@ -145,9 +145,7 @@ fn signal(l: *Line) !void {
 
 const Error = error{
     Io,
-    NotImplemented,
     OutOfMemory,
-    PermissionDenied,
     Signaled,
     Unexpected,
     WriteFailed,

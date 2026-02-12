@@ -15,9 +15,7 @@ fn core(hsh: *Hsh, a: Allocator, io: Io) CoreError![]u8 {
 
 const CoreError = error{
     Io,
-    NotImplemented,
     OutOfMemory,
-    PermissionDenied,
     Signaled,
     Unexpected,
     WriteFailed,
@@ -158,9 +156,7 @@ pub fn main(init: std.process.Init) !void {
                     }
                     @panic("too many errors");
                 },
-                error.NotImplemented,
                 error.OutOfMemory,
-                error.PermissionDenied,
                 error.Signaled,
                 error.Unexpected,
                 error.WriteFailed,
