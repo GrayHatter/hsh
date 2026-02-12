@@ -275,6 +275,8 @@ fn complete(line: *Line, a: Allocator, io: Io) error{ Signaled, Io, OutOfMemory,
                 }
             } else |_| {}
 
+            if (cmplt.count() == 0) continue :sw .empty;
+
             line.tkn.maybe.replace(cmplt.current().str) catch unreachable;
             if (line.tkn.maybe.len > 1 and cmplt.count() == 1) {
                 log.debug("start commit '{s}' \n", .{line.tkn.maybe.slice()});
