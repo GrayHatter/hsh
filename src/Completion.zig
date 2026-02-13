@@ -243,6 +243,7 @@ pub fn suggest(cs: *Completion, tokens: []Token, t_idx: ?usize, fs: Fs, a: Alloc
 pub fn suggestHistory(cs: *Completion, cmds: *const History.CmdMap, a: Allocator) error{OutOfMemory}!void {
     var itr = cmds.iterator();
     while (itr.next()) |entry| {
+        if (entry.value_ptr.* < 3) continue;
         try cs.options.append(a, .{
             // TODO don't alloc
             .str = try a.dupe(u8, entry.key_ptr.*),
