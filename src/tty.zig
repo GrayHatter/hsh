@@ -167,14 +167,15 @@ pub fn pwn(t: *Tty) !void {
 
 pub fn waitForFg(t: *Tty) void {
     if (t.dev == null) return;
-    var pgid = system.getpgid(0);
+    var pgid: system.pid_t = @bitCast(@as(u32, @truncate(system.getpgid(0))));
+    if (pgid < 0) unreachable;
     var fg = system.tcgetpgrp(t.dev.?.handle) catch |err| {
         log.err("died waiting for fg {}\n", .{err});
         @panic("panic carefully!");
     };
     while (pgid != fg) {
         system.kill(-pgid, system.SIG.TTIN) catch @panic("unable to send TTIN");
-        pgid = system.getpgid(0);
+        pgid = @bitCast(@as(u32, @truncate(system.getpgid(0))));
         system.tcsetpgrp(t.dev.?.handle, pgid) catch @panic("died in loop");
         fg = system.tcgetpgrp(t.dev.?.handle) catch @panic("died in loop");
     }

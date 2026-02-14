@@ -1,4 +1,4 @@
-fd: ?Io.File,
+fd: ?Fs.Named,
 reader: Io.File.Reader,
 cursor: u64,
 fba: FixedBufferAllocator,
@@ -28,7 +28,7 @@ pub fn init(file: ?Fs.Named.File, a: Allocator, io: Io) History {
         };
         const cursor = stat.size;
         var h: History = .{
-            .fd = f.file,
+            .fd = .{ .file = f },
             .reader = f.file.reader(io, a.alloc(u8, 65536) catch @panic("OOM")),
             .cursor = cursor,
             .fba = .init(a.alloc(u8, @max(cursor, 65536) * 2) catch @panic("OOM")),
@@ -43,7 +43,7 @@ pub fn init(file: ?Fs.Named.File, a: Allocator, io: Io) History {
 }
 
 pub fn raze(h: History, a: Allocator, io: Io) void {
-    if (h.fd) |f| f.close(io) else return;
+    if (h.fd) |*f| _ = @constCast(f).close(io) else return;
     if (h.fd) |_| a.free(h.reader.interface.buffer);
 }
 
@@ -88,38 +88,20 @@ pub fn usedCommands(h: *const History, a: Allocator) !CmdMap {
     return set;
 }
 
-// /// Moves position of stream without resetting it
-// fn samesame(any: anytype, line: []const u8) !bool {
-//     if (line.len > 2048) return false;
-//
-//     var stream = any;
-//     const size = line.len + 2;
-//     const seekby: isize = -@as(isize, @intCast(size));
-//     stream.seekBy(seekby) catch return false;
-//     var buf: [2048]u8 = undefined;
-//     const read = stream.reader().read(buf[0..size]) catch return false;
-//     if (read < size) return false;
-//     if (buf[0] != '\n') return false;
-//     if (!std.mem.eql(u8, buf[1 .. size - 1], line)) return false;
-//     return true;
-// }
-
-// Line.len must be > 0
-//pub fn push(self: *History, line: []const u8) !void {
-//    defer self.cnt = 0;
-//    std.debug.assert(line.len > 0);
-//    var file = self.file;
-//    try file.seekFromEnd(0);
-//    if (try samesame(file, line)) {
-//        try file.seekFromEnd(0);
-//        return;
-//    }
-//
-//    try file.seekFromEnd(0);
-//    _ = try file.write(line);
-//    if (line[line.len - 1] != '\n') _ = try file.write("\n");
-//    _ = try file.sync();
-//}
+pub fn push(h: *History, line: []const u8, io: Io) !void {
+    std.debug.assert(line.len > 0);
+    if (h.fd) |fd| {
+        const length = try fd.file.file.length(io);
+        var b: [2048]u8 = undefined;
+        var w = fd.file.file.writer(io, &b);
+        try w.seekTo(length);
+        _ = try w.interface.writeAll(line);
+        if (line[line.len - 1] != '\n') {
+            _ = try w.interface.writeByte('\n');
+        }
+        try w.interface.flush();
+    }
+}
 
 test {
     _ = &std.testing.refAllDecls(@This());

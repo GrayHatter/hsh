@@ -1,5 +1,5 @@
 wdes: i32,
-path: []const u8,
+path: [:0]const u8,
 callback: ?Callback,
 
 const INotify = @This();
@@ -21,9 +21,9 @@ pub const Event = enum {
 
 pub const Callback = *const fn (*Hsh, Event, Allocator, Io) void;
 
-pub fn init(infd: i32, path: []const u8, cb: ?Callback) !INotify {
+pub fn init(infd: i32, path: [:0]const u8, cb: ?Callback) !INotify {
     return .{
-        .wdes = try system.inotify_add_watch(infd, path, system.IN.ALL_EVENTS),
+        .wdes = @intCast(system.inotify_add_watch(infd, path.ptr, system.IN.ALL_EVENTS)),
         .path = path,
         .callback = cb,
     };

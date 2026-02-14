@@ -152,7 +152,7 @@ pub fn init(env: Environ, a: Allocator, io: Io) !Fs {
 
 pub var g_fs: ?*const Fs = null;
 
-pub fn inotifyInstall(fs: *Fs, path: []const u8, cb: ?INotify.Callback, a: Allocator) !void {
+pub fn inotifyInstall(fs: *Fs, path: [:0]const u8, cb: ?INotify.Callback, a: Allocator) !void {
     if (fs.inotify_fd) |infd| {
         // TODO dynamic size
         try fs.watches.append(a, INotify.init(infd, path, cb) catch |e| {
@@ -164,9 +164,9 @@ pub fn inotifyInstall(fs: *Fs, path: []const u8, cb: ?INotify.Callback, a: Alloc
 
 pub fn inotifyInstallRc(fs: *Fs, cb: ?INotify.Callback, a: Allocator) !void {
     if (fs.rc) |_| {
-        const path = try allocPrint(a, "{s}/.config/hsh/hshrc", .{fs.home.name});
+        const path = try allocPrint(a, "{s}/.config/hsh/hshrc\x00", .{fs.home.name});
         errdefer a.free(path);
-        try fs.inotifyInstall(path, cb, a);
+        try fs.inotifyInstall(path[0..path.len :0], cb, a);
     }
 }
 

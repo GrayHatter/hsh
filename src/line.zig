@@ -158,10 +158,16 @@ pub fn do(line: *Line, a: Allocator, io: Io) Error![]const u8 {
             .external => try line.externEditorRead(a, io),
             .exec => {
                 try line.draw.unbuffered.writeByte('\n');
-                if (line.peek().len > 0) return line.tkn.getSlice();
-                line.draw.clear();
-                line.prompt.render(line.draw, line.peek());
-                continue;
+                if (line.peek().len == 0) {
+                    line.draw.clear();
+                    line.prompt.render(line.draw, line.peek());
+                    continue;
+                }
+                const slice = line.tkn.getSlice();
+                line.history.push(slice, io) catch |err| {
+                    log.err("unable to write history {}\n", .{err});
+                };
+                return slice;
             },
         };
     }

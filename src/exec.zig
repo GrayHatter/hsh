@@ -573,7 +573,7 @@ pub fn childExec(argv: [:null]const ?[*:0]const u8) !ChildResult {
     return .{
         .pid = @intCast(pid),
         .name = argv[0].?,
-        .stdout = .{ .handle = stdout_ours },
+        .stdout = .{ .handle = stdout_ours, .flags = .{ .nonblocking = false } },
     };
 }
 

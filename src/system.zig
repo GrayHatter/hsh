@@ -32,6 +32,8 @@ pub const exit = std.process.exit;
 pub const fchdir = os.fchdir;
 pub const fork = os.fork;
 pub const getpid = os.getpid;
+pub const getpgid = os.getpgid;
+pub const getsid = os.getsid;
 //pub const inotify_add_watch = os.inotify_add_watch;
 pub const inotify_init1 = os.inotify_init1;
 pub const ioctl = os.ioctl;
@@ -42,6 +44,7 @@ pub const sigaddset = os.sigaddset;
 pub const sigemptyset = os.sigemptyset;
 pub const sigprocmask = os.sigprocmask;
 pub const waitpid = os.waitpid;
+pub const inotify_add_watch = os.inotify_add_watch;
 
 pub const errno = posix.errno;
 pub const read = posix.read;
@@ -51,7 +54,6 @@ pub const tcgetpgrp = posix.tcgetpgrp;
 pub const tcsetattr = posix.tcsetattr;
 pub const tcsetpgrp = posix.tcsetpgrp;
 pub const unexpectedErrno = posix.unexpectedErrno;
-pub const inotify_add_watch = posix.inotify_add_watch;
 
 pub const SEEK = os.SEEK;
 
@@ -66,23 +68,4 @@ comptime {
         @compileError(
             "hsh has only been testing on linux, it's unknown to work on other OSes, patches and issues very welcome! :)\n",
         );
-
-    if (@hasDecl(os, "getpgid"))
-        @compileError("Os already provides custom getpgid");
-    if (@hasDecl(os, "getsid"))
-        @compileError("Os already provides custom getsid");
-}
-
-pub fn getsid(pid: pid_t) pid_t {
-    return @bitCast(
-        @as(u32, @truncate(
-            std.os.linux.syscall1(.getsid, @bitCast(@as(isize, pid))),
-        )),
-    );
-}
-
-pub fn getpgid(pid: pid_t) pid_t {
-    return @truncate(@as(isize, @bitCast(
-        std.os.linux.syscall1(.getpgid, @bitCast(@as(isize, pid))),
-    )));
 }

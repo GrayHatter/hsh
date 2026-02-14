@@ -16,7 +16,7 @@ pub fn init(a: Allocator) void {
 }
 
 pub fn load(env: std.process.Environ, a: Allocator) !void {
-    for (env.block) |opt_line| {
+    for (env.block.slice) |opt_line| {
         const line = span(opt_line.?);
 
         if (findScalar(u8, line, '=')) |idx|
