@@ -166,7 +166,7 @@ pub fn inotifyInstallRc(fs: *Fs, cb: ?INotify.Callback, a: Allocator) !void {
     if (fs.rc) |_| {
         const path = try allocPrint(a, "{s}/.config/hsh/hshrc\x00", .{fs.home.name});
         errdefer a.free(path);
-        try fs.inotifyInstall(path[0..path.len :0], cb, a);
+        try fs.inotifyInstall(path[0 .. path.len - 1 :0], cb, a);
     }
 }
 
