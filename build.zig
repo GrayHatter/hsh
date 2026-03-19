@@ -23,9 +23,7 @@ pub fn build(b: *std.Build) void {
         .root_module = hsh,
         .use_llvm = use_llvm,
     });
-
     exe.root_module.addOptions("hsh_build", opts);
-    //exe.root_module.addImport("log", log);
 
     b.installArtifact(exe);
 

@@ -1,15 +1,52 @@
-fn core(hsh: *Hsh, a: Allocator, io: Io) CoreError![]u8 {
+fn core(hsh: *Hsh, a: Allocator, io: Io) CoreError!void {
     var array_alloc = std.heap.ArenaAllocator.init(a);
     defer array_alloc.deinit();
     const alloc = array_alloc.allocator();
     var line = Line.init(hsh, alloc, io, .{ .interactive = hsh.tty.dev != null });
+    var errcnt: u8 = 0;
 
     defer hsh.draw.reset();
     hsh.prompt.render(&hsh.draw, line.peek());
     while (true) {
         hsh.draw.clear();
         //hsh.spin(a, io);
-        return try a.dupe(u8, try line.do(a, io));
+        if (line.do(a, io)) |str| {
+            errcnt = 0;
+            defer a.free(str);
+            std.debug.assert(str.len != 0);
+
+            Exec.exec(str, hsh, a, io, .default) catch |err| switch (err) {
+                error.ExeNotFound => {
+                    const first = Exec.execFromInput(str, a, io) catch @panic("memory");
+                    defer a.free(first);
+                    hsh.draw.drawAfter(&[3]Draw.Lexeme{
+                        .styled("[ Unable to find ", .red_bold), .styled(first, .red_bold), .styled(" ]", .red_bold),
+                    });
+                    try hsh.draw.render();
+                },
+                else => {
+                    log.err("Exec error {}\n", .{err});
+                    unreachable;
+                },
+            };
+            continue;
+        } else |err| switch (err) {
+            error.Done => return std.debug.print("\n goodbye :) \n", .{}),
+            error.Io => {
+                hsh.tty.waitForFg();
+                log.err("{} crash in main\n", .{err});
+                if (errcnt < 4) {
+                    errcnt += 1;
+                    continue;
+                }
+                @panic("too many errors");
+            },
+            error.OutOfMemory,
+            error.Signaled,
+            error.Unexpected,
+            error.WriteFailed,
+            => @panic("unhandled error in main.zig"),
+        }
     }
 }
 
@@ -114,49 +151,7 @@ pub fn main(init: std.process.Init) !void {
     try Signals.init();
     defer Signals.raze();
 
-    var errcnt: u8 = 0;
-    while (true) {
-        if (core(&hsh, a, io)) |str| {
-            errcnt = 0;
-            if (str.len == 0) {}
-            defer a.free(str);
-            std.debug.assert(str.len != 0);
-
-            Exec.exec(str, &hsh, a, io, .default) catch |err| switch (err) {
-                error.ExeNotFound => {
-                    const first = Exec.execFromInput(str, a, io) catch @panic("memory");
-                    defer a.free(first);
-                    hsh.draw.drawAfter(&[3]Draw.Lexeme{
-                        .styled("[ Unable to find ", .red_bold), .styled(first, .red_bold), .styled(" ]", .red_bold),
-                    });
-                    try hsh.draw.render();
-                },
-                else => {
-                    log.err("Exec error {}\n", .{err});
-                    unreachable;
-                },
-            };
-            continue;
-        } else |err| {
-            switch (err) {
-                error.Done => return std.debug.print("\n goodbye :) \n", .{}),
-                error.Io => {
-                    hsh.tty.waitForFg();
-                    log.err("{} crash in main\n", .{err});
-                    if (errcnt < 4) {
-                        errcnt += 1;
-                        continue;
-                    }
-                    @panic("too many errors");
-                },
-                error.OutOfMemory,
-                error.Signaled,
-                error.Unexpected,
-                error.WriteFailed,
-                => @panic("unhandled error in main.zig"),
-            }
-        }
-    }
+    try core(&hsh, a, io);
 }
 
 // TODO determine if hsh still needs a custom panic the answer is probably yes,

@@ -211,7 +211,7 @@ pub const Maybe = struct {
     pub fn remove(maybe: *Maybe) void {
         if (maybe.len > 0) {
             const tkzr: *Tokenizer = @fieldParentPtr("maybe", maybe);
-            tkzr.removeRange(maybe.len);
+            tkzr.removeCount(maybe.len);
             maybe.clear();
         }
     }
@@ -297,6 +297,7 @@ pub const Maybe = struct {
     }
 };
 
+// Number of char in [a-zA-Z0-9] behind the current cursor
 fn countAlphanum(tkzr: *const Tokenizer) usize {
     if (tkzr.idx == 0) return 0;
     var extra: u1 = 0;
@@ -310,6 +311,7 @@ fn countAlphanum(tkzr: *const Tokenizer) usize {
     return c + extra;
 }
 
+// Number of whitespace char behind the current cursor
 fn countWhitespace(tkzr: *const Tokenizer) usize {
     if (tkzr.idx == 0 or !isWhitespace(tkzr.buffer[tkzr.idx - 1])) return 0;
     var c: usize = 0;
@@ -336,13 +338,13 @@ pub fn countWord(tkzr: *const Tokenizer) usize {
 
 fn removeWhitespace(tkzr: *Tokenizer) usize {
     const c = tkzr.countWhitespace();
-    tkzr.removeRange(c);
+    tkzr.removeCount(c);
     return c;
 }
 
 fn removeAlphanum(tkzr: *Tokenizer) usize {
     const c = tkzr.countAlphanum();
-    tkzr.removeRange(c);
+    tkzr.removeCount(c);
     return c;
 }
 
@@ -361,25 +363,7 @@ pub fn removeWord(tkzr: *Tokenizer) usize {
     return white + word + extra;
 }
 
-pub fn remove(tkzr: *Tokenizer) void {
-    if (tkzr.len == 0 or tkzr.idx == 0) return;
-    tkzr.len -|= 1;
-    tkzr.idx -|= 1;
-    if (tkzr.idx != tkzr.len) {
-        @memmove(tkzr.buffer[tkzr.idx..tkzr.len], tkzr.buffer[tkzr.idx + 1 .. tkzr.len + 1]);
-    }
-    tkzr.err_idx = @min(tkzr.idx, tkzr.err_idx);
-    tkzr.edited = tkzr.len > 0;
-    tkzr.chkMode();
-}
-
-pub fn removeReverse(tkzr: *Tokenizer) void {
-    if (tkzr.len == 0 or tkzr.idx == tkzr.len) return;
-    tkzr.idx += 1;
-    tkzr.remove();
-}
-
-pub fn removeRange(tkzr: *Tokenizer, num: usize) void {
+pub fn removeCount(tkzr: *Tokenizer, num: usize) void {
     if (num == 0) return;
     if (tkzr.len == 0 or tkzr.idx == 0) return;
     if (num > tkzr.len) {
@@ -398,6 +382,24 @@ pub fn removeRange(tkzr: *Tokenizer, num: usize) void {
     tkzr.idx -= num;
     tkzr.len -= num;
     tkzr.chkMode();
+}
+
+pub fn remove(tkzr: *Tokenizer) void {
+    if (tkzr.len == 0 or tkzr.idx == 0) return;
+    tkzr.len -|= 1;
+    tkzr.idx -|= 1;
+    if (tkzr.idx != tkzr.len) {
+        @memmove(tkzr.buffer[tkzr.idx..tkzr.len], tkzr.buffer[tkzr.idx + 1 .. tkzr.len + 1]);
+    }
+    tkzr.err_idx = @min(tkzr.idx, tkzr.err_idx);
+    tkzr.edited = tkzr.len > 0;
+    tkzr.chkMode();
+}
+
+pub fn removeReverse(tkzr: *Tokenizer) void {
+    if (tkzr.len == 0 or tkzr.idx == tkzr.len) return;
+    tkzr.idx += 1;
+    tkzr.remove();
 }
 
 /// consumeSlice will swallow exec, assuming strings shouldn't be able to
