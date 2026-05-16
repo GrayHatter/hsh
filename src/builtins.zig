@@ -383,6 +383,33 @@ pub const Exec = struct {
     }
 };
 
+pub const Fish = struct {
+    // ><((ç((⒪> . o O (blub, blub)
+    // ><((ç((⌾> . o O (blub, blub)
+    // ><((ç((◉> . o O (blub, blub)
+    // ><((ç((ఠ> . o O (blub, blub)
+    // ><((ç((ఠᗎ . o O (blub, blub)
+    // ><((ç((טּ> . o O (blub, blub)
+    // ><((ᢍ((ఠ> . o O (blub, blub)
+    // ><((€((ఠ> . o O (blub, blub)
+    // ><((€((ఠᗎ . o O (blub, blub)
+    // ><((ç((ಡ> . o O (blub, blub)
+    // ><((ç((ఠ> . o O (blub, blub)
+    // ><((ç((ఠ𜲂 . o O (blub, blub)
+    // ><((ç((෮> . o O (blub, blub)
+    // ><((დ[[ఠ> . o O (blub, blub)
+    // ><((ç((ᘲ> . o O (blub, blub)
+    // ><((ↈ((ఠ> . o O (blub, blub)
+    // >><|((ç((ᑦᐕ . o O (blub, blub)
+    // ><((ç((> . o O (blub, blub)
+    // 𜰒<((ç((ఠ> . o O (blub, blub)
+    // ❱((ç((ఠ> . o O (blub, blub)
+    // ❩❩((ç((ఠ> . o O (blub, blub)
+    // 𜸪𜸪((タ((ఠ> . o O (blub, blub)
+    // .°•
+    // ><^,⋗
+};
+
 pub const Jobs = struct {
     const Jobs_ = @import("jobs.zig");
     pub fn call(hsh: *Hsh, _: *ParsedIterator, _: Allocator, _: Io) Err!u8 {
